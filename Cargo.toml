@@ -1,0 +1,23 @@
+[package]
+name = "crusty"
+version = "0.1.0"
+authors = ["Lasse <lasse.moeldrup@gmail.com>"]
+edition = "2018"
+
+[profile.release]
+lto = true
+
+[profile.bench]
+lto = true
+
+[dependencies]
+num_enum = "0.4.3"
+bitintr = "0.3.0"
+enum-map = "0.6.2"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
