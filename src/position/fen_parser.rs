@@ -1,4 +1,4 @@
-use crate::position::Position;
+use crate::position::{Position, CastlingRights};
 use std::fmt::{Display, Formatter};
 use std::error::Error;
 use std::convert::TryFrom;
@@ -51,7 +51,7 @@ pub fn parse(fen_str: &str) -> Result<Position> {
         return Err(ParseFenError::new("Incorrect number of rows"));
     }
     let mut sq = Square::A1 as u32;
-    for (i, row) in rows.iter().enumerate() {
+    for (i, row) in rows.into_iter().enumerate() {
         for c in row.chars() {
             if sq / 8 != i as u32 {
                 return Err(ParseFenError::new("Row formatted wrong"));
@@ -67,23 +67,26 @@ pub fn parse(fen_str: &str) -> Result<Position> {
             return Err(ParseFenError::new("Row formatted wrong"));
         }
     };
+    position.pieces.compute_bbs();
 
     // Field 2: who to move
     position.to_move = Color::try_from(fields[1].chars().next().unwrap())?;
 
     // Field 3: castling rights
     let field = fields[2];
+    let mut castling = (false, false, false, false);
     if field != "-" {
         for c in field.chars() {
             match c {
-                'K' => position.castling_rights.white_ks = true,
-                'Q' => position.castling_rights.white_qs = true,
-                'k' => position.castling_rights.black_ks = true,
-                'q' => position.castling_rights.black_qs = true,
+                'K' => castling.0 = true,
+                'Q' => castling.1 = true,
+                'k' => castling.2 = true,
+                'q' => castling.3 = true,
                 _ => return Err(ParseFenError::new("Illegal character in castling rights")),
             }
         }
     }
+    position.castling_rights = CastlingRights::new(castling.0, castling.1, castling.2, castling.3);
 
     // Field 4: en passant square
     let field = fields[3];
@@ -98,7 +101,7 @@ pub fn parse(fen_str: &str) -> Result<Position> {
         return Err(ParseFenError::new("Ply clock must be a number"))
     }
 
-    // Field 6:
+    // Field 6: full-move number
     if let Ok(n) = fields[5].parse() {
         position.fullmove_number = n;
     } else {
