@@ -67,6 +67,7 @@ pub fn parse(fen_str: &str) -> Result<Position> {
             return Err(ParseFenError::new("Row formatted wrong"));
         }
     };
+    position.init_attack_tables();
     position.pieces.compute_bbs();
 
     // Field 2: who to move

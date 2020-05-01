@@ -145,54 +145,67 @@ unsafe fn generate_pawn_moves<P: Pawns, const TYPE: Type>(pos: &Position, moves:
 /// # Safety
 /// `moves` has to have space
 unsafe fn generate_castling<const US: Color>(pos: &Position, moves: &mut ArrayVec<[Move; 256]>) {
-    let (from, castling_sqs) = if US == Color::White {
-        const OCCUPANCY_MASK: Bitboard = bb!(Square::B1, Square::C1, Square::D1, Square::F1, Square::G1);
-        let castling_sqs = (((OCCUPANCY_MASK.set_diff(pos.get_occupied()) | bb!(Square::H1))
-                                        + 0b0010_0010) >> 2) & pos.get_castling_rights();
-        (Square::E1, castling_sqs)
-    } else {
-        const OCCUPANCY_MASK: Bitboard = bb!(Square::B8, Square::C8, Square::D8, Square::F8, Square::G8);
-        let castling_sqs = (((OCCUPANCY_MASK.set_diff(pos.get_occupied()) ^ bb!(Square::D8))
-                                        + 0x2200_0000_0000_0000) >> 1) & pos.get_castling_rights();
-        (Square::E8, castling_sqs)
-    };
-    for to in castling_sqs {
-        moves.push_unchecked(Move::Castling(from, to));
+    match US {
+        Color::White => {
+            const OCCUPANCY_MASK: Bitboard = bb!(Square::B1, Square::C1, Square::D1, Square::F1, Square::G1);
+            let castling = (OCCUPANCY_MASK.set_diff(pos.get_occupied()) | bb!(Square::E1))
+                .set_diff(pos.get_attack_bb(!US)) & pos.get_castling_rights();
+            const KINGSIDE: Bitboard = bb!(Square::E1, Square::F1, Square::G1);
+            const QUEENSIDE: Bitboard = bb!(Square::B1, Square::C1, Square::D1, Square::E1);
+            if castling & KINGSIDE == KINGSIDE {
+                moves.push_unchecked(Move::Castling(Square::E1, Square::G1));
+            }
+            if castling & QUEENSIDE == QUEENSIDE {
+                moves.push_unchecked(Move::Castling(Square::E1, Square::C1));
+            }
+        },
+        Color::Black => {
+            const OCCUPANCY_MASK: Bitboard = bb!(Square::B8, Square::C8, Square::D8, Square::F8, Square::G8);
+            let castling = (OCCUPANCY_MASK.set_diff(pos.get_occupied()) | bb!(Square::E8))
+                .set_diff(pos.get_attack_bb(!US)) & pos.get_castling_rights();
+            const KINGSIDE: Bitboard = bb!(Square::E8, Square::F8, Square::G8);
+            const QUEENSIDE: Bitboard = bb!(Square::B8, Square::C8, Square::D8, Square::E8);
+            if castling & KINGSIDE == KINGSIDE {
+                moves.push_unchecked(Move::Castling(Square::E8, Square::G8));
+            }
+            if castling & QUEENSIDE == QUEENSIDE {
+                moves.push_unchecked(Move::Castling(Square::E8, Square::C8));
+            }
+        }
     }
 }
 
-static KNIGHT_MOVES: Lookup<SquareMap<Bitboard>> = Lookup::new(SquareMap::new(Bitboard::EMPTY));
-static KING_MOVES: Lookup<SquareMap<Bitboard>> = Lookup::new(SquareMap::new(Bitboard::EMPTY));
+static WHITE_PAWN_ATTACKS: Lookup<SquareMap<Bitboard>> = Lookup::new(SquareMap::new(Bitboard::EMPTY));
+static BLACK_PAWN_ATTACKS: Lookup<SquareMap<Bitboard>> = Lookup::new(SquareMap::new(Bitboard::EMPTY));
+static KNIGHT_ATTACKS: Lookup<SquareMap<Bitboard>> = Lookup::new(SquareMap::new(Bitboard::EMPTY));
+static KING_ATTACKS: Lookup<SquareMap<Bitboard>> = Lookup::new(SquareMap::new(Bitboard::EMPTY));
 
 /// Generates regular moves for all but pawns
 /// # Safety
 /// `moves` has to have enough space
 /// All lookup tables have to be initialized
 unsafe fn generate_moves<const PCE: Piece, const TYPE: Type>(pos: &Position, moves: &mut ArrayVec<[Move; 256]>) {
-    for orig in pos.get_piece_bb(PCE) {
-        let attacks = match PCE.kind() {
-            PieceType::Bishop | PieceType::Rook | PieceType::Queen
-                              => magics::slider_attacks::<{PCE.kind()}>(pos.get_occupied(), orig),
-            PieceType::Knight => KNIGHT_MOVES.get(orig),
-            PieceType::King   => KING_MOVES.get(orig),
-            PieceType::Pawn   => panic!("generate_moves called with pawn"),
-        };
-        let legal = match TYPE {
+    if PCE.kind() == PieceType::Pawn {
+        panic!("generate_moves shouldn't be used with pawns");
+    }
+    for from in pos.get_piece_bb(PCE) {
+        let attacks = generate_attacks::<{PCE}>(pos, from);
+        let mut legal = match TYPE {
             Type::All       =>  attacks.set_diff(pos.get_color_bb(PCE.color())),
             Type::Quiet     =>  attacks.set_diff(pos.get_occupied()),
             Type::Captures  =>  attacks & pos.get_occupied(),
         };
-        for dest in legal {
-            moves.push_unchecked(Move::Regular(orig, dest));
+        if PCE.kind() == PieceType::King {
+            legal = legal.set_diff(pos.get_attack_bb(!PCE.color()));
+        }
+        for to in legal {
+            moves.push_unchecked(Move::Regular(from, to));
         }
     }
 }
 
 pub fn init_non_sliders() {
-    const KNIGHT_VECS: [BinVec; 8] = [BinVec(6), BinVec(15), BinVec(17), BinVec(10),
-                                      BinVec(-6), BinVec(-15), BinVec(-17), BinVec(-10)];
-    const KING_VECS: [BinVec; 8] = [NORTH, NORTH_EAST, EAST, SOUTH_EAST, SOUTH, SOUTH_WEST, WEST, NORTH_WEST];
-    fn init(vecs: [BinVec; 8], table: &Lookup<SquareMap<Bitboard>>) {
+    fn init(vecs: Vec<BinVec>, table: &Lookup<SquareMap<Bitboard>>) {
         for sq in Square::A1.range_to(Square::H8) {
             let bb = vecs.iter().fold(Bitboard::EMPTY, |acc, vec| {
                 match sq + *vec {
@@ -204,7 +217,50 @@ pub fn init_non_sliders() {
         }
         table.set_init();
     }
-    init(KNIGHT_VECS, &KNIGHT_MOVES);
-    init(KING_VECS, &KING_MOVES);
+    let white_pawn_vecs = vec![BinVec(7), BinVec(9)];
+    let black_pawn_vecs = vec![BinVec(-7), BinVec(-9)];
+    let knight_vecs = vec![BinVec(6), BinVec(15), BinVec(17), BinVec(10),
+                           BinVec(-6), BinVec(-15), BinVec(-17), BinVec(-10)];
+    let king_vecs = vec![NORTH, NORTH_EAST, EAST, SOUTH_EAST, SOUTH, SOUTH_WEST, WEST, NORTH_WEST];
+    init(white_pawn_vecs, &WHITE_PAWN_ATTACKS);
+    init(black_pawn_vecs, &BLACK_PAWN_ATTACKS);
+    init(knight_vecs, &KNIGHT_ATTACKS);
+    init(king_vecs, &KING_ATTACKS);
 }
 
+/// Generates a bitboard with all squares attacked from a given piece
+/// # Safety
+/// All lookup tables have to be initialized
+pub unsafe fn generate_attacks<const PCE: Piece>(pos: &Position, sq: Square) -> Bitboard {
+    match PCE.kind() {
+        PieceType::Pawn => match PCE.color() {
+            Color::White => WHITE_PAWN_ATTACKS.get(sq),
+            Color::Black => BLACK_PAWN_ATTACKS.get(sq),
+        },
+        PieceType::Knight => KNIGHT_ATTACKS.get(sq),
+        PieceType::Bishop | PieceType::Rook | PieceType::Queen =>
+            magics::slider_attacks::<{PCE.kind()}>(pos.get_occupied(), sq),
+        PieceType::King   => KING_ATTACKS.get(sq),
+    }
+}
+
+/// Wrapper for `generates_attacks` that doesn't require constant a constant piece
+/// TODO: horrible design, maybe figure something better out
+/// # Safety
+/// See `generate_attacks`
+pub unsafe fn generate_attacks_no_const(pos: &Position, sq: Square, pce: Piece) -> Bitboard {
+    match (pce.color(), pce.kind()) {
+        (Color::White, PieceType::Pawn) => generate_attacks::<{Piece(Color::White, PieceType::Pawn)}>(pos, sq),
+        (Color::White, PieceType::Knight) => generate_attacks::<{Piece(Color::White, PieceType::Knight)}>(pos, sq),
+        (Color::White, PieceType::Bishop) => generate_attacks::<{Piece(Color::White, PieceType::Bishop)}>(pos, sq),
+        (Color::White, PieceType::Rook) => generate_attacks::<{Piece(Color::White, PieceType::Rook)}>(pos, sq),
+        (Color::White, PieceType::Queen) => generate_attacks::<{Piece(Color::White, PieceType::Queen)}>(pos, sq),
+        (Color::White, PieceType::King) => generate_attacks::<{Piece(Color::White, PieceType::King)}>(pos, sq),
+        (Color::Black, PieceType::Pawn) => generate_attacks::<{Piece(Color::Black, PieceType::Pawn)}>(pos, sq),
+        (Color::Black, PieceType::Knight) => generate_attacks::<{Piece(Color::Black, PieceType::Knight)}>(pos, sq),
+        (Color::Black, PieceType::Bishop) => generate_attacks::<{Piece(Color::Black, PieceType::Bishop)}>(pos, sq),
+        (Color::Black, PieceType::Rook) => generate_attacks::<{Piece(Color::Black, PieceType::Rook)}>(pos, sq),
+        (Color::Black, PieceType::Queen) => generate_attacks::<{Piece(Color::Black, PieceType::Queen)}>(pos, sq),
+        (Color::Black, PieceType::King) => generate_attacks::<{Piece(Color::Black, PieceType::King)}>(pos, sq),
+    }
+}

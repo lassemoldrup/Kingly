@@ -1,7 +1,7 @@
 use crate::types::{Bitboard, Square, PieceType};
 use crate::types::square_map::SquareMap;
 use crate::lookup_table::Lookup;
-use crate::move_gen::KNIGHT_MOVES;
+use crate::move_gen::{KNIGHT_ATTACKS, WHITE_PAWN_ATTACKS, BLACK_PAWN_ATTACKS};
 use lazy_static::lazy_static;
 use take_until::TakeUntilExt;
 use crate::types::bitboard::RANK_8_BB;
@@ -54,8 +54,10 @@ pub fn all_lookups_init() -> bool {
     ATTACK_TABLE.is_init()
         && BISHOP_MAGICS.is_init()
         && ROOK_MAGICS.is_init()
-        && KNIGHT_MOVES.is_init()
-        && KNIGHT_MOVES.is_init()
+        && WHITE_PAWN_ATTACKS.is_init()
+        && BLACK_PAWN_ATTACKS.is_init()
+        && KNIGHT_ATTACKS.is_init()
+        && KNIGHT_ATTACKS.is_init()
 }
 
 pub fn init_magics() {

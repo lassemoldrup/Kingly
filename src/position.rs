@@ -3,6 +3,7 @@ use crate::bb;
 use std::fmt;
 use crate::types::square_map::SquareMap;
 use std::iter::FusedIterator;
+use crate::move_gen::{generate_attacks_no_const, all_lookups_init};
 
 mod fen_parser;
 
@@ -15,6 +16,10 @@ pub struct Position {
     en_passant_sq: Option<Square>,
     ply_clock: u32,
     fullmove_number: u32,
+    white_attack_tbl: SquareMap<u8>,
+    black_attack_tbl: SquareMap<u8>,
+    white_attack_bb: Bitboard,
+    black_attack_bb: Bitboard,
 }
 
 impl Position {
@@ -26,16 +31,39 @@ impl Position {
             en_passant_sq: None,
             ply_clock: 0,
             fullmove_number: 1,
+            white_attack_tbl: SquareMap::new(0),
+            black_attack_tbl: SquareMap::new(0),
+            white_attack_bb: Bitboard::EMPTY,
+            black_attack_bb: Bitboard::EMPTY,
+        }
+    }
+    /// Initializes the attack tables and attack bitboards
+    /// Panics if all static lookup tables not initialized
+    pub fn init_attack_tables(&mut self) {
+        assert!(all_lookups_init());
+        for col in [Color::White, Color::Black].iter().copied() {
+            for (pt, bb) in self.pieces.iter(col) {
+                for sq in bb {
+                    let pce = Piece(col, pt);
+                    // Safe cause of assertion
+                    let attacks = unsafe { generate_attacks_no_const(&self, sq, pce) };
+                    if col == Color::White {
+                        self.white_attack_bb |= attacks;
+                        for atk_sq in attacks {
+                            self.white_attack_tbl[atk_sq] += 1;
+                        }
+                    } else {
+                        self.black_attack_bb |= attacks;
+                        for atk_sq in attacks {
+                            self.black_attack_tbl[atk_sq] += 1;
+                        }
+                    }
+                }
+            }
         }
     }
     pub fn new_default() -> Self {
         fen_parser::parse(DEFAULT_FEN).unwrap()
-    }
-    pub const fn get_castling_squares(col: Color) -> (Square, Square) {
-        match col {
-            Color::White => (Square::G1, Square::C1),
-            Color::Black => (Square::G8, Square::C8),
-        }
     }
     pub fn set(&mut self, fen_str: &str) -> fen_parser::Result<()> {
         *self = fen_parser::parse(fen_str)?;
@@ -60,8 +88,28 @@ impl Position {
     pub fn get_to_move(&self) -> Color {
         self.to_move
     }
+    /*pub fn get_castling_rights(&self, col: Color) -> (bool, bool) {
+        match col {
+            Color::White => (self.castling_rights.white_ks, self.castling_rights.white_qs),
+            Color::Black => (self.castling_rights.black_ks, self.castling_rights.black_qs),
+        }
+    }*/
     pub fn get_castling_rights(&self) -> Bitboard {
         self.castling_rights.0
+    }
+    pub fn sq_attacked(&self, us: Color, sq: Square) -> bool {
+        if us == Color::White {
+            self.black_attack_tbl[sq] > 0
+        } else {
+            self.white_attack_tbl[sq] > 0
+        }
+    }
+    pub fn get_attack_bb(&self, col: Color) -> Bitboard {
+        if col == Color::White {
+            self.white_attack_bb
+        } else {
+            self.black_attack_bb
+        }
     }
     pub fn get_en_passant_sq(&self) -> Option<Square> {
         self.en_passant_sq
@@ -71,12 +119,12 @@ impl Position {
     }
     pub fn make_move(&mut self, _m: Move) {
 
-
+        // TODO: Remember to update attack tables
         self.pieces.compute_bbs();
     }
     pub fn unmake_move(&mut self, _m: Move) {
 
-
+        // TODO: Remember to update attack tables
         self.pieces.compute_bbs();
     }
 }
@@ -145,6 +193,7 @@ impl Pieces {
     }
     fn compute_bbs(&mut self) {
         self.occupied = self.white | self.black;
+
     }
     fn iter(&self, color: Color) -> BoardIter {
         if color == Color::White {
@@ -246,6 +295,29 @@ impl Iterator for BoardIter<'_> {
 }
 
 impl FusedIterator for BoardIter<'_> { }
+
+/*struct CastlingRights {
+    white_ks: bool,
+    white_qs: bool,
+    black_ks: bool,
+    black_qs: bool,
+}
+
+impl CastlingRights {
+    fn new(white_ks: bool, white_qs: bool, black_ks: bool, black_qs: bool) -> Self {
+        CastlingRights { white_ks, white_qs, black_ks, black_qs }
+    }
+}
+
+impl fmt::Debug for CastlingRights {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}{}{}",
+               if self.white_ks { "K" } else { "" },
+               if self.white_qs { "Q" } else { "" },
+               if self.black_ks { "k" } else { "" },
+               if self.black_qs { "q" } else { "" })
+    }
+}*/
 
 #[derive(Copy, Clone)]
 struct CastlingRights(Bitboard);
