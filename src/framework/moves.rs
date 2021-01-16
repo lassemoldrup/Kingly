@@ -1,6 +1,6 @@
 use crate::framework::piece::PieceKind;
 use crate::framework::square::Square;
-use std::fmt;
+//use std::fmt;
 
 pub enum Move {
     Regular(Square, Square),

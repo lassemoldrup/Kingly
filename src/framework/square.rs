@@ -1,3 +1,6 @@
+use std::convert::TryFrom;
+use std::mem;
+
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum Square {
@@ -9,4 +12,16 @@ pub enum Square {
     A6, B6, C6, D6, E6, F6, G6, H6,
     A7, B7, C7, D7, E7, F7, G7, H7,
     A8, B8, C8, D8, E8, F8, G8, H8,
+}
+
+impl TryFrom<u8> for Square {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value < 64 {
+            unsafe { Ok(mem::transmute(value)) }
+        } else {
+            Err(format!("{} is not a valid square index", value))
+        }
+    }
 }
