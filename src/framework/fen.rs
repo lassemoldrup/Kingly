@@ -6,11 +6,11 @@ pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ
 
 #[derive(Debug)]
 pub struct FenParseError {
-    message: &'static str,
+    message: String,
 }
 
 impl FenParseError {
-    pub(crate) fn new(message: &'static str) -> FenParseError {
+    pub(crate) fn new(message: String) -> FenParseError {
         FenParseError { message }
     }
 }
@@ -29,6 +29,12 @@ impl Error for FenParseError {
 
 impl From<&'static str> for FenParseError {
     fn from(msg: &'static str) -> Self {
+        FenParseError::new(String::from(msg))
+    }
+}
+
+impl From<String> for FenParseError {
+    fn from(msg: String) -> Self {
         FenParseError::new(msg)
     }
 }

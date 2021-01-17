@@ -2,6 +2,7 @@ use self::square::Square;
 use self::piece::Piece;
 use self::moves::Move;
 use crate::framework::fen::FenParseError;
+use crate::framework::color::Color;
 
 pub mod square;
 pub mod color;
@@ -15,7 +16,7 @@ pub trait Position {
     /// Creates `Position` from `fen`
     fn from_fen(fen: &str) -> Result<Self, FenParseError> where Self: Sized;
     /// Generates all legal moves in the `Position`
-    fn gen_moves(&self) -> Vec<Move>;
+    fn gen_moves(&self) -> ArrayVec<Move>;
     /// Makes move `m`
     fn make_move(&mut self, m: Move);
     /// Unmakes last move
@@ -40,3 +41,16 @@ pub trait PieceMap {
     fn get(&self, sq: Square) -> Option<Piece>;
 }
 
+pub trait CastlingRights {
+    /// Creates `CastlingRights` with the following castling rights: white king side `w_king`,
+    /// white queen side `w_queen`, black king side `b_king` and black queen side `b_queen`
+    fn new(w_king: bool, w_queen: bool, b_king: bool, b_queen: bool) -> Self;
+    /// Gets castling right for `Color` `col` and `Side` `side`
+    fn get(&self, col: Color, side: Side) -> bool;
+    /// Sets castling right for `Color` `col` and `Side` `side` based on `value`
+    fn set(&mut self, col: Color, side: Side, value: bool);
+}
+
+pub enum Side {
+    KingSide, QueenSide
+}

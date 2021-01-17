@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::mem;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
 pub enum Square {
     A1, B1, C1, D1, E1, F1, G1, H1,
@@ -22,6 +22,22 @@ impl TryFrom<u8> for Square {
             unsafe { Ok(mem::transmute(value)) }
         } else {
             Err(format!("{} is not a valid square index", value))
+        }
+    }
+}
+
+impl TryFrom<&str> for Square {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let chars: Vec<char> = value.chars().collect();
+        if chars.len() == 2 && matches!(chars[0], 'a'..='h') && matches!(chars[1], '1'..='8') {
+            let r = chars[1] as u8 - '1' as u8;
+            let c = chars[0] as u8 - 'a' as u8;
+
+            Square::try_from(8 * r + c)
+        } else {
+            Err(format!("Invalid square '{}'", value))
         }
     }
 }

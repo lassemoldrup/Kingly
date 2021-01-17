@@ -1,49 +1,49 @@
-use crate::framework::{Position, PieceMap};
+use crate::framework::{Position, PieceMap, SquareSet, CastlingRights, Side};
 use crate::framework::moves::Move;
 use crate::framework::square::Square;
 use crate::framework::color::Color;
-use crate::framework::fen::FenParseError;
+use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::piece::Piece;
 use std::convert::TryFrom;
+use crate::standard::piece_map::SquareSetPieceMap;
+use crate::standard::position::castling::StandardCastlingRights;
 
 #[cfg(test)]
 mod tests;
+mod castling;
+mod move_gen;
 
-pub struct StandardPosition<P: PieceMap> {
-    pieces: P,
+pub struct StandardPosition<S: SquareSet + Copy> {
+    pieces: SquareSetPieceMap<S>,
     to_move: Color,
+    castling: StandardCastlingRights,
     en_passant_sq: Option<Square>,
-    ply_clock: u32,
+    ply_clock: u8,
     move_number: u32,
 }
 
-impl<P: PieceMap> StandardPosition<P> {
-    fn get_piece_map(&self) -> &P {
-        &self.pieces
-    }
-}
-
-impl<P: PieceMap> Position for StandardPosition<P> {
+impl<S: SquareSet + Copy> Position for StandardPosition<S> {
     fn new() -> Self {
-        unimplemented!()
+        StandardPosition::from_fen(STARTING_FEN).unwrap()
     }
 
     fn from_fen(fen: &str) -> Result<Self, FenParseError> {
         let fields: Vec<&str> = fen.split(' ').collect();
         if fields.len() != 6 {
-            return Err(FenParseError::new("Incorrect number of fields"));
+            return Err(FenParseError::from("Incorrect number of fields"));
         }
 
-        let mut pieces = P::new();
+        // Piece placement
+        let mut pieces = SquareSetPieceMap::new();
         let rows: Vec<&str> = fields[0].split('/').rev().collect();
         if rows.len() != 8 {
-            return Err(FenParseError::new("Incorrect number of rows"));
+            return Err(FenParseError::from("Incorrect number of rows"));
         }
         for (r, row) in rows.into_iter().enumerate() {
             let mut c = 0;
             for ch in row.chars() {
                 if c >= 8 {
-                    return Err(FenParseError::new("Row formatted incorrectly"));
+                    return Err(FenParseError::from("Row formatted incorrectly"));
                 }
                 if let Some(n) = ch.to_digit(10) {
                     c += n as usize;
@@ -55,18 +55,52 @@ impl<P: PieceMap> Position for StandardPosition<P> {
             }
         }
 
+        // Player to move
+        let to_move = match fields[1] {
+            "w" => Color::White,
+            "b" => Color::Black,
+            _ => return Err(FenParseError::from("Invalid color")),
+        };
+
+        // Castling rights
+        let mut castling = StandardCastlingRights::new(false, false, false, false);
+        for right in fields[2].chars() {
+            match right {
+                'K' => castling.set(Color::White, Side::KingSide, true),
+                'Q' => castling.set(Color::White, Side::QueenSide, true),
+                'k' => castling.set(Color::Black, Side::KingSide, true),
+                'q' => castling.set(Color::Black, Side::QueenSide, true),
+                _ => return Err(FenParseError::from("Invalid castling right")),
+            }
+        }
+
+        // En passant square
+        let en_passant_sq = match fields[3] {
+            "-" => None,
+            _ => Some(Square::try_from(fields[3])?),
+        };
+
+        // Ply clock
+        let ply_clock = fields[4].parse()
+            .map_err(|_| "Invalid ply clock")?;
+
+        // Move number
+        let move_number = fields[5].parse()
+            .map_err(|_| "Invalid ply clock")?;
 
         Ok(StandardPosition {
             pieces,
-            to_move: Color::White,
-            en_passant_sq: None,
-            ply_clock: 0,
-            move_number: 0,
+            to_move,
+            castling,
+            en_passant_sq,
+            ply_clock,
+            move_number,
         })
     }
 
-    fn gen_moves(&self) -> Vec<Move> {
-        unimplemented!()
+    fn gen_moves(&self) -> ArrayVec<Move> {
+        let mut moves = ArrayVec::new(256);
+        moves
     }
 
     fn make_move(&mut self, m: Move) {
