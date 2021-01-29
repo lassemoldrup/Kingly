@@ -10,8 +10,34 @@ pub struct SquareSetPieceMap<S: SquareSet + Copy> {
 }
 
 impl<S: SquareSet + Copy> SquareSetPieceMap<S> {
-    fn get_sqs(&self, pce: Piece) -> S {
-        unimplemented!()
+    pub fn get_sqs(&self, pce: Piece) -> S {
+        match pce.1 {
+            Color::White => self.white_pieces.get(pce.0),
+            Color::Black => self.black_pieces.get(pce.0),
+        }
+    }
+    
+    pub fn get_sqs_for(&self, col: Color) -> S {
+        match col {
+            Color::White => self.white_pieces.pawn
+                | self.white_pieces.knight
+                | self.white_pieces.bishop
+                | self.white_pieces.rook
+                | self.white_pieces.queen
+                | self.white_pieces.king,
+            Color::Black => self.black_pieces.pawn
+                | self.black_pieces.knight
+                | self.black_pieces.bishop
+                | self.black_pieces.rook
+                | self.black_pieces.queen
+                | self.black_pieces.king,
+        }
+
+    }
+
+    /// Gets a `SquareSet` of all occupied squares
+    pub fn get_occupied(&self) -> S {
+        self.get_sqs_for(Color::White) | self.get_sqs_for(Color::Black)
     }
 }
 
@@ -48,7 +74,7 @@ struct PieceBoards<S: SquareSet> {
     king: S,
 }
 
-impl<S: SquareSet> PieceBoards<S> {
+impl<S: SquareSet + Copy> PieceBoards<S> {
     fn new() -> Self {
         PieceBoards {
             pawn: S::new(),
@@ -61,7 +87,14 @@ impl<S: SquareSet> PieceBoards<S> {
     }
 
     fn get(&self, kind: PieceKind) -> S {
-        unimplemented!()
+        match kind {
+            PieceKind::Pawn => self.pawn,
+            PieceKind::Knight => self.knight,
+            PieceKind::Bishop => self.bishop,
+            PieceKind::Rook => self.rook,
+            PieceKind::Queen => self.queen,
+            PieceKind::King => self.king,
+        }
     }
 
     fn get_mut(&mut self, kind: PieceKind) -> &mut S {

@@ -3,12 +3,16 @@ use self::piece::Piece;
 use self::moves::Move;
 use crate::framework::fen::FenParseError;
 use crate::framework::color::Color;
+use crate::framework::moves::MoveList;
+use std::ops::{Shr, BitOr, BitAnd, Not};
+use crate::framework::direction::Direction;
 
 pub mod square;
 pub mod color;
 pub mod piece;
 pub mod moves;
 pub mod fen;
+pub mod direction;
 
 pub trait Position {
     /// Creates default chess starting `Position`
@@ -16,7 +20,7 @@ pub trait Position {
     /// Creates `Position` from `fen`
     fn from_fen(fen: &str) -> Result<Self, FenParseError> where Self: Sized;
     /// Generates all legal moves in the `Position`
-    fn gen_moves(&self) -> ArrayVec<Move>;
+    fn gen_moves(&self) -> MoveList;
     /// Makes move `m`
     fn make_move(&mut self, m: Move);
     /// Unmakes last move
@@ -25,11 +29,19 @@ pub trait Position {
     fn evaluate(&self) -> i32;
 }
 
-pub trait SquareSet : IntoIterator<Item = Square> {
+pub trait SquareSet : Sized + IntoIterator<Item = Square> + BitOr<Output = Self> + BitAnd<Output = Self> + Not<Output = Self> + Shr<Direction, Output = Self> {
+    /// Ranks from 1 to 8
+    const RANKS: [Self; 8];
+    /// Files from a to h
+    const FILES: [Self; 8];
     /// Creates an empty `SquareSet`
     fn new() -> Self;
+    /// Creates a `SquareSet` with `Square` `sq`
+    fn from_sq(sq: Square) -> Self;
     /// Adds `Square` `sq` to the `SquareSet`
     fn add(&mut self, sq: Square);
+    /// Returns whether the `SquareSet` is empty or not
+    fn is_empty(&self) -> bool;
 }
 
 pub trait PieceMap {

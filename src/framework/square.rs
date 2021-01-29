@@ -1,5 +1,7 @@
 use std::convert::TryFrom;
 use std::mem;
+use std::ops::{Shl, Shr};
+use crate::framework::direction::Direction;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
@@ -14,12 +16,20 @@ pub enum Square {
     A8, B8, C8, D8, E8, F8, G8, H8,
 }
 
+impl Square {
+    /// # Safety
+    /// `value` must be a valid square index
+    pub unsafe fn from_unchecked(value: u8) -> Self {
+        mem::transmute(value)
+    }
+}
+
 impl TryFrom<u8> for Square {
     type Error = String;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         if value < 64 {
-            unsafe { Ok(mem::transmute(value)) }
+            unsafe { Ok(Self::from_unchecked(value)) }
         } else {
             Err(format!("{} is not a valid square index", value))
         }
@@ -39,5 +49,23 @@ impl TryFrom<&str> for Square {
         } else {
             Err(format!("Invalid square '{}'", value))
         }
+    }
+}
+
+impl Shr<Direction> for Square {
+    type Output = Self;
+
+    fn shr(self, rhs: Direction) -> Self::Output {
+        Self::try_from((self as i32 + rhs as i32) as u8)
+            .expect("Resulting square outside the board")
+    }
+}
+
+impl Shl<Direction> for Square {
+    type Output = Self;
+
+    fn shl(self, rhs: Direction) -> Self::Output {
+        Self::try_from((self as i32 - rhs as i32) as u8)
+            .expect("Resulting square outside the board")
     }
 }

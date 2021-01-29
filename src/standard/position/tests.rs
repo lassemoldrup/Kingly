@@ -29,7 +29,7 @@ fn color_parsed_correctly_from_fen() {
     let position: StandardPosition<Bitboard> = StandardPosition::from_fen(STARTING_FEN).unwrap();
     assert_eq!(position.to_move, White);
 
-    let position: StandardPosition<Bitboard> = StandardPosition::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1").unwrap();
+    let position: StandardPosition<Bitboard> = StandardPosition::from_fen("rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1").unwrap();
     assert_eq!(position.to_move, Black);
 }
 

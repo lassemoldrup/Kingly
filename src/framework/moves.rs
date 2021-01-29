@@ -1,7 +1,9 @@
 use crate::framework::piece::PieceKind;
 use crate::framework::square::Square;
+use arrayvec::ArrayVec;
 //use std::fmt;
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum Move {
     Regular(Square, Square),
     Castling(Square, Square),
@@ -21,3 +23,17 @@ pub enum Move {
         }
     }
 }*/
+
+pub struct MoveList(ArrayVec<[Move; 256]>);
+
+impl MoveList {
+    pub(crate) fn new() -> Self {
+        MoveList(ArrayVec::new())
+    }
+
+    fn push(&mut self, m: Move) {
+        unsafe {
+            self.0.push_unchecked(m);
+        }
+    }
+}

@@ -1,5 +1,5 @@
 use crate::framework::{Position, PieceMap, SquareSet, CastlingRights, Side};
-use crate::framework::moves::Move;
+use crate::framework::moves::{Move, MoveList};
 use crate::framework::square::Square;
 use crate::framework::color::Color;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
@@ -7,6 +7,7 @@ use crate::framework::piece::Piece;
 use std::convert::TryFrom;
 use crate::standard::piece_map::SquareSetPieceMap;
 use crate::standard::position::castling::StandardCastlingRights;
+use arrayvec::ArrayVec;
 
 #[cfg(test)]
 mod tests;
@@ -86,7 +87,7 @@ impl<S: SquareSet + Copy> Position for StandardPosition<S> {
 
         // Move number
         let move_number = fields[5].parse()
-            .map_err(|_| "Invalid ply clock")?;
+            .map_err(|_| "Invalid move number")?;
 
         Ok(StandardPosition {
             pieces,
@@ -98,8 +99,11 @@ impl<S: SquareSet + Copy> Position for StandardPosition<S> {
         })
     }
 
-    fn gen_moves(&self) -> ArrayVec<Move> {
-        let mut moves = ArrayVec::new(256);
+    fn gen_moves(&self) -> MoveList {
+        let mut moves = MoveList::new();
+
+
+
         moves
     }
 
