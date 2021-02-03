@@ -1,7 +1,8 @@
 use std::convert::TryFrom;
 use std::mem;
-use std::ops::{Shl, Shr};
+use std::ops::{Shl, Shr, Add};
 use crate::framework::direction::Direction;
+use crate::framework::square_vec::SquareVec;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
@@ -52,6 +53,7 @@ impl TryFrom<&str> for Square {
     }
 }
 
+// TODO: Maybe replace completely with SquareVec?
 impl Shr<Direction> for Square {
     type Output = Self;
 
@@ -67,5 +69,21 @@ impl Shl<Direction> for Square {
     fn shl(self, rhs: Direction) -> Self::Output {
         Self::try_from((self as i32 - rhs as i32) as u8)
             .expect("Resulting square outside the board")
+    }
+}
+
+//TODO: Optimize?
+impl Add<SquareVec> for Square {
+    type Output = Option<Square>;
+
+    fn add(self, rhs: SquareVec) -> Self::Output {
+        let rank = self as i8 / 8 + rhs.0;
+        let file = self as i8 % 8 + rhs.1;
+
+        if matches!(rank, 0..=7) && matches!(file, 0..=7) {
+            unsafe { Some(Square::from_unchecked((8 * rank + file) as u8)) }
+        } else {
+            None
+        }
     }
 }

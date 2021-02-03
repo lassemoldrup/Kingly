@@ -1,7 +1,6 @@
 use crate::framework::square::Square;
 use std::iter::FusedIterator;
 use crate::standard::bitboard::Bitboard;
-use crate::framework::SquareSet;
 use bitintr::{Blsr, Tzcnt};
 
 pub struct BitboardIter(Bitboard);

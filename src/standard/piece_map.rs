@@ -1,23 +1,26 @@
-use crate::framework::{SquareSet, PieceMap};
+use crate::framework::PieceMap;
 use crate::framework::piece::{PieceKind, Piece};
 use crate::framework::square::Square;
 use crate::framework::color::Color;
+use std::ops::Index;
+use crate::framework::square_map::SquareMap;
+use crate::standard::bitboard::Bitboard;
 
-pub struct SquareSetPieceMap<S: SquareSet + Copy> {
-    white_pieces: PieceBoards<S>,
-    black_pieces: PieceBoards<S>,
-    map: [Option<Piece>; 64],
+pub struct BitboardPieceMap {
+    white_pieces: PieceBoards,
+    black_pieces: PieceBoards,
+    map: SquareMap<Option<Piece>>,
 }
 
-impl<S: SquareSet + Copy> SquareSetPieceMap<S> {
-    pub fn get_sqs(&self, pce: Piece) -> S {
+impl BitboardPieceMap {
+    pub fn get_sqs(&self, pce: Piece) -> Bitboard {
         match pce.1 {
             Color::White => self.white_pieces.get(pce.0),
             Color::Black => self.black_pieces.get(pce.0),
         }
     }
     
-    pub fn get_sqs_for(&self, col: Color) -> S {
+    pub fn get_sqs_for(&self, col: Color) -> Bitboard {
         match col {
             Color::White => self.white_pieces.pawn
                 | self.white_pieces.knight
@@ -32,61 +35,60 @@ impl<S: SquareSet + Copy> SquareSetPieceMap<S> {
                 | self.black_pieces.queen
                 | self.black_pieces.king,
         }
-
     }
 
     /// Gets a `SquareSet` of all occupied squares
-    pub fn get_occupied(&self) -> S {
+    pub fn get_occupied(&self) -> Bitboard {
         self.get_sqs_for(Color::White) | self.get_sqs_for(Color::Black)
     }
 }
 
-impl<S: SquareSet + Copy> PieceMap for SquareSetPieceMap<S> {
+impl PieceMap for BitboardPieceMap {
     fn new() -> Self {
-        SquareSetPieceMap {
+        BitboardPieceMap {
             white_pieces: PieceBoards::new(),
             black_pieces: PieceBoards::new(),
-            map: [None; 64],
+            map: SquareMap::default(),
         }
     }
 
     fn set_sq(&mut self, sq: Square, pce: Piece) {
-        let sq_set = &mut match pce.1 {
+        let bb = match pce.1 {
             Color::White => self.white_pieces.get_mut(pce.0),
             Color::Black => self.black_pieces.get_mut(pce.0),
         };
-        sq_set.add(sq);
+        *bb = bb.add_sq(sq);
 
-        self.map[sq as usize] = Some(pce);
+        self.map[sq] = Some(pce);
     }
 
     fn get(&self, sq: Square) -> Option<Piece> {
-        self.map[sq as usize]
+        self.map[sq]
     }
 }
 
-struct PieceBoards<S: SquareSet> {
-    pawn: S,
-    knight: S,
-    bishop: S,
-    rook: S,
-    queen: S,
-    king: S,
+struct PieceBoards {
+    pawn: Bitboard,
+    knight: Bitboard,
+    bishop: Bitboard,
+    rook: Bitboard,
+    queen: Bitboard,
+    king: Bitboard,
 }
 
-impl<S: SquareSet + Copy> PieceBoards<S> {
+impl PieceBoards {
     fn new() -> Self {
         PieceBoards {
-            pawn: S::new(),
-            knight: S::new(),
-            bishop: S::new(),
-            rook: S::new(),
-            queen: S::new(),
-            king: S::new(),
+            pawn: Bitboard::new(),
+            knight: Bitboard::new(),
+            bishop: Bitboard::new(),
+            rook: Bitboard::new(),
+            queen: Bitboard::new(),
+            king: Bitboard::new(),
         }
     }
 
-    fn get(&self, kind: PieceKind) -> S {
+    fn get(&self, kind: PieceKind) -> Bitboard {
         match kind {
             PieceKind::Pawn => self.pawn,
             PieceKind::Knight => self.knight,
@@ -97,7 +99,7 @@ impl<S: SquareSet + Copy> PieceBoards<S> {
         }
     }
 
-    fn get_mut(&mut self, kind: PieceKind) -> &mut S {
+    fn get_mut(&mut self, kind: PieceKind) -> &mut Bitboard {
         match kind {
             PieceKind::Pawn => &mut self.pawn,
             PieceKind::Knight => &mut self.knight,

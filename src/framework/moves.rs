@@ -3,7 +3,7 @@ use crate::framework::square::Square;
 use arrayvec::ArrayVec;
 //use std::fmt;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Move {
     Regular(Square, Square),
     Castling(Square, Square),

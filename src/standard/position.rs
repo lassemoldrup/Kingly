@@ -1,29 +1,31 @@
-use crate::framework::{Position, PieceMap, SquareSet, CastlingRights, Side};
+use crate::framework::{Position, PieceMap, CastlingRights, Side};
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::square::Square;
 use crate::framework::color::Color;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::piece::Piece;
 use std::convert::TryFrom;
-use crate::standard::piece_map::SquareSetPieceMap;
+use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::StandardCastlingRights;
 use arrayvec::ArrayVec;
+use crate::standard::position::move_gen::MoveGen;
 
 #[cfg(test)]
 mod tests;
 mod castling;
 mod move_gen;
 
-pub struct StandardPosition<S: SquareSet + Copy> {
-    pieces: SquareSetPieceMap<S>,
+pub struct StandardPosition {
+    pieces: BitboardPieceMap,
     to_move: Color,
     castling: StandardCastlingRights,
     en_passant_sq: Option<Square>,
     ply_clock: u8,
     move_number: u32,
+    move_gen: MoveGen,
 }
 
-impl<S: SquareSet + Copy> Position for StandardPosition<S> {
+impl Position for StandardPosition {
     fn new() -> Self {
         StandardPosition::from_fen(STARTING_FEN).unwrap()
     }
@@ -35,7 +37,7 @@ impl<S: SquareSet + Copy> Position for StandardPosition<S> {
         }
 
         // Piece placement
-        let mut pieces = SquareSetPieceMap::new();
+        let mut pieces = BitboardPieceMap::new();
         let rows: Vec<&str> = fields[0].split('/').rev().collect();
         if rows.len() != 8 {
             return Err(FenParseError::from("Incorrect number of rows"));
@@ -89,6 +91,8 @@ impl<S: SquareSet + Copy> Position for StandardPosition<S> {
         let move_number = fields[5].parse()
             .map_err(|_| "Invalid move number")?;
 
+        let move_gen = MoveGen::new();
+
         Ok(StandardPosition {
             pieces,
             to_move,
@@ -96,6 +100,7 @@ impl<S: SquareSet + Copy> Position for StandardPosition<S> {
             en_passant_sq,
             ply_clock,
             move_number,
+            move_gen,
         })
     }
 

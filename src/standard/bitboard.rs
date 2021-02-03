@@ -1,55 +1,52 @@
 use crate::framework::square::Square;
-use crate::framework::SquareSet;
-use crate::standard::iter::BitboardIter;
+use crate::standard::bitboard::iter::BitboardIter;
 use std::ops::{Shr, BitOr, BitAnd, Not};
 use crate::framework::direction::Direction;
+
+mod iter;
+
 
 #[macro_export]
 macro_rules! bb {
     ( $( $sq:expr ),* ) => {{
-        Bitboard(0) $(.add_sq($sq) )*
+        Bitboard::new() $(.add_sq($sq) )*
     }};
 }
 
 
 #[derive(Copy, Clone, PartialEq)]
-pub struct Bitboard(pub u64);
+pub struct Bitboard(u64);
 
 impl Bitboard {
-    pub const fn add_sq(self, sq: Square) -> Self {
-        Bitboard(self.0 | (1 << sq as u64))
-    }
-}
-
-impl SquareSet for Bitboard {
-    const RANKS: [Self; 8] = [
+    /// Ranks from 1 to 8
+    pub const RANKS: [Self; 8] = [
         Bitboard(0x0000_0000_0000_00FF), Bitboard(0x0000_0000_0000_FF00),
         Bitboard(0x0000_0000_00FF_0000), Bitboard(0x0000_0000_FF00_0000),
         Bitboard(0x0000_00FF_0000_0000), Bitboard(0x0000_FF00_0000_0000),
         Bitboard(0x00FF_0000_0000_0000), Bitboard(0xFF00_0000_0000_0000)
     ];
 
-    const FILES: [Self; 8] = [
+    /// Files from a to h
+    pub const FILES: [Self; 8] = [
         Bitboard(0x0101_0101_0101_0101), Bitboard(0x0202_0202_0202_0202),
         Bitboard(0x0404_0404_0404_0404), Bitboard(0x0808_0808_0808_0808),
         Bitboard(0x1010_1010_1010_1010), Bitboard(0x2020_2020_2020_2020),
         Bitboard(0x4040_4040_4040_4040), Bitboard(0x8080_8080_8080_8080)
     ];
 
-    fn new() -> Self {
+    /// Creates an empty `Bitboard`
+    pub const fn new() -> Self {
         Bitboard(0)
     }
 
-    fn from_sq(sq: Square) -> Self {
-        bb!(sq)
+    /// Returns a new `Bitboard` with `Square` `sq` added
+    pub const fn add_sq(self, sq: Square) -> Self {
+        Bitboard(self.0 | (1 << sq as u64))
     }
 
-    fn add(&mut self, sq: Square) {
-        self.0 |= 1 << sq as u64;
-    }
-
-    fn is_empty(&self) -> bool {
-        *self == bb!()
+    /// Returns whether the `Bitboard` is empty or not
+    pub fn is_empty(self) -> bool {
+        self == bb!()
     }
 }
 
