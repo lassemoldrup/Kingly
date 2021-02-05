@@ -1,0 +1,1 @@
+-C target-cpu=native -C opt-level=3

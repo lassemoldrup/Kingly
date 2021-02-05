@@ -73,6 +73,7 @@ impl Position for StandardPosition {
                 'Q' => castling.set(Color::White, Side::QueenSide, true),
                 'k' => castling.set(Color::Black, Side::KingSide, true),
                 'q' => castling.set(Color::Black, Side::QueenSide, true),
+                '-' => break,
                 _ => return Err(FenParseError::from("Invalid castling right")),
             }
         }

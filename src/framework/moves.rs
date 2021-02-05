@@ -1,12 +1,13 @@
 use crate::framework::piece::PieceKind;
 use crate::framework::square::Square;
 use arrayvec::ArrayVec;
+use crate::framework::Side;
 //use std::fmt;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Move {
     Regular(Square, Square),
-    Castling(Square, Square),
+    Castling(Side),
     Promotion(Square, Square, PieceKind),
     EnPassant(Square, Square),
 }

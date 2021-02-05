@@ -9,3 +9,7 @@ edition = "2018"
 [dependencies]
 arrayvec = "0.5.2"
 bitintr = "0.3.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

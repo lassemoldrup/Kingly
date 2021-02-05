@@ -1,7 +1,8 @@
 use crate::framework::square::Square;
 use crate::standard::bitboard::iter::BitboardIter;
-use std::ops::{Shr, BitOr, BitAnd, Not};
+use std::ops::{Shr, BitOr, BitAnd, Not, Sub};
 use crate::framework::direction::Direction;
+use bitintr::Andn;
 
 mod iter;
 
@@ -14,7 +15,7 @@ macro_rules! bb {
 }
 
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Bitboard(u64);
 
 impl Bitboard {
@@ -86,7 +87,7 @@ impl Not for Bitboard {
 impl Shr<Direction> for Bitboard {
     type Output = Bitboard;
 
-    // TODO: Optimize maybe?
+    // TODO: Optimize maybe? Use andn?
     fn shr(self, rhs: Direction) -> Self::Output {
         match rhs {
             Direction::North =>
@@ -104,5 +105,24 @@ impl Shr<Direction> for Bitboard {
             Direction::NorthWest =>
                 Bitboard((self.0 & !Bitboard::FILES[0].0) << 7),
         }
+    }
+}
+
+impl Sub for Bitboard {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(rhs.0.andn(self.0))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sub_test() {
+        assert_eq!(bb!(Square::A1, Square::A2) - bb!(Square::A1, Square::H8), bb!(Square::A2));
     }
 }

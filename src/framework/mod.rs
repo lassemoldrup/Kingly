@@ -63,6 +63,7 @@ pub trait CastlingRights {
     fn set(&mut self, col: Color, side: Side, value: bool);
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Side {
     KingSide, QueenSide
 }
