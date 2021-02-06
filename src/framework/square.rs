@@ -23,6 +23,18 @@ impl Square {
     pub unsafe fn from_unchecked(value: u8) -> Self {
         mem::transmute(value)
     }
+
+    pub fn iter() -> SquareIter {
+        SquareIter::new()
+    }
+
+    pub fn rank(self) -> u8 {
+        self as u8 / 8
+    }
+
+    pub fn file(self) -> u8 {
+        self as u8 % 8
+    }
 }
 
 impl TryFrom<u8> for Square {
@@ -43,8 +55,8 @@ impl TryFrom<&str> for Square {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let chars: Vec<char> = value.chars().collect();
         if chars.len() == 2 && matches!(chars[0], 'a'..='h') && matches!(chars[1], '1'..='8') {
-            let r = chars[1] as u8 - '1' as u8;
-            let c = chars[0] as u8 - 'a' as u8;
+            let r = chars[1] as u8 - b'1';
+            let c = chars[0] as u8 - b'a';
 
             Square::try_from(8 * r + c)
         } else {
@@ -77,13 +89,36 @@ impl Add<SquareVec> for Square {
     type Output = Option<Square>;
 
     fn add(self, rhs: SquareVec) -> Self::Output {
-        let rank = self as i8 / 8 + rhs.0;
-        let file = self as i8 % 8 + rhs.1;
+        let rank = self.rank() as i8 + rhs.0;
+        let file = self.file() as i8 + rhs.1;
 
         if matches!(rank, 0..=7) && matches!(file, 0..=7) {
             unsafe { Some(Square::from_unchecked((8 * rank + file) as u8)) }
         } else {
             None
         }
+    }
+}
+
+
+pub struct SquareIter {
+    next_idx: u8,
+}
+
+impl SquareIter {
+    fn new() -> Self {
+        Self {
+            next_idx: 0,
+        }
+    }
+}
+
+impl Iterator for SquareIter {
+    type Item = Square;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = Square::try_from(self.next_idx).ok();
+        self.next_idx += 1;
+        result
     }
 }

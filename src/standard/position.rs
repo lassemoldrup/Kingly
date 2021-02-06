@@ -7,7 +7,6 @@ use crate::framework::piece::Piece;
 use std::convert::TryFrom;
 use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::StandardCastlingRights;
-use arrayvec::ArrayVec;
 use crate::standard::position::move_gen::MoveGen;
 
 #[cfg(test)]

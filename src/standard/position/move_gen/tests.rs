@@ -6,6 +6,7 @@ use crate::framework::moves::Move;
 use crate::framework::square::Square;
 use crate::framework::piece::PieceKind;
 use crate::standard::position::move_gen::MoveGen;
+use crate::bb;
 
 // Unit testing for gen_pawn_moves
 
@@ -239,4 +240,82 @@ fn no_castling_when_in_check() {
 
     assert!(!moves.contains(&Move::Castling(Side::KingSide)));
     assert!(!moves.contains(&Move::Castling(Side::QueenSide)));
+}
+
+#[test]
+fn bishop_masks_initialized_correctly() {
+    let move_gen = MoveGen::new();
+
+    use Square::*;
+    assert_eq!(move_gen.bishop_masks[A8], bb!(B7, C6, D5, E4, F3, G2));
+    assert_eq!(move_gen.bishop_masks[B2], bb!(C3, D4, E5, F6, G7));
+    assert_eq!(move_gen.bishop_masks[D5], bb!(E6, F7, E4, F3, G2, C4, B3, C6, B7));
+}
+
+#[test]
+fn rook_masks_initialized_correctly() {
+    let move_gen = MoveGen::new();
+
+    use Square::*;
+    assert_eq!(move_gen.rook_masks[A8], bb!(B8, C8, D8, E8, F8, G8, A7, A6, A5, A4, A3, A2));
+    assert_eq!(move_gen.rook_masks[B2], bb!(B3, B4, B5, B6, B7, C2, D2, E2, F2, G2));
+    assert_eq!(move_gen.rook_masks[D5], bb!(E5, F5, G5, D4, D3, D2, C5, B5, D6, D7));
+}
+
+#[test]
+fn correct_bishop_moves() {
+    let position = StandardPosition::from_fen("rnbqkbnr/1ppp1pp1/p7/4p2p/1PB1P3/8/P1PP1PPP/RNBQK1NR w KQkq - 0 5").unwrap();
+    let move_gen = MoveGen::new();
+
+    let mut moves = ArrayVec::new();
+    unsafe {
+        move_gen.gen_non_pawn_moves(PieceKind::Bishop, &position, &mut moves);
+    }
+
+    assert!(moves.contains(&Move::Regular(Square::C1, Square::B2)));
+    assert!(moves.contains(&Move::Regular(Square::C4, Square::B3)));
+    assert!(moves.contains(&Move::Regular(Square::C4, Square::F7)));
+    assert!(moves.contains(&Move::Regular(Square::C4, Square::E2)));
+    assert!(!moves.contains(&Move::Regular(Square::C1, Square::D2)));
+    assert_eq!(moves.len(), 11);
+}
+
+#[test]
+fn correct_rook_moves() {
+    let position = StandardPosition::from_fen("1nbqkbnr/1pppppp1/8/p2r4/4PPp1/3P3P/PPP1N3/RNBQKB1R b KQk - 1 7").unwrap();
+    let move_gen = MoveGen::new();
+
+    let mut moves = ArrayVec::new();
+    unsafe {
+        move_gen.gen_non_pawn_moves(PieceKind::Rook, &position, &mut moves);
+    }
+
+    assert!(moves.contains(&Move::Regular(Square::D5, Square::D6)));
+    assert!(moves.contains(&Move::Regular(Square::D5, Square::B5)));
+    assert!(moves.contains(&Move::Regular(Square::D5, Square::H5)));
+    assert!(moves.contains(&Move::Regular(Square::H8, Square::H3)));
+    assert!(!moves.contains(&Move::Regular(Square::D5, Square::A5)));
+    assert_eq!(moves.len(), 14);
+}
+
+#[test]
+fn correct_queen_moves() {
+    let position = StandardPosition::from_fen("r1bqkbnr/p1pp1p1p/1pnPp1p1/8/3Q4/8/PPP1PPPP/RNB1KBNR w KQkq - 0 5").unwrap();
+    let move_gen = MoveGen::new();
+
+    let mut moves = ArrayVec::new();
+    unsafe {
+        move_gen.gen_non_pawn_moves(PieceKind::Queen, &position, &mut moves);
+    }
+
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::D5)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::H8)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::G4)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::E3)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::D2)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::C3)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::A4)));
+    assert!(moves.contains(&Move::Regular(Square::D4, Square::B6)));
+    assert!(!moves.contains(&Move::Regular(Square::D4, Square::D6)));
+    assert_eq!(moves.len(), 19);
 }

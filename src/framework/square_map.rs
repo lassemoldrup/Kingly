@@ -1,6 +1,5 @@
 use std::ops::{Index, IndexMut};
 use crate::framework::square::Square;
-use std::convert::TryFrom;
 use std::iter::{Map, Enumerate, FusedIterator};
 
 pub struct SquareMap<T>([T; 64]);

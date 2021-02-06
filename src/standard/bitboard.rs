@@ -2,7 +2,9 @@ use crate::framework::square::Square;
 use crate::standard::bitboard::iter::BitboardIter;
 use std::ops::{Shr, BitOr, BitAnd, Not, Sub};
 use crate::framework::direction::Direction;
-use bitintr::Andn;
+use bitintr::{Andn, Popcnt};
+use std::fmt::{Debug, Formatter};
+use std::convert::TryFrom;
 
 mod iter;
 
@@ -15,7 +17,7 @@ macro_rules! bb {
 }
 
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct Bitboard(u64);
 
 impl Bitboard {
@@ -37,7 +39,7 @@ impl Bitboard {
 
     /// Creates an empty `Bitboard`
     pub const fn new() -> Self {
-        Bitboard(0)
+        Self(0)
     }
 
     /// Returns a new `Bitboard` with `Square` `sq` added
@@ -48,6 +50,14 @@ impl Bitboard {
     /// Returns whether the `Bitboard` is empty or not
     pub fn is_empty(self) -> bool {
         self == bb!()
+    }
+
+    pub fn len(self) -> usize {
+        self.0.popcnt() as usize
+    }
+
+    pub fn contains(self, sq: Square) -> bool {
+        (self.0 >> sq as u64) & 1 == 1
     }
 }
 
@@ -113,6 +123,36 @@ impl Sub for Bitboard {
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self(rhs.0.andn(self.0))
+    }
+}
+
+impl Into<u64> for Bitboard {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for Bitboard {
+    fn from(val: u64) -> Self {
+        Self(val)
+    }
+}
+
+impl Debug for Bitboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f)?;
+        for rank in 0..8 {
+            for file in 0..8 {
+                let sq = Square::try_from(8 * rank + file).unwrap();
+                if self.contains(sq) {
+                    write!(f, "# ")?;
+                } else {
+                    write!(f, ". ")?;
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
     }
 }
 

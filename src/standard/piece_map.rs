@@ -2,7 +2,6 @@ use crate::framework::PieceMap;
 use crate::framework::piece::{PieceKind, Piece};
 use crate::framework::square::Square;
 use crate::framework::color::Color;
-use std::ops::Index;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
 
