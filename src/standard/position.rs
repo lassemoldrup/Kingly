@@ -1,35 +1,36 @@
-use crate::framework::{Position, PieceMap, CastlingRights, Side};
-use crate::framework::moves::{Move, MoveList};
-use crate::framework::square::Square;
+use std::convert::TryFrom;
+
+use crate::framework::{CastlingRights, PieceMap, Side};
 use crate::framework::color::Color;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
-use crate::framework::piece::Piece;
-use std::convert::TryFrom;
+use crate::framework::moves::{Move, MoveList};
+use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::square::Square;
+use crate::standard::move_gen::MoveGen;
 use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::StandardCastlingRights;
-use crate::standard::position::move_gen::MoveGen;
 
 #[cfg(test)]
 mod tests;
 mod castling;
-mod move_gen;
 
-pub struct StandardPosition {
+pub struct Position {
     pieces: BitboardPieceMap,
     to_move: Color,
     castling: StandardCastlingRights,
     en_passant_sq: Option<Square>,
     ply_clock: u8,
     move_number: u32,
-    move_gen: MoveGen,
 }
 
-impl Position for StandardPosition {
-    fn new() -> Self {
-        StandardPosition::from_fen(STARTING_FEN).unwrap()
+impl Position {
+    /// Creates default chess starting `Position`
+    pub fn new() -> Self {
+        Position::from_fen(STARTING_FEN).unwrap()
     }
 
-    fn from_fen(fen: &str) -> Result<Self, FenParseError> {
+    /// Creates `Position` from `fen`
+    pub fn from_fen(fen: &str) -> Result<Self, FenParseError> {
         let fields: Vec<&str> = fen.split(' ').collect();
         if fields.len() != 6 {
             return Err(FenParseError::from("Incorrect number of fields"));
@@ -55,6 +56,10 @@ impl Position for StandardPosition {
                     c += 1;
                 }
             }
+        }
+        if pieces.get_bb(Piece(PieceKind::King, Color::White)).len() != 1
+            || pieces.get_bb(Piece(PieceKind::King, Color::Black)).len() != 1 {
+            return Err(FenParseError::from("Each player must have exactly one king"));
         }
 
         // Player to move
@@ -91,36 +96,39 @@ impl Position for StandardPosition {
         let move_number = fields[5].parse()
             .map_err(|_| "Invalid move number")?;
 
-        let move_gen = MoveGen::new();
-
-        Ok(StandardPosition {
+        Ok(Position {
             pieces,
             to_move,
             castling,
             en_passant_sq,
             ply_clock,
             move_number,
-            move_gen,
         })
     }
 
-    fn gen_moves(&self) -> MoveList {
-        let mut moves = MoveList::new();
-
-
-
-        moves
+    pub fn pieces(&self) -> &BitboardPieceMap {
+        &self.pieces
     }
 
-    fn make_move(&mut self, m: Move) {
+    pub fn to_move(&self) -> Color {
+        self.to_move
+    }
+
+    pub fn castling(&self) -> &StandardCastlingRights {
+        &self.castling
+    }
+
+    pub fn en_passant_sq(&self) -> Option<Square> {
+        self.en_passant_sq
+    }
+
+    /// Makes move `m`
+    pub fn make_move(&mut self, m: Move) {
         unimplemented!()
     }
 
-    fn unmake_move(&mut self) {
-        unimplemented!()
-    }
-
-    fn evaluate(&self) -> i32 {
+    /// Unmakes last move
+    pub fn unmake_move(&mut self) {
         unimplemented!()
     }
 }

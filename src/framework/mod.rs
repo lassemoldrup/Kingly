@@ -14,7 +14,11 @@ pub mod direction;
 pub mod square_map;
 pub mod square_vec;
 
-pub trait Position {
+pub trait Game {
+    fn perft(depth: u32) -> u64;
+}
+
+/*pub trait Position {
     /// Creates default chess starting `Position`
     fn new() -> Self;
     /// Creates `Position` from `fen`
@@ -27,21 +31,6 @@ pub trait Position {
     fn unmake_move(&mut self);
     /// Returns Crusty's current evaluation of the position
     fn evaluate(&self) -> i32;
-}
-
-/*pub trait SquareSet : Sized + IntoIterator<Item = Square> + BitOr<Output = Self> + BitAnd<Output = Self> + Not<Output = Self> + Shr<Direction, Output = Self> {
-    /// Ranks from 1 to 8
-    const RANKS: [Self; 8];
-    /// Files from a to h
-    const FILES: [Self; 8];
-    /// Creates an empty `SquareSet`
-    fn new() -> Self;
-    /// Creates a `SquareSet` with `Square` `sq`
-    fn from_sq(sq: Square) -> Self;
-    /// Adds `Square` `sq` to the `SquareSet`
-    fn add(&mut self, sq: Square);
-    /// Returns whether the `SquareSet` is empty or not
-    fn is_empty(&self) -> bool;
 }*/
 
 pub trait PieceMap {
