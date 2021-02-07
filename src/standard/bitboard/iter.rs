@@ -1,7 +1,9 @@
-use crate::framework::square::Square;
 use std::iter::FusedIterator;
+
+use bitintr::Blsr;
+
+use crate::framework::square::Square;
 use crate::standard::bitboard::Bitboard;
-use bitintr::{Blsr, Tzcnt};
 
 pub struct BitboardIter(Bitboard);
 
@@ -19,7 +21,7 @@ impl Iterator for BitboardIter {
             None
         } else {
             let sq = unsafe {
-                Square::from_unchecked((self.0).0.tzcnt() as u8)
+                self.0.first_sq_unchecked()
             };
             self.0 = Bitboard((self.0).0.blsr());
             Some(sq)

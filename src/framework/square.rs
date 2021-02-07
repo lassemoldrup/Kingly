@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::mem;
-use std::ops::{Shl, Shr, Add};
+use std::ops::{Add, Shl, Shr};
+
 use crate::framework::direction::Direction;
 use crate::framework::square_vec::SquareVec;
 

@@ -1,7 +1,9 @@
+use std::iter::{Enumerate, FusedIterator, Map};
 use std::ops::{Index, IndexMut};
-use crate::framework::square::Square;
-use std::iter::{Map, Enumerate, FusedIterator};
 
+use crate::framework::square::Square;
+
+#[derive(Copy, Clone)]
 pub struct SquareMap<T>([T; 64]);
 
 impl<T> SquareMap<T> {

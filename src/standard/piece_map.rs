@@ -1,10 +1,9 @@
-use crate::framework::PieceMap;
-use crate::framework::piece::{PieceKind, Piece};
-use crate::framework::square::Square;
 use crate::framework::color::Color;
+use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::PieceMap;
+use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
-use bitintr::Tzcnt;
 
 pub struct BitboardPieceMap {
     white_pieces: PieceBoards,
@@ -29,9 +28,9 @@ impl BitboardPieceMap {
     }
 
     pub fn get_king_sq(&self, color: Color) -> Square {
-        let king: u64 = self.get_bb(Piece(PieceKind::King, color)).into();
+        let king = self.get_bb(Piece(PieceKind::King, color));
         unsafe {
-            Square::from_unchecked(king.tzcnt() as u8)
+            king.first_sq_unchecked()
         }
     }
 

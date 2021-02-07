@@ -1,9 +1,7 @@
-use self::square::Square;
-use self::piece::Piece;
-use self::moves::Move;
-use crate::framework::fen::FenParseError;
 use crate::framework::color::Color;
-use crate::framework::moves::MoveList;
+
+use self::piece::Piece;
+use self::square::Square;
 
 pub mod square;
 pub mod color;

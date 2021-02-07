@@ -1,9 +1,9 @@
-use crate::standard::position::Position;
-use crate::framework::{PieceMap, Side, CastlingRights};
-use crate::framework::square::Square;
-use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::{CastlingRights, PieceMap, Side};
 use crate::framework::color::Color;
 use crate::framework::fen::STARTING_FEN;
+use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::square::Square;
+use crate::standard::position::Position;
 
 #[test]
 fn pieces_placed_correctly_in_starting_pos_fen() {

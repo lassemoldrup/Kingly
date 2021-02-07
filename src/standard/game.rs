@@ -1,6 +1,6 @@
-use crate::standard::position::Position;
-use crate::standard::move_gen::MoveGen;
 use crate::framework::Game;
+use crate::standard::move_gen::MoveGen;
+use crate::standard::position::Position;
 
 pub struct StandardGame {
     position: Position,

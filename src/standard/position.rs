@@ -3,10 +3,9 @@ use std::convert::TryFrom;
 use crate::framework::{CastlingRights, PieceMap, Side};
 use crate::framework::color::Color;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
-use crate::framework::moves::{Move, MoveList};
+use crate::framework::moves::Move;
 use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
-use crate::standard::move_gen::MoveGen;
 use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::StandardCastlingRights;
 

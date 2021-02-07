@@ -1,10 +1,12 @@
+use std::convert::TryFrom;
+use std::fmt::Debug;
+use std::ops::{BitAnd, BitOr, Not, Shr, Sub, SubAssign};
+
+use bitintr::{Andn, Popcnt, Tzcnt};
+
+use crate::framework::direction::Direction;
 use crate::framework::square::Square;
 use crate::standard::bitboard::iter::BitboardIter;
-use std::ops::{Shr, BitOr, BitAnd, Not, Sub};
-use crate::framework::direction::Direction;
-use bitintr::{Andn, Popcnt};
-use std::fmt::{Debug, Formatter};
-use std::convert::TryFrom;
 
 mod iter;
 
@@ -58,6 +60,13 @@ impl Bitboard {
 
     pub fn contains(self, sq: Square) -> bool {
         (self.0 >> sq as u64) & 1 == 1
+    }
+
+    /// # Safety
+    /// `self` must not be empty
+    pub unsafe fn first_sq_unchecked(self) -> Square {
+        debug_assert!(!self.is_empty());
+        Square::from_unchecked(self.0.tzcnt() as u8)
     }
 }
 
@@ -126,6 +135,12 @@ impl Sub for Bitboard {
     }
 }
 
+impl SubAssign for Bitboard {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
+}
+
 impl Into<u64> for Bitboard {
     fn into(self) -> u64 {
         self.0
@@ -141,7 +156,7 @@ impl From<u64> for Bitboard {
 impl Debug for Bitboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f)?;
-        for rank in 0..8 {
+        for rank in (0..8).rev() {
             for file in 0..8 {
                 let sq = Square::try_from(8 * rank + file).unwrap();
                 if self.contains(sq) {

@@ -1,6 +1,8 @@
-use crate::cli::Cli;
-use std::io::{stdin, stdout, Write};
+use std::io::{stdin, stdout};
+
 use crusty::standard::game::StandardGame;
+
+use crate::cli::Cli;
 
 mod cli;
 
@@ -11,7 +13,5 @@ fn main() -> std::io::Result<()> {
 
     let cli = Cli::new(game, std_in.lock(), std_out.lock());
 
-    cli.start();
-
-    Ok(())
+    cli.start()
 }

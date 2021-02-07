@@ -1,8 +1,11 @@
-use crate::framework::piece::PieceKind;
-use crate::framework::square::Square;
-use arrayvec::ArrayVec;
-use crate::framework::Side;
 use std::slice::Iter;
+
+use arrayvec::ArrayVec;
+
+use crate::framework::piece::PieceKind;
+use crate::framework::Side;
+use crate::framework::square::Square;
+
 //use std::fmt;
 
 #[derive(Copy, Clone, PartialEq, Debug)]

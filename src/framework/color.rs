@@ -9,6 +9,7 @@ pub enum Color {
 impl Not for Color {
     type Output = Self;
 
+    // TODO: Optimise
     fn not(self) -> Self::Output {
         match self {
             Color::White => Color::Black,

@@ -1,5 +1,6 @@
-use crate::framework::color::Color;
 use std::convert::TryFrom;
+
+use crate::framework::color::Color;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum PieceKind {

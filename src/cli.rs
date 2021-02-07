@@ -1,6 +1,7 @@
-use std::io::{Write, BufRead};
 use std::error::Error;
-use std::fmt::{Debug, Formatter, Display};
+use std::fmt::{Debug, Display, Formatter};
+use std::io::{BufRead, Write};
+
 use crusty::framework::Game;
 
 pub struct Cli<G, I, O> {
@@ -23,7 +24,7 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
 
         loop {
             let mut command = String::new();
-            self.input.read_line(&mut command);
+            self.input.read_line(&mut command)?;
 
             if command.trim().is_empty() {
                 continue;
@@ -34,8 +35,6 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
                 Err(err) => self.write(err.0)?,
             }
         }
-
-        Ok(())
     }
 
     fn write(&mut self, msg: &str) -> std::io::Result<()> {
