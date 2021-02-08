@@ -13,7 +13,7 @@ pub mod square_map;
 pub mod square_vec;
 
 pub trait Game {
-    fn perft(depth: u32) -> u64;
+    fn perft(self, depth: u32) -> u64;
 }
 
 /*pub trait Position {

@@ -20,7 +20,28 @@ impl StandardGame {
 }
 
 impl Game for StandardGame {
-    fn perft(depth: u32) -> u64 {
-        unimplemented!()
+    fn perft(mut self, depth: u32) -> u64 {
+        if depth == 0 {
+            return 0;
+        }
+
+        fn inner(game: &mut StandardGame, depth: u32) -> u64 {
+            let moves = game.move_gen.gen_all_moves(&game.position);
+            if depth == 1 {
+                return moves.len() as u64;
+            }
+
+            let mut count = 0;
+            for m in moves {
+                unsafe {
+                    game.position.make_move(m);
+                }
+                count += inner(game, depth - 1);
+                game.position.unmake_move();
+            }
+            count
+        }
+
+        inner(&mut self, depth)
     }
 }

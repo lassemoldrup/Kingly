@@ -1,6 +1,6 @@
 use std::slice::Iter;
 
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayVec, IntoIter};
 
 use crate::framework::piece::PieceKind;
 use crate::framework::Side;
@@ -56,5 +56,14 @@ impl MoveList {
 
     pub fn iter(&self) -> Iter<Move> {
         self.0.iter()
+    }
+}
+
+impl IntoIterator for MoveList {
+    type Item = Move;
+    type IntoIter = IntoIter<[Move; 256]>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }

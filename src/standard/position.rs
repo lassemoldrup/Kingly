@@ -8,6 +8,9 @@ use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::StandardCastlingRights;
+use std::hint::unreachable_unchecked;
+use crate::standard::bitboard::Bitboard;
+use crate::framework::direction::Direction;
 
 #[cfg(test)]
 mod tests;
@@ -122,8 +125,66 @@ impl Position {
     }
 
     /// Makes move `m`
-    pub fn make_move(&mut self, m: Move) {
-        unimplemented!()
+    /// # Safety
+    /// `m` must be a legal move
+    pub unsafe fn make_move(&mut self, m: Move) {
+        match m {
+            Move::Regular(from, to) => {
+                debug_assert!(self.pieces.get(from).is_some());
+                let pce = self.pieces.get(from)
+                    .unwrap_or_else(|| unreachable_unchecked());
+                let dest_pce = self.pieces.get(to);
+
+                self.pieces.set_sq(to, pce);
+                self.pieces.unset_sq(from);
+
+                self.en_passant_sq = None;
+
+                if pce.kind() == PieceKind::Pawn {
+                    self.ply_clock = 0;
+
+                    let (snd_rank, frth_rank, up) = match self.to_move {
+                        Color::White => (1, 3, Direction::North),
+                        Color::Black => (6, 4, Direction::South),
+                    };
+
+                    if from.rank() == snd_rank && to.rank() == frth_rank {
+                        self.en_passant_sq = Some(Square::from_unchecked((from as i8 + up as i8) as u8));
+                    }
+                } else {
+                    let (king_sq, king_rook_sq, queen_rook_sq) = match self.to_move {
+                        Color::White => (Square::E1, Square::H1, Square::A1),
+                        Color::Black => (Square::E1, Square::H1, Square::A1),
+                    };
+
+                    if from == king_rook_sq {
+                        self.castling.set(self.to_move, Side::KingSide, false);
+                    } else if from == queen_rook_sq {
+                        self.castling.set(self.to_move, Side::QueenSide, false);
+                    } else if from == king_sq {
+                        self.castling.set(self.to_move, Side::KingSide, false);
+                        self.castling.set(self.to_move, Side::QueenSide, false);
+                    }
+
+                    if dest_pce.is_some() {
+                        self.ply_clock = 0;
+                    } else {
+                        self.ply_clock += 1;
+                    }
+                }
+
+                match self.to_move {
+                    Color::White => self.to_move = Color::Black,
+                    Color::Black => {
+                        self.to_move = Color::White;
+                        self.move_number += 1;
+                    }
+                }
+            }
+            Move::Castling(_) => unimplemented!(),
+            Move::Promotion(_, _, _) => unimplemented!(),
+            Move::EnPassant(_, _) => unimplemented!(),
+        }
     }
 
     /// Unmakes last move

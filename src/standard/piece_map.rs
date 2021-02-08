@@ -4,6 +4,7 @@ use crate::framework::PieceMap;
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
+use crate::bb;
 
 pub struct BitboardPieceMap {
     white_pieces: PieceBoards,
@@ -34,9 +35,17 @@ impl BitboardPieceMap {
         }
     }
 
-    /// Gets a `SquareSet` of all occupied squares
+    /// Gets a `Bitboard` of all occupied squares
     pub fn get_occ(&self) -> Bitboard {
         self.get_occ_for(Color::White) | self.get_occ_for(Color::Black)
+    }
+
+    pub fn unset_sq(&mut self, sq: Square) {
+        let bb = bb!(sq);
+        self.white_pieces.unset_sqs(bb);
+        self.black_pieces.unset_sqs(bb);
+        self.occupied -= bb;
+        self.map[sq] = None;
     }
 }
 
@@ -108,5 +117,15 @@ impl PieceBoards {
             PieceKind::King => self.king = self.king.add_sq(sq),
         }
         self.occupied = self.occupied.add_sq(sq);
+    }
+
+    fn unset_sqs(&mut self, bb: Bitboard) {
+        self.pawn -= bb;
+        self.knight -= bb;
+        self.bishop -= bb;
+        self.rook -= bb;
+        self.queen -= bb;
+        self.king -= bb;
+        self.occupied -= bb;
     }
 }
