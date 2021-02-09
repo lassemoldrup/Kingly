@@ -1,21 +1,21 @@
-use crate::framework::{CastlingRights, Side};
+use crate::framework::Side;
 use crate::framework::color::Color;
 
-pub struct StandardCastlingRights {
+pub struct CastlingRights {
     w_king: bool,
     w_queen: bool,
     b_king: bool,
     b_queen: bool,
 }
 
-impl CastlingRights for StandardCastlingRights {
-    fn new(w_king: bool, w_queen: bool, b_king: bool, b_queen: bool) -> Self {
-        StandardCastlingRights {
+impl CastlingRights {
+    pub fn new(w_king: bool, w_queen: bool, b_king: bool, b_queen: bool) -> Self {
+        CastlingRights {
             w_king, w_queen, b_king, b_queen
         }
     }
 
-    fn get(&self, col: Color, side: Side) -> bool {
+    pub fn get(&self, col: Color, side: Side) -> bool {
         match col {
             Color::White => match side {
                 Side::KingSide => self.w_king,
@@ -28,7 +28,7 @@ impl CastlingRights for StandardCastlingRights {
         }
     }
 
-    fn set(&mut self, col: Color, side: Side, value: bool) {
+    pub fn set(&mut self, col: Color, side: Side, value: bool) {
         match col {
             Color::White => match side {
                 Side::KingSide => self.w_king = value,

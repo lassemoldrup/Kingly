@@ -1,15 +1,14 @@
 use std::convert::TryFrom;
 
-use crate::framework::{CastlingRights, PieceMap, Side};
+use crate::framework::Side;
 use crate::framework::color::Color;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::moves::Move;
 use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::standard::piece_map::BitboardPieceMap;
-use crate::standard::position::castling::StandardCastlingRights;
+use crate::standard::position::castling::CastlingRights;
 use std::hint::unreachable_unchecked;
-use crate::standard::bitboard::Bitboard;
 use crate::framework::direction::Direction;
 
 #[cfg(test)]
@@ -19,7 +18,7 @@ mod castling;
 pub struct Position {
     pieces: BitboardPieceMap,
     to_move: Color,
-    castling: StandardCastlingRights,
+    castling: CastlingRights,
     en_passant_sq: Option<Square>,
     ply_clock: u8,
     move_number: u32,
@@ -72,7 +71,7 @@ impl Position {
         };
 
         // Castling rights
-        let mut castling = StandardCastlingRights::new(false, false, false, false);
+        let mut castling = CastlingRights::new(false, false, false, false);
         for right in fields[2].chars() {
             match right {
                 'K' => castling.set(Color::White, Side::KingSide, true),
@@ -116,7 +115,7 @@ impl Position {
         self.to_move
     }
 
-    pub fn castling(&self) -> &StandardCastlingRights {
+    pub fn castling(&self) -> &CastlingRights {
         &self.castling
     }
 

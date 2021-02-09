@@ -5,7 +5,7 @@ use bitintr::{Pdep, Pext};
 use take_until::TakeUntilExt;
 
 use crate::bb;
-use crate::framework::{CastlingRights, Side};
+use crate::framework::Side;
 use crate::framework::color::Color;
 use crate::framework::direction::Direction;
 use crate::framework::moves::{Move, MoveList};

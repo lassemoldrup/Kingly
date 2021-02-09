@@ -1,6 +1,5 @@
 use crate::framework::color::Color;
 use crate::framework::piece::{Piece, PieceKind};
-use crate::framework::PieceMap;
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
@@ -14,6 +13,15 @@ pub struct BitboardPieceMap {
 }
 
 impl BitboardPieceMap {
+    pub fn new() -> Self {
+        BitboardPieceMap {
+            white_pieces: PieceBoards::new(),
+            black_pieces: PieceBoards::new(),
+            map: SquareMap::default(),
+            occupied: Bitboard::new(),
+        }
+    }
+
     pub fn get_bb(&self, pce: Piece) -> Bitboard {
         match pce.color() {
             Color::White => self.white_pieces.get(pce.kind()),
@@ -40,26 +48,11 @@ impl BitboardPieceMap {
         self.get_occ_for(Color::White) | self.get_occ_for(Color::Black)
     }
 
-    pub fn unset_sq(&mut self, sq: Square) {
-        let bb = bb!(sq);
-        self.white_pieces.unset_sqs(bb);
-        self.black_pieces.unset_sqs(bb);
-        self.occupied -= bb;
-        self.map[sq] = None;
-    }
-}
-
-impl PieceMap for BitboardPieceMap {
-    fn new() -> Self {
-        BitboardPieceMap {
-            white_pieces: PieceBoards::new(),
-            black_pieces: PieceBoards::new(),
-            map: SquareMap::default(),
-            occupied: Bitboard::new(),
-        }
+    pub fn get(&self, sq: Square) -> Option<Piece> {
+        self.map[sq]
     }
 
-    fn set_sq(&mut self, sq: Square, pce: Piece) {
+    pub fn set_sq(&mut self, sq: Square, pce: Piece) {
         match pce.color() {
             Color::White => self.white_pieces.set_sq(pce.kind(), sq),
             Color::Black => self.black_pieces.set_sq(pce.kind(), sq),
@@ -68,8 +61,12 @@ impl PieceMap for BitboardPieceMap {
         self.map[sq] = Some(pce);
     }
 
-    fn get(&self, sq: Square) -> Option<Piece> {
-        self.map[sq]
+    pub fn unset_sq(&mut self, sq: Square) {
+        let bb = bb!(sq);
+        self.white_pieces.unset_sqs(bb);
+        self.black_pieces.unset_sqs(bb);
+        self.occupied -= bb;
+        self.map[sq] = None;
     }
 }
 
