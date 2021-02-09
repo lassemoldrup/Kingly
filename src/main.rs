@@ -1,23 +1,17 @@
-extern crate crusty;
+use std::io::{stdin, stdout};
 
-use crusty::move_gen::{init_magics, init_non_sliders, generate_all};
-use crusty::position::Position;
-use arrayvec::ArrayVec;
-use crusty::types::{Move, Color};
+use crusty::standard::game::StandardGame;
 
-fn main() {
-    init_magics();
-    init_non_sliders();
-    let pos = Position::new_default();
-    let mut moves: ArrayVec<[Move; 256]> = ArrayVec::new();
-    unsafe { generate_all::<{Color::White}>(&pos, &mut moves); }
-    print_moves(&moves);
-}
+use crate::cli::Cli;
 
-fn print_moves(moves: &ArrayVec<[Move; 256]>) {
-    print!("[ ");
-    for m in moves {
-        print!("{}, ", m)
-    }
-    println!("]");
+mod cli;
+
+fn main() -> std::io::Result<()> {
+    let game = StandardGame::new();
+    let std_in = stdin();
+    let std_out = stdout();
+
+    let cli = Cli::new(game, std_in.lock(), std_out.lock());
+
+    cli.start()
 }
