@@ -1,6 +1,7 @@
 use crate::framework::Game;
 use crate::standard::move_gen::MoveGen;
 use crate::standard::position::Position;
+use crate::framework::fen::FenParseError;
 
 pub struct StandardGame {
     position: Position,
@@ -20,7 +21,7 @@ impl StandardGame {
 }
 
 impl Game for StandardGame {
-    fn perft(mut self, depth: u32) -> u64 {
+    fn perft(&mut self, depth: u32) -> u64 {
         if depth == 0 {
             return 0;
         }
@@ -35,13 +36,18 @@ impl Game for StandardGame {
             for m in moves {
                 unsafe {
                     game.position.make_move(m);
+                    count += inner(game, depth - 1);
+                    game.position.unmake_move();
                 }
-                count += inner(game, depth - 1);
-                game.position.unmake_move();
             }
             count
         }
 
-        inner(&mut self, depth)
+        inner(self, depth)
+    }
+
+    fn set_position(&mut self, fen: &str) -> Result<(), FenParseError> {
+        self.position = Position::from_fen(fen)?;
+        Ok(())
     }
 }

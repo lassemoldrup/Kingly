@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::{BufRead, Write};
 
 use crusty::framework::Game;
+use std::time::Instant;
 
 pub struct Cli<G, I, O> {
     game: G,
@@ -32,27 +33,31 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
 
             match Self::parse_command(&command) {
                 Ok(cmd) => self.execute(cmd)?,
-                Err(err) => self.write(err.0)?,
+                Err(err) => writeln!(self.output, "{}", err.0)?,
             }
         }
     }
 
-    fn write(&mut self, msg: &str) -> std::io::Result<()> {
-        writeln!(self.output, "{}", msg)
-    }
-
     fn print_welcome(&mut self) -> std::io::Result<()> {
-        self.write("Crusty ver. 0.0.1")
+        writeln!(self.output, "Crusty ver. 0.0.1\n")?;
+        writeln!(self.output, "Commands:")?;
+        writeln!(self.output, "uci\t\tStarts UCI mode (UNIMPLEMENTED)")?;
+        writeln!(self.output, "fen arg\t\tSets the position to the given FEN")?;
+        writeln!(self.output, "perft arg\tRuns Perft with the given depth")?;
+        writeln!(self.output)
     }
 
     fn parse_command(command: &str) -> Result<Command, ParseError> {
-        let command: Vec<&str> = command.split_ascii_whitespace().collect();
-        match command[0] {
+        let command_args: Vec<&str> = command.split_ascii_whitespace().collect();
+        match command_args[0] {
             "uci" => Ok(Command::Uci),
             "perft" => Ok(Command::Perft(
-                command.get(1)
+                command_args.get(1)
                     .ok_or(ParseError("Missing argument"))?.parse()
                     .map_err(|_| ParseError("Argument must be a number"))?
+            )),
+            "fen" => Ok(Command::Fen(
+                command[3..].trim().to_string()
             )),
             _ => Err(ParseError("Invalid command"))
         }
@@ -61,8 +66,22 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
     fn execute(&mut self, command: Command) -> std::io::Result<()> {
         match command {
             Command::Uci => unimplemented!(),
-            Command::Perft(_) => self.write("Perft"),
+            Command::Perft(depth) => {
+                writeln!(self.output, "Running Perft with depth {}...", depth)?;
+                let start = Instant::now();
+                let res = self.game.perft(depth);
+                let elapsed = start.elapsed();
+                writeln!(self.output, "Nodes: {}\nTime: {}ms\nNPS: {}",
+                         res, elapsed.as_millis(), ((res as f64)/elapsed.as_secs_f64()))?;
+            },
+            Command::Fen(fen) => {
+                match self.game.set_position(&fen) {
+                    Ok(_) => { },
+                    Err(err) => writeln!(self.output, "{}", err)?,
+                }
+            }
         }
+        writeln!(self.output)
     }
 }
 
@@ -70,6 +89,7 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
 enum Command {
     Uci,
     Perft(u32),
+    Fen(String),
 }
 
 

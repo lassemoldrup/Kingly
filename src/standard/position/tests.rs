@@ -136,3 +136,68 @@ fn en_passant_moves_made_correctly() {
 
     position_matches_fen(position, "rnbqkbnr/ppp1pp1p/3P2p1/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3");
 }
+
+#[test]
+fn regular_moves_unmade_correctly() {
+    let mut position = Position::new();
+
+    unsafe {
+        position.make_move(Move::Regular(Square::E2, Square::E4));
+        position.make_move(Move::Regular(Square::D7, Square::D5));
+        position.make_move(Move::Regular(Square::E4, Square::D5));
+        position.make_move(Move::Regular(Square::D8, Square::D5));
+        position.unmake_move();
+        position.unmake_move();
+        position.unmake_move();
+        position.unmake_move();
+    }
+
+    position_matches_fen(position, STARTING_FEN);
+}
+
+#[test]
+fn castling_moves_unmade_correctly() {
+    let mut position = Position::from_fen("rnbqk2r/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/R3KBNR b KQkq - 5 4")
+        .unwrap();
+
+    unsafe {
+        position.make_move(Move::Castling(Side::KingSide));
+        position.make_move(Move::Castling(Side::QueenSide));
+        position.unmake_move();
+        position.unmake_move();
+    }
+
+    position_matches_fen(position, "rnbqk2r/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/R3KBNR b KQkq - 5 4");
+}
+
+#[test]
+fn promotion_moves_unmade_correctly() {
+    let mut position = Position::from_fen("rnbqkbnr/2ppppPP/8/8/8/8/PppPPP2/RNBQKBNR w KQkq - 0 9")
+        .unwrap();
+
+    unsafe {
+        position.make_move(Move::Promotion(Square::G7, Square::H8, PieceKind::Queen));
+        position.make_move(Move::Promotion(Square::B2, Square::C1, PieceKind::Knight));
+        position.make_move(Move::Promotion(Square::H7, Square::G8, PieceKind::Rook));
+        position.make_move(Move::Promotion(Square::C2, Square::D1, PieceKind::Bishop));
+        position.unmake_move();
+        position.unmake_move();
+        position.unmake_move();
+        position.unmake_move();
+    }
+
+    position_matches_fen(position, "rnbqkbnr/2ppppPP/8/8/8/8/PppPPP2/RNBQKBNR w KQkq - 0 9");
+}
+
+#[test]
+fn en_passant_moves_unmade_correctly() {
+    let mut position = Position::from_fen("rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
+        .unwrap();
+
+    unsafe {
+        position.make_move(Move::EnPassant(Square::E5, Square::D6));
+        position.unmake_move();
+    }
+
+    position_matches_fen(position, "rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+}

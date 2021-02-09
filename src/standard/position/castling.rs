@@ -2,7 +2,7 @@ use crate::framework::Side;
 use crate::framework::color::Color;
 use crate::framework::square::Square;
 
-#[derive(PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct CastlingRights {
     w_king: bool,
     w_queen: bool,

@@ -10,12 +10,12 @@ use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::CastlingRights;
 use std::hint::unreachable_unchecked;
 use crate::framework::direction::Direction;
+use std::fmt::{Debug, Formatter};
 
 #[cfg(test)]
 mod tests;
 mod castling;
 
-#[derive(PartialEq, Debug)]
 pub struct Position {
     pieces: BitboardPieceMap,
     to_move: Color,
@@ -23,6 +23,7 @@ pub struct Position {
     en_passant_sq: Option<Square>,
     ply_clock: u8,
     move_number: u32,
+    history: Vec<Unmake>,
 }
 
 impl Position {
@@ -105,6 +106,7 @@ impl Position {
             en_passant_sq,
             ply_clock,
             move_number,
+            history: Vec::new(),
         })
     }
 
@@ -128,6 +130,14 @@ impl Position {
     /// # Safety
     /// `m` must be a legal move
     pub unsafe fn make_move(&mut self, m: Move) {
+        let mut unmake = Unmake {
+            mv: m,
+            capture: None,
+            castling: self.castling,
+            en_passant_sq: self.en_passant_sq,
+            ply_clock: self.ply_clock,
+        };
+
         self.en_passant_sq = None;
         match m {
             Move::Regular(from, to) => {
@@ -135,6 +145,8 @@ impl Position {
                 let pce = self.pieces.get(from)
                     .unwrap_or_else(|| unreachable_unchecked());
                 let dest_pce = self.pieces.get(to);
+
+                unmake.capture = dest_pce;
 
                 self.pieces.unset_sq(from);
 
@@ -201,6 +213,8 @@ impl Position {
                 self.ply_clock += 1;
             },
             Move::Promotion(from, to, kind) => {
+                unmake.capture = self.pieces.get(to);
+
                 self.pieces.unset_sq(to);
                 self.pieces.set_sq(to, Piece(kind, self.to_move));
                 self.pieces.unset_sq(from);
@@ -229,8 +243,10 @@ impl Position {
             Color::Black => {
                 self.to_move = Color::White;
                 self.move_number += 1;
-            }
+            },
         }
+
+        self.history.push(unmake);
     }
 
     fn remove_castling_on_rook_capture(&mut self, to: Square) {
@@ -243,7 +259,102 @@ impl Position {
     }
 
     /// Unmakes last move
-    pub fn unmake_move(&mut self) {
-        unimplemented!()
+    /// # Safety
+    /// There must be a move to unmake
+    pub unsafe fn unmake_move(&mut self) {
+        debug_assert!(!self.history.is_empty());
+        let unmake = self.history.pop()
+            .unwrap_or_else(|| unreachable_unchecked());
+
+        self.en_passant_sq = unmake.en_passant_sq;
+        self.ply_clock = unmake.ply_clock;
+
+        match self.to_move {
+            Color::White => {
+                self.to_move = Color::Black;
+                self.move_number -= 1;
+            },
+            Color::Black => self.to_move = Color::White,
+        }
+
+        match unmake.mv {
+            Move::Regular(from, to) => {
+                debug_assert!(self.pieces.get(to).is_some());
+                let pce = self.pieces.get(to)
+                    .unwrap_or_else(|| unreachable_unchecked());
+
+                self.pieces.set_sq(from, pce);
+                self.pieces.unset_sq(to);
+                if let Some(cap_pce) = unmake.capture {
+                    self.pieces.set_sq(to, cap_pce);
+                }
+
+                self.castling = unmake.castling;
+
+            },
+            Move::Castling(side) => {
+                let king_sq = match self.to_move {
+                    Color::White => Square::E1,
+                    Color::Black => Square::E8,
+                };
+                let castling_sq = CastlingRights::get_castling_sq(self.to_move, side);
+                let rook_sq = CastlingRights::get_rook_sq(self.to_move, side);
+                let castling_rook_sq = CastlingRights::get_castling_rook_sq(self.to_move, side);
+
+                self.pieces.set_sq(king_sq, Piece(PieceKind::King, self.to_move));
+                self.pieces.set_sq(rook_sq, Piece(PieceKind::Rook, self.to_move));
+                self.pieces.unset_sq(castling_sq);
+                self.pieces.unset_sq(castling_rook_sq);
+
+                self.castling = unmake.castling;
+            },
+            Move::Promotion(from, to, _) => {
+                self.pieces.set_sq(from, Piece(PieceKind::Pawn, self.to_move));
+                self.pieces.unset_sq(to);
+                if let Some(pce) = unmake.capture {
+                    self.pieces.set_sq(to, pce);
+                }
+
+                self.castling = unmake.castling;
+            },
+            Move::EnPassant(from, to) => {
+                let down = match self.to_move {
+                    Color::White => Direction::South,
+                    Color::Black => Direction::North,
+                };
+                let ep_pawn_sq = to.shift(down);
+
+                self.pieces.set_sq(from, Piece(PieceKind::Pawn, self.to_move));
+                self.pieces.unset_sq(to);
+                self.pieces.set_sq(ep_pawn_sq, Piece(PieceKind::Pawn, !self.to_move));
+            }
+        }
     }
+}
+
+impl PartialEq for Position {
+    fn eq(&self, other: &Self) -> bool {
+        self.pieces == other.pieces
+        && self.castling == other.castling
+        && self.to_move == other.to_move
+        && self.en_passant_sq == other.en_passant_sq
+        && self.ply_clock == other.ply_clock
+        && self.move_number == other.move_number
+    }
+}
+
+impl Debug for Position {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}\nto_move: {:?}\ncastling: {:?}\nen_passant_sq: {:?}\nply_clock: {:?}\nmove_number: {:?}",
+               self.pieces, self.to_move, self.castling, self.en_passant_sq, self.ply_clock, self.move_number)
+    }
+}
+
+
+struct Unmake {
+    mv: Move,
+    capture: Option<Piece>,
+    castling: CastlingRights,
+    en_passant_sq: Option<Square>,
+    ply_clock: u8,
 }
