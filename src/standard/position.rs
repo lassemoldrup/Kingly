@@ -127,6 +127,7 @@ impl Position {
     /// # Safety
     /// `m` must be a legal move
     pub unsafe fn make_move(&mut self, m: Move) {
+        self.en_passant_sq = None;
         match m {
             Move::Regular(from, to) => {
                 debug_assert!(self.pieces.get(from).is_some());
@@ -136,8 +137,6 @@ impl Position {
 
                 self.pieces.set_sq(to, pce);
                 self.pieces.unset_sq(from);
-
-                self.en_passant_sq = None;
 
                 if pce.kind() == PieceKind::Pawn {
                     self.ply_clock = 0;
@@ -172,7 +171,25 @@ impl Position {
                     }
                 }
             }
-            Move::Castling(_) => unimplemented!(),
+            Move::Castling(side) => {
+                let king_sq = match self.to_move {
+                    Color::White => Square::E1,
+                    Color::Black => Square::E8,
+                };
+                let castling_sq = CastlingRights::get_castling_sq(self.to_move, side);
+                let rook_sq = CastlingRights::get_rook_sq(self.to_move, side);
+                let castling_rook_sq = CastlingRights::get_castling_rook_sq(self.to_move, side);
+
+                self.pieces.set_sq(castling_sq, Piece(PieceKind::King, self.to_move));
+                self.pieces.set_sq(castling_rook_sq, Piece(PieceKind::Rook, self.to_move));
+                self.pieces.unset_sq(king_sq);
+                self.pieces.unset_sq(rook_sq);
+
+                self.castling.set(self.to_move, Side::KingSide, false);
+                self.castling.set(self.to_move, Side::QueenSide, false);
+
+                self.ply_clock += 1;
+            },
             Move::Promotion(_, _, _) => unimplemented!(),
             Move::EnPassant(_, _) => unimplemented!(),
         }
