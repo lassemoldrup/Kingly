@@ -15,6 +15,7 @@ use crate::framework::direction::Direction;
 mod tests;
 mod castling;
 
+#[derive(PartialEq, Debug)]
 pub struct Position {
     pieces: BitboardPieceMap,
     to_move: Color,
@@ -135,10 +136,14 @@ impl Position {
                     .unwrap_or_else(|| unreachable_unchecked());
                 let dest_pce = self.pieces.get(to);
 
-                self.pieces.set_sq(to, pce);
                 self.pieces.unset_sq(from);
 
+                self.remove_castling_on_rook_capture(to);
+
                 if pce.kind() == PieceKind::Pawn {
+                    self.pieces.unset_sq(to);
+                    self.pieces.set_sq(to, pce);
+
                     self.ply_clock = 0;
 
                     let (snd_rank, frth_rank, up) = match self.to_move {
@@ -150,6 +155,17 @@ impl Position {
                         self.en_passant_sq = Some(Square::from_unchecked((from as i8 + up as i8) as u8));
                     }
                 } else {
+                    if dest_pce.is_some() {
+                        self.pieces.unset_sq(to);
+                        self.pieces.set_sq(to, pce);
+
+                        self.ply_clock = 0;
+                    } else {
+                        self.pieces.set_sq(to, pce);
+
+                        self.ply_clock += 1;
+                    }
+
                     let (king_sq, king_rook_sq, queen_rook_sq) = match self.to_move {
                         Color::White => (Square::E1, Square::H1, Square::A1),
                         Color::Black => (Square::E1, Square::H1, Square::A1),
@@ -162,12 +178,6 @@ impl Position {
                     } else if from == king_sq {
                         self.castling.set(self.to_move, Side::KingSide, false);
                         self.castling.set(self.to_move, Side::QueenSide, false);
-                    }
-
-                    if dest_pce.is_some() {
-                        self.ply_clock = 0;
-                    } else {
-                        self.ply_clock += 1;
                     }
                 }
             }
@@ -190,8 +200,28 @@ impl Position {
 
                 self.ply_clock += 1;
             },
-            Move::Promotion(_, _, _) => unimplemented!(),
-            Move::EnPassant(_, _) => unimplemented!(),
+            Move::Promotion(from, to, kind) => {
+                self.pieces.unset_sq(to);
+                self.pieces.set_sq(to, Piece(kind, self.to_move));
+                self.pieces.unset_sq(from);
+
+                self.remove_castling_on_rook_capture(to);
+
+                self.ply_clock = 0;
+            },
+            Move::EnPassant(from, to) => {
+                let down = match self.to_move {
+                    Color::White => Direction::South,
+                    Color::Black => Direction::North,
+                };
+
+                self.pieces.set_sq(to, Piece(PieceKind::Pawn, self.to_move));
+                self.pieces.unset_sq(from);
+                let ep_pawn_sq = to.shift(down);
+                self.pieces.unset_sq(ep_pawn_sq);
+
+                self.ply_clock = 0;
+            },
         }
 
         match self.to_move {
@@ -200,6 +230,15 @@ impl Position {
                 self.to_move = Color::White;
                 self.move_number += 1;
             }
+        }
+    }
+
+    fn remove_castling_on_rook_capture(&mut self, to: Square) {
+        let opp = !self.to_move;
+        if to == CastlingRights::get_rook_sq(opp, Side::KingSide) {
+            self.castling.set(opp, Side::KingSide, false);
+        } else if to == CastlingRights::get_rook_sq(opp, Side::QueenSide) {
+            self.castling.set(opp, Side::QueenSide, false);
         }
     }
 

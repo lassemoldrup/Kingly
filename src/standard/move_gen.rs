@@ -331,7 +331,9 @@ impl MoveGen {
 
         fn add_regulars(move_gen: &MoveGen, bb: Bitboard, dir: Direction, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
             for to in bb {
-                let from = to << dir;
+                let from = unsafe {
+                    to.shift(-dir)
+                };
 
                 if move_gen.is_prohibited_by_pin(from, to, king_sq, pin_rays) {
                     continue;
@@ -343,7 +345,9 @@ impl MoveGen {
 
         fn add_promos(move_gen: &MoveGen, bb: Bitboard, dir: Direction, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
             for to in bb {
-                let from = to << dir;
+                let from = unsafe {
+                    to.shift(-dir)
+                };
 
                 if move_gen.is_prohibited_by_pin(from, to, king_sq, pin_rays) {
                     continue;
@@ -368,7 +372,9 @@ impl MoveGen {
         add_regulars(self, fwd_no_promo, up, pin_rays, king_sq, moves);
         add_promos(self, fwd_promo, up, pin_rays, king_sq, moves);
         for to in fwd2 {
-            let from = to << up << up;
+            let from = unsafe {
+                to.shift(-up).shift(-up)
+            };
 
             if self.is_prohibited_by_pin(from, to, king_sq, pin_rays) {
                 continue;
@@ -394,8 +400,12 @@ impl MoveGen {
         add_promos(self, right_atk_promo, up_right, pin_rays, king_sq, moves);
 
         // En passant
-        fn add_en_passant(move_gen: &MoveGen, position: &Position, from: Square, to: Square,
+        fn add_en_passant(move_gen: &MoveGen, position: &Position, dir: Direction, to: Square,
                           ep_pawn_sq: Square, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
+            let from = unsafe {
+                to.shift(-dir)
+            };
+
             let fifth_rank = Bitboard::RANKS[from.rank() as usize];
             let opp_rooks = position.pieces().get_bb(Piece(PieceKind::Rook, !position.to_move()));
             let opp_queens = position.pieces().get_bb(Piece(PieceKind::Queen, !position.to_move()));
@@ -412,19 +422,19 @@ impl MoveGen {
         if let Some(sq) = position.en_passant_sq() {
             let ep_square_bb = bb!(sq);
 
-            let ep_pawn_sq = sq << up;
+            let ep_pawn_sq = unsafe {
+                sq.shift(-up)
+            };
 
             // Note: It will never be possible to block a check with en passant as the opponent's
             //       last move will have to have been a pawn move, which doesn't allow for a
             //       blockable discovered check
             if blocking_sqs.contains(ep_pawn_sq) {
                 if !((left & ep_square_bb).is_empty()) {
-                    let from = sq << up_left;
-                    add_en_passant(self, position, from, sq, ep_pawn_sq, pin_rays, king_sq, moves);
+                    add_en_passant(self, position, up_left, sq, ep_pawn_sq, pin_rays, king_sq, moves);
                 }
                 if !((right & ep_square_bb).is_empty()) {
-                    let from = sq << up_right;
-                    add_en_passant(self, position, from, sq, ep_pawn_sq, pin_rays, king_sq, moves);
+                    add_en_passant(self, position, up_right, sq, ep_pawn_sq, pin_rays, king_sq, moves);
                 }
             }
 

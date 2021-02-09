@@ -1,19 +1,19 @@
 use std::ops::Not;
+use std::mem::transmute;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
+#[repr(u8)]
 pub enum Color {
-    White,
-    Black,
+    White = 0,
+    Black = !0,
 }
 
 impl Not for Color {
     type Output = Self;
 
-    // TODO: Optimise
     fn not(self) -> Self::Output {
-        match self {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
+        unsafe {
+            transmute(!(self as u8))
         }
     }
 }

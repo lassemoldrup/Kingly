@@ -4,6 +4,7 @@ use crate::framework::fen::STARTING_FEN;
 use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::standard::position::Position;
+use crate::framework::moves::Move;
 
 #[test]
 fn pieces_placed_correctly_in_starting_pos_fen() {
@@ -74,4 +75,64 @@ fn move_number_parsed_correctly_from_fen() {
 
     let position = Position::from_fen("rnbqkb1r/pppppppp/8/8/3Nn3/8/PPPPPPPP/RNBQKB1R w KQkq - 4 3").unwrap();
     assert_eq!(position.move_number, 3);
+}
+
+fn position_matches_fen(position: Position, fen: &str) {
+    let fen_pos = Position::from_fen(fen).unwrap();
+
+    assert_eq!(position, fen_pos)
+}
+
+#[test]
+fn regular_move_made_correctly() {
+    let mut position = Position::new();
+
+    unsafe {
+        position.make_move(Move::Regular(Square::E2, Square::E4));
+        position.make_move(Move::Regular(Square::D7, Square::D5));
+        position.make_move(Move::Regular(Square::E4, Square::D5));
+        position.make_move(Move::Regular(Square::D8, Square::D5));
+    }
+
+    position_matches_fen(position, "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3");
+}
+
+#[test]
+fn castling_move_made_correctly() {
+    let mut position = Position::from_fen("rnbqk2r/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/R3KBNR b KQkq - 5 4")
+        .unwrap();
+
+    unsafe {
+        position.make_move(Move::Castling(Side::KingSide));
+        position.make_move(Move::Castling(Side::QueenSide));
+    }
+
+    position_matches_fen(position, "rnbq1rk1/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/2KR1BNR b - - 7 5");
+}
+
+#[test]
+fn promotion_moves_made_correctly() {
+    let mut position = Position::from_fen("rnbqkbnr/2ppppPP/8/8/8/8/PppPPP2/RNBQKBNR w KQkq - 0 9")
+        .unwrap();
+
+    unsafe {
+        position.make_move(Move::Promotion(Square::G7, Square::H8, PieceKind::Queen));
+        position.make_move(Move::Promotion(Square::B2, Square::C1, PieceKind::Knight));
+        position.make_move(Move::Promotion(Square::H7, Square::G8, PieceKind::Rook));
+        position.make_move(Move::Promotion(Square::C2, Square::D1, PieceKind::Bishop));
+    }
+
+    position_matches_fen(position, "rnbqkbRQ/2pppp2/8/8/8/8/P2PPP2/RNnbKBNR w KQq - 0 11");
+}
+
+#[test]
+fn en_passant_moves_made_correctly() {
+    let mut position = Position::from_fen("rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
+        .unwrap();
+
+    unsafe {
+        position.make_move(Move::EnPassant(Square::E5, Square::D6));
+    }
+
+    position_matches_fen(position, "rnbqkbnr/ppp1pp1p/3P2p1/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3");
 }

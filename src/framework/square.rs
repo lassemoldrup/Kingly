@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::mem;
-use std::ops::{Add, Shl, Shr};
+use std::ops::Add;
 
 use crate::framework::direction::Direction;
 use crate::framework::square_vec::SquareVec;
@@ -22,6 +22,7 @@ impl Square {
     /// # Safety
     /// `value` must be a valid square index
     pub unsafe fn from_unchecked(value: u8) -> Self {
+        debug_assert!(value < 64);
         mem::transmute(value)
     }
 
@@ -35,6 +36,12 @@ impl Square {
 
     pub fn file(self) -> u8 {
         self as u8 % 8
+    }
+
+    /// # Safety
+    /// Result must be a valid `Square`
+    pub unsafe fn shift(self, dir: Direction) -> Self {
+        Self::from_unchecked((self as i8 + dir as i8) as u8)
     }
 }
 
@@ -66,25 +73,6 @@ impl TryFrom<&str> for Square {
     }
 }
 
-// TODO: Maybe replace completely with SquareVec?
-impl Shr<Direction> for Square {
-    type Output = Self;
-
-    fn shr(self, rhs: Direction) -> Self::Output {
-        Self::try_from((self as i32 + rhs as i32) as u8)
-            .expect("Resulting square outside the board")
-    }
-}
-
-impl Shl<Direction> for Square {
-    type Output = Self;
-
-    fn shl(self, rhs: Direction) -> Self::Output {
-        Self::try_from((self as i32 - rhs as i32) as u8)
-            .expect("Resulting square outside the board")
-    }
-}
-
 //TODO: Optimize?
 impl Add<SquareVec> for Square {
     type Output = Option<Square>;
@@ -94,7 +82,9 @@ impl Add<SquareVec> for Square {
         let file = self.file() as i8 + rhs.1;
 
         if matches!(rank, 0..=7) && matches!(file, 0..=7) {
-            unsafe { Some(Square::from_unchecked((8 * rank + file) as u8)) }
+            unsafe {
+                Some(Square::from_unchecked((8 * rank + file) as u8))
+            }
         } else {
             None
         }

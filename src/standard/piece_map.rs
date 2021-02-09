@@ -4,7 +4,10 @@ use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
 use crate::bb;
+use std::fmt::{Debug, Formatter, Display};
+use std::convert::TryFrom;
 
+#[derive(PartialEq, Debug)]
 pub struct BitboardPieceMap {
     white_pieces: PieceBoards,
     black_pieces: PieceBoards,
@@ -58,6 +61,7 @@ impl BitboardPieceMap {
             Color::Black => self.black_pieces.set_sq(pce.kind(), sq),
         }
         self.occupied = self.occupied.add_sq(sq);
+
         self.map[sq] = Some(pce);
     }
 
@@ -70,6 +74,25 @@ impl BitboardPieceMap {
     }
 }
 
+impl Display for BitboardPieceMap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f)?;
+        for rank in (0..8).rev() {
+            for file in 0..8 {
+                let sq = Square::try_from(8 * rank + file).unwrap();
+                match self.get(sq) {
+                    None => write!(f, ". ")?,
+                    Some(pce) => write!(f, "{} ", pce)?,
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
+
+#[derive(PartialEq, Debug)]
 struct PieceBoards {
     pawn: Bitboard,
     knight: Bitboard,

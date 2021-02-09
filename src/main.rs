@@ -7,6 +7,8 @@ use crate::cli::Cli;
 mod cli;
 
 fn main() -> std::io::Result<()> {
+    println!("{}", -5i8 as u8);
+
     let game = StandardGame::new();
     let std_in = stdin();
     let std_out = stdout();

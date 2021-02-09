@@ -2,6 +2,8 @@ use std::iter::{Enumerate, FusedIterator, Map};
 use std::ops::{Index, IndexMut};
 
 use crate::framework::square::Square;
+use std::fmt::{Debug, Formatter};
+use std::convert::TryFrom;
 
 #[derive(Copy, Clone)]
 pub struct SquareMap<T>([T; 64]);
@@ -37,6 +39,27 @@ impl<T> Index<Square> for SquareMap<T> {
 impl<T> IndexMut<Square> for SquareMap<T> {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
         unsafe { self.0.get_unchecked_mut(index as usize) }
+    }
+}
+
+impl<T: PartialEq> PartialEq for SquareMap<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.iter().zip(other.0.iter())
+            .all(|(x, y)| *x == *y)
+    }
+}
+
+impl<T: Debug> Debug for SquareMap<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f)?;
+        for rank in (0..8).rev() {
+            for file in 0..8 {
+                let sq = Square::try_from(8 * rank + file).unwrap();
+                write!(f, "{:?} ", self[sq])?;
+            }
+            writeln!(f)?;
+        }
+        Ok(())
     }
 }
 

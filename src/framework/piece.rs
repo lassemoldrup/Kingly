@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 
 use crate::framework::color::Color;
+use std::fmt::{Display, Formatter};
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum PieceKind {
@@ -24,6 +25,19 @@ impl TryFrom<char> for PieceKind {
             'q' => Ok(PieceKind::Queen),
             'k' => Ok(PieceKind::King),
             _ => Err("Invalid piece character"),
+        }
+    }
+}
+
+impl Display for PieceKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PieceKind::Pawn => write!(f, "p"),
+            PieceKind::Knight => write!(f, "n"),
+            PieceKind::Bishop => write!(f, "b"),
+            PieceKind::Rook => write!(f, "r"),
+            PieceKind::Queen => write!(f, "q"),
+            PieceKind::King => write!(f, "k"),
         }
     }
 }
@@ -56,5 +70,14 @@ impl TryFrom<char> for Piece {
         };
 
         Ok(Piece(kind, color))
+    }
+}
+
+impl Display for Piece {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.color() {
+            Color::White => write!(f, "{}", format!("{}", self.kind()).to_ascii_uppercase()),
+            Color::Black => write!(f, "{}", self.kind())
+        }
     }
 }
