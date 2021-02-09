@@ -29,6 +29,7 @@ pub enum Move {
     }
 }*/
 
+#[derive(Debug)]
 pub struct MoveList(ArrayVec<[Move; 256]>);
 
 impl MoveList {

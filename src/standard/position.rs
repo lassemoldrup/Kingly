@@ -172,18 +172,18 @@ impl Position {
                         self.ply_clock += 1;
                     }
                 }
-
-                match self.to_move {
-                    Color::White => self.to_move = Color::Black,
-                    Color::Black => {
-                        self.to_move = Color::White;
-                        self.move_number += 1;
-                    }
-                }
             }
             Move::Castling(_) => unimplemented!(),
             Move::Promotion(_, _, _) => unimplemented!(),
             Move::EnPassant(_, _) => unimplemented!(),
+        }
+
+        match self.to_move {
+            Color::White => self.to_move = Color::Black,
+            Color::Black => {
+                self.to_move = Color::White;
+                self.move_number += 1;
+            }
         }
     }
 

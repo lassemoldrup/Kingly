@@ -31,7 +31,9 @@ pub struct MoveGen {
     slider_attacks: Vec<Bitboard>,
     bishop_offsets: SquareMap<usize>,
     rook_offsets: SquareMap<usize>,
-    line_between: SquareMap<SquareMap<Bitboard>>,
+    line_through: SquareMap<SquareMap<Bitboard>>, // The entire line between two squares, empty bb if not on line
+    ray_to: SquareMap<SquareMap<Bitboard>>, // All the squares between two squares, includes the
+                                            // destination square, empty bb if not on a line
 }
 
 impl MoveGen {
@@ -42,7 +44,8 @@ impl MoveGen {
         let king_attacks = Self::init_king_attacks();
         let bishop_masks = Self::init_bishop_masks();
         let rook_masks = Self::init_rook_masks();
-        let line_between = Self::init_line_between();
+        let line_through = Self::init_line_through();
+        let ray_to = Self::init_ray_to();
 
         let mut move_gen = MoveGen {
             danger_sqs: Bitboard::new(),
@@ -55,7 +58,8 @@ impl MoveGen {
             slider_attacks: Vec::new(),
             bishop_offsets: SquareMap::new([0; 64]),
             rook_offsets: SquareMap::new([0; 64]),
-            line_between,
+            line_through,
+            ray_to,
         };
 
         move_gen.init_slider_attacks();
@@ -230,7 +234,7 @@ impl MoveGen {
         }
     }
 
-    fn init_line_between() -> SquareMap<SquareMap<Bitboard>> {
+    fn init_line_through() -> SquareMap<SquareMap<Bitboard>> {
         let mut table = SquareMap::new([SquareMap::new([Bitboard::new(); 64]); 64]);
 
         for from in Square::iter() {
@@ -239,6 +243,41 @@ impl MoveGen {
 
             for to in Square::iter() {
                 if from == to {
+                    continue;
+                }
+
+                let to_rank = to.rank() as i8;
+                let to_file = to.file() as i8;
+                let delta_rank = to_rank - from_rank;
+                let delta_file = to_file - from_file;
+
+                if from_rank == to_rank {
+                    table[from][to] = Bitboard::RANKS[from.rank() as usize];
+                } else if from_file == to_file {
+                    table[from][to] = Bitboard::FILES[from.file() as usize];
+                } else if delta_rank == delta_file {
+                    let diag_idx = (7 + from_rank - from_file) as usize;
+                    table[from][to] = Bitboard::DIAGS[diag_idx];
+                } else if delta_rank == -delta_file {
+                    let anit_diag_idx = (from_rank + from_file) as usize;
+                    table[from][to] = Bitboard::ANTI_DIAGS[anit_diag_idx];
+                }
+            }
+        }
+
+        table
+    }
+
+    fn init_ray_to() -> SquareMap<SquareMap<Bitboard>> {
+        let mut table = SquareMap::new([SquareMap::new([Bitboard::new(); 64]); 64]);
+
+        for from in Square::iter() {
+            let from_rank = from.rank() as i8;
+            let from_file = from.file() as i8;
+
+            for to in Square::iter() {
+                if from == to {
+                    table[from][to] = bb!(to);
                     continue;
                 }
 
@@ -256,20 +295,30 @@ impl MoveGen {
 
                 let mut rank = from_rank + rank_step;
                 let mut file = from_file + file_step;
-                while rank != to_rank && file != to_file {
+                while rank != to_rank || file != to_file {
                     let sq = Square::try_from((8 * rank + file) as u8).unwrap();
                     table[from][to] = table[from][to].add_sq(sq);
 
                     rank += rank_step;
                     file += file_step;
                 }
+                table[from][to] = table[from][to].add_sq(to);
             }
         }
 
         table
     }
 
-    fn gen_pawn_moves(&self, position: &Position, blocking_sqs: Bitboard, moves: &mut MoveList) {
+    fn is_prohibited_by_pin(&self, from: Square, to: Square, king_sq: Square, pin_rays: Bitboard) -> bool {
+        if pin_rays.contains(from) {
+            let pin_ray = pin_rays & self.line_through[from][king_sq];
+            !pin_ray.contains(to)
+        } else {
+            false
+        }
+    }
+
+    fn gen_pawn_moves(&self, position: &Position, blocking_sqs: Bitboard, pin_rays: Bitboard, moves: &mut MoveList) {
         let pawns = position.pieces().get_bb(Piece(PieceKind::Pawn, position.to_move()));
 
         if pawns.is_empty() {
@@ -281,21 +330,34 @@ impl MoveGen {
             Color::Black => (Direction::South, Direction::SouthEast, Direction::SouthWest, Bitboard::RANKS[4], Bitboard::RANKS[0]),
         };
 
-        fn add_regulars(bb: Bitboard, dir: Direction, moves: &mut MoveList) {
-            for sq in bb {
-                moves.push(Move::Regular(sq << dir, sq));
+        fn add_regulars(move_gen: &MoveGen, bb: Bitboard, dir: Direction, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
+            for to in bb {
+                let from = to << dir;
+
+                if move_gen.is_prohibited_by_pin(from, to, king_sq, pin_rays) {
+                    continue;
+                }
+
+                moves.push(Move::Regular(from, to));
             }
         }
 
-        fn add_promos(bb: Bitboard, dir: Direction, moves: &mut MoveList) {
-            for sq in bb {
-                let orig = sq << dir;
-                moves.push(Move::Promotion(orig, sq, PieceKind::Queen));
-                moves.push(Move::Promotion(orig, sq, PieceKind::Rook));
-                moves.push(Move::Promotion(orig, sq, PieceKind::Bishop));
-                moves.push(Move::Promotion(orig, sq, PieceKind::Knight));
+        fn add_promos(move_gen: &MoveGen, bb: Bitboard, dir: Direction, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
+            for to in bb {
+                let from = to << dir;
+
+                if move_gen.is_prohibited_by_pin(from, to, king_sq, pin_rays) {
+                    continue;
+                }
+
+                moves.push(Move::Promotion(from, to, PieceKind::Queen));
+                moves.push(Move::Promotion(from, to, PieceKind::Knight));
+                moves.push(Move::Promotion(from, to, PieceKind::Rook));
+                moves.push(Move::Promotion(from, to, PieceKind::Bishop));
             }
         }
+
+        let king_sq = position.pieces().get_king_sq(position.to_move());
 
         // Forward
         let legal_fwd = !position.pieces().get_occ() & blocking_sqs;
@@ -304,10 +366,17 @@ impl MoveGen {
         let fwd_promo = fwd & last_rank;
         let fwd2 = (fwd >> up) & fourth_rank & legal_fwd;
 
-        add_regulars(fwd_no_promo, up, moves);
-        add_promos(fwd_promo, up, moves);
-        fwd2.into_iter()
-            .for_each(|sq| moves.push(Move::Regular(sq << up << up, sq)));
+        add_regulars(self, fwd_no_promo, up, pin_rays, king_sq, moves);
+        add_promos(self, fwd_promo, up, pin_rays, king_sq, moves);
+        for to in fwd2 {
+            let from = to << up << up;
+
+            if self.is_prohibited_by_pin(from, to, king_sq, pin_rays) {
+                continue;
+            }
+
+            moves.push(Move::Regular(from, to));
+        }
 
         // Attacks
         let legal_atk = position.pieces().get_occ_for(!position.to_move()) & blocking_sqs;
@@ -320,32 +389,51 @@ impl MoveGen {
         let left_atk_promo = left_atk & last_rank;
         let right_atk_promo = right_atk & last_rank;
 
-        add_regulars(left_atk_no_promo, up_left, moves);
-        add_regulars(right_atk_no_promo, up_right, moves);
-        add_promos(left_atk_promo, up_left, moves);
-        add_promos(right_atk_promo, up_right, moves);
+        add_regulars(self, left_atk_no_promo, up_left, pin_rays, king_sq, moves);
+        add_regulars(self, right_atk_no_promo, up_right, pin_rays, king_sq, moves);
+        add_promos(self, left_atk_promo, up_left, pin_rays, king_sq, moves);
+        add_promos(self, right_atk_promo, up_right, pin_rays, king_sq, moves);
 
         // En passant
+        fn add_en_passant(move_gen: &MoveGen, position: &Position, from: Square, to: Square,
+                          ep_pawn_sq: Square, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
+            let fifth_rank = Bitboard::RANKS[from.rank() as usize];
+            let opp_rooks = position.pieces().get_bb(Piece(PieceKind::Rook, !position.to_move()));
+            let opp_queens = position.pieces().get_bb(Piece(PieceKind::Queen, !position.to_move()));
+            let occ = position.pieces().get_occ() - bb!(from, ep_pawn_sq);
+            let ep_pinners = move_gen.gen_rook_attacks(occ, king_sq) & fifth_rank & (opp_rooks | opp_queens);
+
+            if move_gen.is_prohibited_by_pin(from, to, king_sq, pin_rays) || !ep_pinners.is_empty() {
+                return;
+            }
+
+            moves.push(Move::EnPassant(from, to));
+        }
+
         if let Some(sq) = position.en_passant_sq() {
             let ep_square_bb = bb!(sq);
+
+            let ep_pawn_sq = sq << up;
 
             // Note: It will never be possible to block a check with en passant as the opponent's
             //       last move will have to have been a pawn move, which doesn't allow for a
             //       blockable discovered check
-            if blocking_sqs.contains(sq << up) {
+            if blocking_sqs.contains(ep_pawn_sq) {
                 if !((left & ep_square_bb).is_empty()) {
-                    moves.push(Move::EnPassant(sq << up_left, sq));
+                    let from = sq << up_left;
+                    add_en_passant(self, position, from, sq, ep_pawn_sq, pin_rays, king_sq, moves);
                 }
                 if !((right & ep_square_bb).is_empty()) {
-                    moves.push(Move::EnPassant(sq << up_right, sq));
+                    let from = sq << up_right;
+                    add_en_passant(self, position, from, sq, ep_pawn_sq, pin_rays, king_sq, moves);
                 }
             }
 
         }
     }
 
-    fn gen_bishop_attacks(&self, position: &Position, sq: Square) -> Bitboard {
-        let occ: u64 = position.pieces().get_occ().into();
+    fn gen_bishop_attacks(&self, occ: Bitboard, sq: Square) -> Bitboard {
+        let occ: u64 = occ.into();
         let key = occ.pext(self.bishop_masks[sq].into()) as usize;
         let offset = self.bishop_offsets[sq];
         unsafe {
@@ -354,8 +442,8 @@ impl MoveGen {
         }
     }
 
-    fn gen_rook_attacks(&self, position: &Position, sq: Square) -> Bitboard {
-        let occ: u64 = position.pieces().get_occ().into();
+    fn gen_rook_attacks(&self, occ: Bitboard, sq: Square) -> Bitboard {
+        let occ: u64 = occ.into();
         let key = occ.pext(self.rook_masks[sq].into()) as usize;
         let offset = self.rook_offsets[sq];
         unsafe {
@@ -363,54 +451,63 @@ impl MoveGen {
         }
     }
 
-    fn gen_attacks_from_sq(&self, position: &Position, pce: Piece, sq: Square) -> Bitboard {
+    fn gen_attacks_from_sq(&self, occ: Bitboard, pce: Piece, sq: Square) -> Bitboard {
         match pce.kind() {
             PieceKind::Pawn => match pce.color() {
                 Color::White => self.white_pawn_attacks[sq],
                 Color::Black => self.black_pawn_attacks[sq],
             },
             PieceKind::Knight => self.knight_attacks[sq],
-            PieceKind::Bishop => self.gen_bishop_attacks(position, sq),
-            PieceKind::Rook => self.gen_rook_attacks(position, sq),
-            PieceKind::Queen => self.gen_bishop_attacks(position, sq) | self.gen_rook_attacks(position, sq),
+            PieceKind::Bishop => self.gen_bishop_attacks(occ, sq),
+            PieceKind::Rook => self.gen_rook_attacks(occ, sq),
+            PieceKind::Queen =>
+                self.gen_bishop_attacks(occ, sq)
+                | self.gen_rook_attacks(occ, sq),
             PieceKind::King => self.king_attacks[sq],
         }
     }
 
-    fn gen_attacks(&self, position: &Position, pce: Piece) -> Bitboard {
+    fn gen_attacks(&self, pce_bb: Bitboard, occ: Bitboard, pce: Piece) -> Bitboard {
         match pce.kind() {
             PieceKind::Pawn => {
-                let pawns = position.pieces().get_bb(pce);
                 let (left, right) = match pce.color() {
                     Color::White => (Direction::NorthWest, Direction::NorthEast),
                     Color::Black => (Direction::SouthEast, Direction::SouthWest),
                 };
-                (pawns >> left) | (pawns >> right)
+                (pce_bb >> left) | (pce_bb >> right)
             },
-            _ => {
-                let pieces = position.pieces().get_bb(pce);
-                pieces.into_iter()
-                    .fold(Bitboard::new(), |atks, sq| atks | self.gen_attacks_from_sq(position, pce, sq))
-            }
+            _ => pce_bb.into_iter()
+                .fold(Bitboard::new(), |atks, sq| atks | self.gen_attacks_from_sq(occ, pce, sq))
         }
     }
 
     fn gen_danger_sqs(&mut self, position: &Position) {
         let opponent = !position.to_move();
+        let pawn_pce = Piece(PieceKind::Pawn, opponent);
+        let knight_pce = Piece(PieceKind::Knight, opponent);
+        let bishop_pce = Piece(PieceKind::Bishop, opponent);
+        let rook_pce = Piece(PieceKind::Rook, opponent);
+        let queen_pce = Piece(PieceKind::Queen, opponent);
+        let king_pce = Piece(PieceKind::King, opponent);
+        // Avoid allowing the king to step backwards away from a checking sliding piece
+        let occ = position.pieces().get_occ()
+            - position.pieces().get_bb(Piece(PieceKind::King, position.to_move()));
 
-        self.danger_sqs = self.gen_attacks(position, Piece(PieceKind::Pawn, opponent))
-            | self.gen_attacks(position, Piece(PieceKind::Knight, opponent))
-            | self.gen_attacks(position, Piece(PieceKind::Bishop, opponent))
-            | self.gen_attacks(position, Piece(PieceKind::Rook, opponent))
-            | self.gen_attacks(position, Piece(PieceKind::Queen, opponent))
-            | self.gen_attacks(position, Piece(PieceKind::King, opponent));
+        self.danger_sqs = self.gen_attacks(position.pieces().get_bb(pawn_pce), occ, pawn_pce)
+            | self.gen_attacks(position.pieces().get_bb(knight_pce), occ, knight_pce)
+            | self.gen_attacks(position.pieces().get_bb(bishop_pce), occ, bishop_pce)
+            | self.gen_attacks(position.pieces().get_bb(rook_pce), occ, rook_pce)
+            | self.gen_attacks(position.pieces().get_bb(queen_pce), occ, queen_pce)
+            | self.gen_attacks(position.pieces().get_bb(king_pce), occ, king_pce);
     }
 
     /// Generates all non-pawn moves for the given `PieceKind` `kind`, except castling moves
-    fn gen_non_pawn_moves(&self, position: &Position, kind: PieceKind, blocking_sqs: Bitboard, moves: &mut MoveList) {
+    fn gen_non_pawn_moves(&self, position: &Position, kind: PieceKind, blocking_sqs: Bitboard, pin_rays: Bitboard, moves: &mut MoveList) {
         let pce = Piece(kind, position.to_move());
         let pieces = position.pieces().get_bb(pce);
 
+        let occ = position.pieces().get_occ();
+        let king_sq = position.pieces().get_king_sq(position.to_move());
         let own_occ = position.pieces().get_occ_for(position.to_move());
         let mut legal_sqs = !own_occ & blocking_sqs;
 
@@ -419,7 +516,12 @@ impl MoveGen {
         }
 
         for from in pieces {
-            let legal_atks = self.gen_attacks_from_sq(position, pce, from) & legal_sqs;
+            if pce.kind() != PieceKind::King && pin_rays.contains(from) {
+                let pin_ray = pin_rays & self.line_through[from][king_sq];
+                legal_sqs &= pin_ray;
+            }
+
+            let legal_atks = self.gen_attacks_from_sq(occ, pce, from) & legal_sqs;
 
             for to in legal_atks {
                 moves.push(Move::Regular(from, to));
@@ -454,29 +556,64 @@ impl MoveGen {
 
     fn checkers(&self, position: &Position) -> Bitboard {
         let king_sq = position.pieces().get_king_sq(position.to_move());
+        let occ = position.pieces().get_occ();
 
         let pawn_pce = Piece(PieceKind::Pawn, !position.to_move());
         let opp_pawns = position.pieces().get_bb(pawn_pce);
         let our_pawn_pce = Piece(PieceKind::Pawn, position.to_move());
-        let pawn_checkers = self.gen_attacks_from_sq(position, our_pawn_pce, king_sq) & opp_pawns;
+        let pawn_checkers = self.gen_attacks_from_sq(occ, our_pawn_pce, king_sq) & opp_pawns;
 
         let knight_pce = Piece(PieceKind::Knight, !position.to_move());
         let opp_knights = position.pieces().get_bb(knight_pce);
-        let knight_checkers = self.gen_attacks_from_sq(position, knight_pce, king_sq) & opp_knights;
-
-        let bishop_pce = Piece(PieceKind::Bishop, !position.to_move());
-        let opp_bishops = position.pieces().get_bb(bishop_pce);
-        let bishop_checkers = self.gen_attacks_from_sq(position, bishop_pce, king_sq) & opp_bishops;
-
-        let rook_pce = Piece(PieceKind::Rook, !position.to_move());
-        let opp_rooks = position.pieces().get_bb(rook_pce);
-        let rook_checkers = self.gen_attacks_from_sq(position, rook_pce, king_sq) & opp_rooks;
+        let knight_checkers = self.gen_attacks_from_sq(occ, knight_pce, king_sq) & opp_knights;
 
         let queen_pce = Piece(PieceKind::Queen, !position.to_move());
         let opp_queens = position.pieces().get_bb(queen_pce);
-        let queen_checkers = self.gen_attacks_from_sq(position, queen_pce, king_sq) & opp_queens;
 
-        pawn_checkers | knight_checkers | bishop_checkers | rook_checkers | queen_checkers
+        let bishop_pce = Piece(PieceKind::Bishop, !position.to_move());
+        let opp_bishops = position.pieces().get_bb(bishop_pce);
+        let bishop_queen_checkers = self.gen_attacks_from_sq(occ, bishop_pce, king_sq)
+            & (opp_bishops | opp_queens);
+
+        let rook_pce = Piece(PieceKind::Rook, !position.to_move());
+        let opp_rooks = position.pieces().get_bb(rook_pce);
+        let rook_queen_checkers = self.gen_attacks_from_sq(occ, rook_pce, king_sq)
+            & (opp_rooks | opp_queens);
+
+        pawn_checkers | knight_checkers | bishop_queen_checkers | rook_queen_checkers
+    }
+
+    fn pin_rays(&self, position: &Position) -> Bitboard {
+        let king_sq = position.pieces().get_king_sq(position.to_move());
+
+        let bishop_pce = Piece(PieceKind::Bishop, !position.to_move());
+        let rook_pce = Piece(PieceKind::Rook, !position.to_move());
+        let queen_pce = Piece(PieceKind::Queen, !position.to_move());
+
+        let opp_bishops = position.pieces().get_bb(bishop_pce);
+        let opp_rooks = position.pieces().get_bb(rook_pce);
+        let opp_queens = position.pieces().get_bb(queen_pce);
+        let opp_occ = position.pieces().get_occ_for(!position.to_move());
+
+        let bishop_queen_pinners = self.gen_bishop_attacks(opp_occ, king_sq)
+            & (opp_bishops | opp_queens);
+        let rook_queen_pinners = self.gen_rook_attacks(opp_occ, king_sq)
+            & (opp_rooks | opp_queens);
+        let pinners = bishop_queen_pinners | rook_queen_pinners;
+
+        let mut pin_rays = Bitboard::new();
+
+        // No need to only look at our own pieces (which is slower), since opp pieces are removed above
+        let occ = position.pieces().get_occ();
+        for sq in pinners {
+            let pin_ray = self.ray_to[king_sq][sq];
+            let potential_pin = (pin_ray - pinners) & occ;
+            if potential_pin.len() == 1 {
+                pin_rays |= pin_ray;
+            }
+        }
+
+        pin_rays
     }
 
     pub fn gen_all_moves(&mut self, position: &Position) -> MoveList {
@@ -484,33 +621,34 @@ impl MoveGen {
 
         self.gen_danger_sqs(position);
 
-        // TODO: Is this generated twice?
+        // TODO: Is this generated thrice?
         let king_sq = position.pieces().get_king_sq(position.to_move());
+        let pin_rays = self.pin_rays(position);
         if self.danger_sqs.contains(king_sq) {
             let checkers = self.checkers(position);
 
             if checkers.len() == 2 {
-                self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), pin_rays, &mut moves);
             } else {
                 let checking_sq = unsafe {
                     checkers.first_sq_unchecked()
                 };
-                let blocking_sqs = self.line_between[king_sq][checking_sq] | checkers;
+                let blocking_sqs = self.ray_to[king_sq][checking_sq];
 
-                self.gen_pawn_moves(position, blocking_sqs, &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Knight, blocking_sqs, &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Bishop, blocking_sqs, &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Rook, blocking_sqs, &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Queen, blocking_sqs, &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), &mut moves);
+                self.gen_pawn_moves(position, blocking_sqs, pin_rays, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Knight, blocking_sqs, pin_rays, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Bishop, blocking_sqs, pin_rays, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Rook, blocking_sqs, pin_rays, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Queen, blocking_sqs, pin_rays, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), pin_rays, &mut moves);
             }
         } else {
-            self.gen_pawn_moves(position, !Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Knight, !Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Bishop, !Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Rook, !Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Queen, !Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), &mut moves);
+            self.gen_pawn_moves(position, !Bitboard::new(), pin_rays, &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Knight, !Bitboard::new(), pin_rays, &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Bishop, !Bitboard::new(), pin_rays, &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Rook, !Bitboard::new(), pin_rays, &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Queen, !Bitboard::new(), pin_rays, &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), pin_rays, &mut moves);
             self.gen_castling_moves(position, &mut moves);
         }
 

@@ -7,7 +7,7 @@ use crate::standard::bitboard::Bitboard;
 use crate::standard::move_gen::MoveGen;
 use crate::standard::position::Position;
 
-// Unit testing for gen_pawn_moves
+// Unit testing for MoveGen
 
 fn get_move_gen(position: &Position) -> MoveGen {
     let mut move_gen = MoveGen::new();
@@ -21,7 +21,7 @@ fn correct_pawn_moves_in_starting_position() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_pawn_moves(&position, !Bitboard::new(), &mut moves);
+    move_gen.gen_pawn_moves(&position, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::A2, Square::A4)));
     assert!(moves.contains(Move::Regular(Square::F2, Square::F4)));
@@ -36,7 +36,7 @@ fn correct_forward_pawn_moves_for_black() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_pawn_moves(&position, !Bitboard::new(), &mut moves);
+    move_gen.gen_pawn_moves(&position, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::A7, Square::A5)));
     assert!(moves.contains(Move::Regular(Square::F7, Square::F5)));
@@ -51,7 +51,7 @@ fn correct_pawn_captures_for_white() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_pawn_moves(&position, !Bitboard::new(), &mut moves);
+    move_gen.gen_pawn_moves(&position, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::A4, Square::B5)));
     assert!(moves.contains(Move::Regular(Square::E4, Square::D5)));
@@ -65,7 +65,7 @@ fn correct_pawn_captures_for_black() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_pawn_moves(&position, !Bitboard::new(), &mut moves);
+    move_gen.gen_pawn_moves(&position, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::B5, Square::A4)));
     assert!(moves.contains(Move::Regular(Square::B5, Square::C4)));
@@ -79,7 +79,7 @@ fn correct_en_passant() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_pawn_moves(&position, !Bitboard::new(), &mut moves);
+    move_gen.gen_pawn_moves(&position, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::EnPassant(Square::C5, Square::D6)));
     assert!(moves.contains(Move::EnPassant(Square::E5, Square::D6)));
@@ -92,7 +92,7 @@ fn correct_promotions() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_pawn_moves(&position, !Bitboard::new(), &mut moves);
+    move_gen.gen_pawn_moves(&position, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Promotion(Square::B7, Square::A8, PieceKind::Knight)));
     assert!(moves.contains(Move::Promotion(Square::B7, Square::B8, PieceKind::Bishop)));
@@ -110,7 +110,7 @@ fn correct_knight_moves_for_white() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::Knight, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::Knight, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::B1, Square::A3)));
     assert!(moves.contains(Move::Regular(Square::B1, Square::D2)));
@@ -126,7 +126,7 @@ fn correct_knight_moves_for_black() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::Knight, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::Knight, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::C6, Square::B8)));
     assert!(moves.contains(Move::Regular(Square::C6, Square::A5)));
@@ -142,7 +142,7 @@ fn correct_non_castling_king_moves_for_white() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::King, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::King, !Bitboard::new(),Bitboard::new(),  &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::D3, Square::E3)));
     assert!(moves.contains(Move::Regular(Square::D3, Square::E2)));
@@ -157,7 +157,7 @@ fn correct_non_castling_king_moves_for_black() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::King, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::King, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::E6, Square::E7)));
     assert!(moves.contains(Move::Regular(Square::E6, Square::F7)));
@@ -259,7 +259,7 @@ fn correct_bishop_moves() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::Bishop, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::Bishop, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::C1, Square::B2)));
     assert!(moves.contains(Move::Regular(Square::C4, Square::B3)));
@@ -275,7 +275,7 @@ fn correct_rook_moves() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::Rook, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::Rook, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::D5, Square::D6)));
     assert!(moves.contains(Move::Regular(Square::D5, Square::B5)));
@@ -291,7 +291,7 @@ fn correct_queen_moves() {
     let move_gen = get_move_gen(&position);
 
     let mut moves = MoveList::new();
-    move_gen.gen_non_pawn_moves(&position, PieceKind::Queen, !Bitboard::new(), &mut moves);
+    move_gen.gen_non_pawn_moves(&position, PieceKind::Queen, !Bitboard::new(), Bitboard::new(), &mut moves);
 
     assert!(moves.contains(Move::Regular(Square::D4, Square::D5)));
     assert!(moves.contains(Move::Regular(Square::D4, Square::H8)));
@@ -387,4 +387,93 @@ fn check_avoidance_with_en_passant_capture_and_king_capture() {
     assert!(moves.contains(Move::EnPassant(Square::E4, Square::D3)));
     assert!(moves.contains(Move::Regular(Square::E5, Square::D4)));
     assert_eq!(moves.len(), 6);
+}
+
+#[test]
+fn line_through_initialized_correctly() {
+    let move_gen = MoveGen::new();
+
+    use Square::*;
+    assert_eq!(move_gen.line_through[B1][B5], bb!(B1, B2, B3, B4, B5, B6, B7, B8));
+    assert_eq!(move_gen.line_through[F8][C5], bb!(A3, B4, C5, D6, E7, F8));
+    assert_eq!(move_gen.line_through[D4][E4], bb!(A4, B4, C4, D4, E4, F4, G4, H4));
+    assert_eq!(move_gen.line_through[A8][H1], bb!(A8, B7, C6, D5, E4, F3, G2, H1));
+    assert_eq!(move_gen.line_through[C4][D6], Bitboard::new());
+}
+
+#[test]
+fn ray_to_initialized_correctly() {
+    let move_gen = MoveGen::new();
+
+    assert_eq!(move_gen.ray_to[Square::B1][Square::B5], bb!(Square::B2, Square::B3, Square::B4, Square::B5));
+    assert_eq!(move_gen.ray_to[Square::F8][Square::C5], bb!(Square::E7, Square::D6, Square::C5));
+    assert_eq!(move_gen.ray_to[Square::C4][Square::D6], Bitboard::new());
+}
+
+#[test]
+fn pin_rays_correct() {
+    let position = Position::from_fen("N3kbn1/p2q1p2/2p1n3/1b1Pp2p/2P3p1/3K1Pr1/1P1P2PP/RNBQ1BNR w - - 16 22").unwrap();
+    let move_gen = MoveGen::new();
+
+    let pin_rays = move_gen.pin_rays(&position);
+    use Square::*;
+    assert_eq!(pin_rays, bb!(C4, B5, D4, D5, D6, D7, E3, F3, G3));
+}
+
+#[test]
+fn pinned_pawns_can_only_move_along_pin_rays() {
+    let position = Position::from_fen("N3kbn1/p2q1p2/2p1n3/1b1Pp2p/2P3p1/3K1Pr1/1P1P2PP/RNBQ1BNR w - - 16 22").unwrap();
+    let mut move_gen = MoveGen::new();
+
+    let moves = move_gen.gen_all_moves(&position);
+
+    assert!(moves.contains(Move::Regular(Square::C4, Square::B5)));
+    assert!(moves.contains(Move::Regular(Square::D5, Square::D6)));
+    assert!(!moves.contains(Move::Regular(Square::C4, Square::C5)));
+    assert!(!moves.contains(Move::Regular(Square::D5, Square::C6)));
+    assert!(!moves.contains(Move::Regular(Square::D5, Square::E6)));
+    assert!(!moves.contains(Move::Regular(Square::F3, Square::F4)));
+    assert!(!moves.contains(Move::Regular(Square::F3, Square::G4)));
+}
+
+#[test]
+fn cant_capture_en_passant_due_to_pin() {
+    let position = Position::from_fen("rnbq1bnr/pppp1p2/P5p1/8/N1RPpk1p/1P5P/1BP1PPP1/3QKBNR b K d3 0 12").unwrap();
+    let mut move_gen = MoveGen::new();
+
+    let moves = move_gen.gen_all_moves(&position);
+
+    assert!(!moves.contains(Move::EnPassant(Square::E4, Square::D3)));
+}
+
+#[test]
+fn pinned_knights_cant_move() {
+    let position = Position::from_fen("8/4k3/3nn3/8/1B2R3/8/3K4/8 b - - 0 1").unwrap();
+    let mut move_gen = MoveGen::new();
+
+    let moves = move_gen.gen_all_moves(&position);
+    assert!(!moves.contains(Move::Regular(Square::D6, Square::E4)));
+    assert!(!moves.contains(Move::Regular(Square::E6, Square::C5)));
+    assert_eq!(moves.len(), 6);
+}
+
+#[test]
+fn pinned_sliding_pieces_can_only_move_along_pin_rays() {
+    let position = Position::from_fen("8/4k1b1/8/4B3/3KRq2/8/5Q2/6q1 w - - 0 1").unwrap();
+    let mut move_gen = MoveGen::new();
+
+    let moves = move_gen.gen_all_moves(&position);
+
+    assert!(moves.contains(Move::Regular(Square::E5, Square::F6)));
+    assert!(moves.contains(Move::Regular(Square::E5, Square::G7)));
+    assert!(moves.contains(Move::Regular(Square::E4, Square::F4)));
+    assert!(moves.contains(Move::Regular(Square::F2, Square::E3)));
+    assert!(moves.contains(Move::Regular(Square::F2, Square::G1)));
+    assert!(!moves.contains(Move::Regular(Square::E5, Square::F4)));
+    assert!(!moves.contains(Move::Regular(Square::E5, Square::C7)));
+    assert!(!moves.contains(Move::Regular(Square::E4, Square::E2)));
+    assert!(!moves.contains(Move::Regular(Square::F2, Square::F4)));
+    assert!(!moves.contains(Move::Regular(Square::F2, Square::B2)));
+    assert!(!moves.contains(Move::Regular(Square::F2, Square::E1)));
+    assert!(!moves.contains(Move::Regular(Square::F2, Square::H4)));
 }
