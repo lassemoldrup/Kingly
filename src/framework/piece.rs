@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
 
 use crate::framework::color::Color;
-use std::fmt::{Display, Formatter};
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum PieceKind {

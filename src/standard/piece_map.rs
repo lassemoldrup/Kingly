@@ -1,11 +1,12 @@
+use std::convert::TryFrom;
+use std::fmt::{Debug, Display, Formatter};
+
+use crate::bb;
 use crate::framework::color::Color;
 use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
-use crate::bb;
-use std::fmt::{Debug, Formatter, Display};
-use std::convert::TryFrom;
 
 #[derive(PartialEq, Debug)]
 pub struct BitboardPieceMap {

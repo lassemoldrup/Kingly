@@ -1,16 +1,16 @@
 use std::convert::TryFrom;
+use std::fmt::{Debug, Formatter};
+use std::hint::unreachable_unchecked;
 
-use crate::framework::Side;
 use crate::framework::color::Color;
+use crate::framework::direction::Direction;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::moves::Move;
 use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::Side;
 use crate::framework::square::Square;
 use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::CastlingRights;
-use std::hint::unreachable_unchecked;
-use crate::framework::direction::Direction;
-use std::fmt::{Debug, Formatter};
 
 #[cfg(test)]
 mod tests;
@@ -126,6 +126,11 @@ impl Position {
         self.en_passant_sq
     }
 
+    pub fn last_move(&self) -> Option<Move> {
+        self.history.last()
+            .map(|um| um.mv)
+    }
+
     /// Makes move `m`
     /// # Safety
     /// `m` must be a legal move
@@ -164,7 +169,7 @@ impl Position {
                     };
 
                     if from.rank() == snd_rank && to.rank() == frth_rank {
-                        self.en_passant_sq = Some(Square::from_unchecked((from as i8 + up as i8) as u8));
+                        self.en_passant_sq = Some(from.shift(up));
                     }
                 } else {
                     if dest_pce.is_some() {
@@ -180,7 +185,7 @@ impl Position {
 
                     let (king_sq, king_rook_sq, queen_rook_sq) = match self.to_move {
                         Color::White => (Square::E1, Square::H1, Square::A1),
-                        Color::Black => (Square::E1, Square::H1, Square::A1),
+                        Color::Black => (Square::E8, Square::H8, Square::A8),
                     };
 
                     if from == king_rook_sq {

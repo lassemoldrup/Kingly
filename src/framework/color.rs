@@ -1,5 +1,5 @@
-use std::ops::Not;
 use std::mem::transmute;
+use std::ops::Not;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 #[repr(u8)]

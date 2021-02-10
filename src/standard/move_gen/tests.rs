@@ -477,3 +477,28 @@ fn pinned_sliding_pieces_can_only_move_along_pin_rays() {
     assert!(!moves.contains(Move::Regular(Square::F2, Square::E1)));
     assert!(!moves.contains(Move::Regular(Square::F2, Square::H4)));
 }
+
+// Test positions added to fix bugs in the move generator
+
+#[test]
+fn test_position_1() {
+    let position = Position::from_fen("4k2r/1b4bq/8/8/8/8/7B/rR2K2R w Kk - 0 1").unwrap();
+    let mut move_gen = MoveGen::new();
+
+    let moves = move_gen.gen_all_moves(&position);
+
+    assert!(moves.contains(Move::Regular(Square::H1, Square::G1)));
+    assert!(moves.contains(Move::Regular(Square::H1, Square::F1)));
+}
+
+#[test]
+fn test_position_2() {
+    let position = Position::from_fen("rnbqkb1r/pppppppp/8/8/4n3/3P4/PPPKPPPP/RNBQ1BNR w kq - 3 3").unwrap();
+    let mut move_gen = MoveGen::new();
+
+    let moves = move_gen.gen_all_moves(&position);
+
+    assert!(moves.contains(Move::Regular(Square::D2, Square::E3)));
+    assert!(moves.contains(Move::Regular(Square::D2, Square::E1)));
+    assert!(moves.contains(Move::Regular(Square::D3, Square::E4)));
+}

@@ -5,11 +5,11 @@ use bitintr::{Pdep, Pext};
 use take_until::TakeUntilExt;
 
 use crate::bb;
-use crate::framework::Side;
 use crate::framework::color::Color;
 use crate::framework::direction::Direction;
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::Side;
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::framework::square_vec::SquareVec;
@@ -363,11 +363,12 @@ impl MoveGen {
         let king_sq = position.pieces().get_king_sq(position.to_move());
 
         // Forward
-        let legal_fwd = !position.pieces().get_occ() & blocking_sqs;
-        let fwd = (pawns >> up) & legal_fwd;
-        let fwd_no_promo = fwd - last_rank;
-        let fwd_promo = fwd & last_rank;
-        let fwd2 = (fwd >> up) & fourth_rank & legal_fwd;
+        let occ = position.pieces().get_occ();
+        let fwd = (pawns >> up) - occ;
+        let legal_fwd = fwd & blocking_sqs;
+        let fwd_no_promo = legal_fwd - last_rank;
+        let fwd_promo = legal_fwd & last_rank;
+        let fwd2 = ((fwd >> up) & fourth_rank & blocking_sqs) - occ;
 
         add_regulars(self, fwd_no_promo, up, pin_rays, king_sq, moves);
         add_promos(self, fwd_promo, up, pin_rays, king_sq, moves);
@@ -526,12 +527,13 @@ impl MoveGen {
 
         for from in pieces {
             // TODO: Check if this king check gets compiled away
-            if pce.kind() != PieceKind::King && pin_rays.contains(from) {
-                let pin_ray = pin_rays & self.line_through[from][king_sq];
-                legal_sqs &= pin_ray;
-            }
+            let pin_ray = if pce.kind() != PieceKind::King && pin_rays.contains(from) {
+                pin_rays & self.line_through[from][king_sq]
+            } else {
+                !Bitboard::new()
+            };
 
-            let legal_atks = self.gen_attacks_from_sq(occ, pce, from) & legal_sqs;
+            let legal_atks = self.gen_attacks_from_sq(occ, pce, from) & legal_sqs & pin_ray;
 
             for to in legal_atks {
                 moves.push(Move::Regular(from, to));
@@ -643,7 +645,7 @@ impl MoveGen {
                 let checking_sq = unsafe {
                     checkers.first_sq_unchecked()
                 };
-                let blocking_sqs = self.ray_to[king_sq][checking_sq];
+                let blocking_sqs = self.ray_to[king_sq][checking_sq] | checkers;
 
                 self.gen_pawn_moves(position, blocking_sqs, pin_rays, &mut moves);
                 self.gen_non_pawn_moves(position, PieceKind::Knight, blocking_sqs, pin_rays, &mut moves);

@@ -11,6 +11,10 @@ arrayvec = "0.5.2"
 bitintr = "0.3.0"
 take-until = "0.1.0"
 
+[dev-dependencies]
+serde = { version = "1.0.123", features = ["derive"] }
+serde_json = "1.0.62"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

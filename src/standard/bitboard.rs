@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::ops::{BitAnd, BitOr, Not, Shr, Sub, SubAssign, BitOrAssign, BitAndAssign};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shr, Sub, SubAssign};
 
 use bitintr::{Andn, Popcnt, Tzcnt};
 

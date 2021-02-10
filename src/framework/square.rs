@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
 use std::mem;
 use std::ops::Add;
 
@@ -88,6 +89,12 @@ impl Add<SquareVec> for Square {
         } else {
             None
         }
+    }
+}
+
+impl Display for Square {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", (self.file() + b'a') as char, self.rank() + 1)
     }
 }
 

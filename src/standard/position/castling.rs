@@ -1,5 +1,5 @@
-use crate::framework::Side;
 use crate::framework::color::Color;
+use crate::framework::Side;
 use crate::framework::square::Square;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
