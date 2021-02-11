@@ -6,6 +6,8 @@ use std::time::Instant;
 
 use crusty::framework::Game;
 use crusty::framework::moves::Move;
+use crate::uci::Uci;
+use crusty::standard::game::StandardGame;
 
 pub struct Cli<G, I, O> {
     game: G,
@@ -93,7 +95,10 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
 
     fn execute(&mut self, command: Command) -> std::io::Result<()> {
         match command {
-            Command::Uci => unimplemented!(),
+            Command::Uci => {
+                let game = StandardGame::new();
+                Uci::new(game, &mut self.input, &mut self.output).start()?;
+            },
             Command::Perft(depth) => {
                 writeln!(self.output, "Running Perft with depth {}...", depth)?;
                 let start = Instant::now();
