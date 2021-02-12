@@ -11,11 +11,13 @@ use crate::framework::Side;
 use crate::framework::square::Square;
 use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::position::castling::CastlingRights;
+use crate::framework::util::{get_castling_sq, get_rook_sq, get_castling_rook_sq, get_king_sq};
 
 #[cfg(test)]
 mod tests;
 mod castling;
 
+#[derive(Clone)]
 pub struct Position {
     pieces: BitboardPieceMap,
     to_move: Color,
@@ -199,13 +201,10 @@ impl Position {
                 }
             }
             Move::Castling(side) => {
-                let king_sq = match self.to_move {
-                    Color::White => Square::E1,
-                    Color::Black => Square::E8,
-                };
-                let castling_sq = CastlingRights::get_castling_sq(self.to_move, side);
-                let rook_sq = CastlingRights::get_rook_sq(self.to_move, side);
-                let castling_rook_sq = CastlingRights::get_castling_rook_sq(self.to_move, side);
+                let king_sq = get_king_sq(self.to_move);
+                let castling_sq = get_castling_sq(self.to_move, side);
+                let rook_sq = get_rook_sq(self.to_move, side);
+                let castling_rook_sq = get_castling_rook_sq(self.to_move, side);
 
                 self.pieces.set_sq(castling_sq, Piece(PieceKind::King, self.to_move));
                 self.pieces.set_sq(castling_rook_sq, Piece(PieceKind::Rook, self.to_move));
@@ -256,9 +255,9 @@ impl Position {
 
     fn remove_castling_on_rook_capture(&mut self, to: Square) {
         let opp = !self.to_move;
-        if to == CastlingRights::get_rook_sq(opp, Side::KingSide) {
+        if to == get_rook_sq(opp, Side::KingSide) {
             self.castling.set(opp, Side::KingSide, false);
-        } else if to == CastlingRights::get_rook_sq(opp, Side::QueenSide) {
+        } else if to == get_rook_sq(opp, Side::QueenSide) {
             self.castling.set(opp, Side::QueenSide, false);
         }
     }
@@ -298,13 +297,10 @@ impl Position {
 
             },
             Move::Castling(side) => {
-                let king_sq = match self.to_move {
-                    Color::White => Square::E1,
-                    Color::Black => Square::E8,
-                };
-                let castling_sq = CastlingRights::get_castling_sq(self.to_move, side);
-                let rook_sq = CastlingRights::get_rook_sq(self.to_move, side);
-                let castling_rook_sq = CastlingRights::get_castling_rook_sq(self.to_move, side);
+                let king_sq = get_king_sq(self.to_move);
+                let castling_sq = get_castling_sq(self.to_move, side);
+                let rook_sq = get_rook_sq(self.to_move, side);
+                let castling_rook_sq = get_castling_rook_sq(self.to_move, side);
 
                 self.pieces.set_sq(king_sq, Piece(PieceKind::King, self.to_move));
                 self.pieces.set_sq(rook_sq, Piece(PieceKind::Rook, self.to_move));
@@ -356,6 +352,7 @@ impl Debug for Position {
 }
 
 
+#[derive(Copy, Clone)]
 struct Unmake {
     mv: Move,
     capture: Option<Piece>,

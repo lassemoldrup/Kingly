@@ -48,7 +48,7 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
     fn print_welcome(&mut self) -> std::io::Result<()> {
         writeln!(self.output, "Crusty ver. {}\n", env!("CARGO_PKG_VERSION"))?;
         writeln!(self.output, "Commands:")?;
-        writeln!(self.output, "uci\t\t\tStarts UCI mode (UNIMPLEMENTED)")?;
+        writeln!(self.output, "uci\t\t\tStarts UCI mode")?;
         writeln!(self.output, "fen <arg>\t\tSets the position to the given FEN")?;
         writeln!(self.output, "move <arg1> [<arg2>..]\tMakes the supplied list of moves on the board")?;
         writeln!(self.output, "perft <arg>\t\tRuns Perft with the given depth")?;

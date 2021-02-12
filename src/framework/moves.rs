@@ -7,6 +7,7 @@ use arrayvec::{ArrayVec, IntoIter};
 use crate::framework::piece::PieceKind;
 use crate::framework::Side;
 use crate::framework::square::Square;
+use std::ops::Index;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Move {
@@ -58,6 +59,7 @@ impl Display for Move {
     }
 }
 
+
 #[derive(Debug)]
 pub struct MoveList(ArrayVec<[Move; 256]>);
 
@@ -87,6 +89,10 @@ impl MoveList {
     pub fn iter(&self) -> Iter<Move> {
         self.0.iter()
     }
+
+    pub fn get(&self, index: usize) -> Option<&Move> {
+        self.0.get(index)
+    }
 }
 
 impl IntoIterator for MoveList {
@@ -95,5 +101,13 @@ impl IntoIterator for MoveList {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl Index<usize> for MoveList {
+    type Output = Move;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
     }
 }

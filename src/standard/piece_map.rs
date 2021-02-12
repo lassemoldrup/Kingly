@@ -8,7 +8,7 @@ use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub struct BitboardPieceMap {
     white_pieces: PieceBoards,
     black_pieces: PieceBoards,
@@ -93,7 +93,7 @@ impl Display for BitboardPieceMap {
 }
 
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 struct PieceBoards {
     pawn: Bitboard,
     knight: Bitboard,

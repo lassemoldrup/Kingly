@@ -5,6 +5,9 @@ use crate::framework::Game;
 use crate::framework::moves::{Move, MoveList};
 use crate::standard::move_gen::MoveGen;
 use crate::standard::position::Position;
+use crate::framework::value::Value;
+use crate::standard::eval::Eval;
+use crate::framework::color::Color;
 
 pub struct StandardGame {
     position: Position,
@@ -25,16 +28,42 @@ impl StandardGame {
     fn move_legal(&mut self, mv: Move) -> bool {
         self.move_gen.gen_all_moves(&self.position).contains(mv)
     }
+
+    fn alpha_beta(position: &mut Position, move_gen: &MoveGen, mut alpha: Value, beta: Value, depth: u32) -> Value {
+        if depth == 0 {
+            return Eval::eval(position)
+        }
+
+        let moves = move_gen.gen_all_moves(position);
+        for mv in moves {
+            let score;
+            unsafe {
+                position.make_move(mv);
+                score = -Self::alpha_beta(position, move_gen, -beta, -alpha, depth - 1);
+                position.unmake_move();
+            }
+
+            if score >= beta  {
+                return beta;
+            }
+
+            if score > alpha {
+                alpha = score;
+            }
+        }
+
+        alpha
+    }
 }
 
 impl Game for StandardGame {
-    fn perft(&mut self, depth: u32) -> u64 {
+    fn perft(&self, depth: u32) -> u64 {
         if depth == 0 {
             return 1;
         }
 
-        fn inner(game: &mut StandardGame, depth: u32) -> u64 {
-            let moves = game.move_gen.gen_all_moves(&game.position);
+        fn inner(position: &mut Position, move_gen: &MoveGen, depth: u32) -> u64 {
+            let moves = move_gen.gen_all_moves(position);
             if depth == 1 {
                 return moves.len() as u64;
             }
@@ -42,19 +71,23 @@ impl Game for StandardGame {
             let mut count = 0;
             for m in moves {
                 unsafe {
-                    game.position.make_move(m);
-                    count += inner(game, depth - 1);
-                    game.position.unmake_move();
+                    position.make_move(m);
+                    count += inner(position, move_gen, depth - 1);
+                    position.unmake_move();
                 }
             }
             count
         }
 
-        inner(self, depth)
+        inner(&mut self.position.clone(), &self.move_gen, depth)
     }
 
-    fn get_moves(&mut self) -> MoveList {
+    fn get_moves(&self) -> MoveList {
         self.move_gen.gen_all_moves(&self.position)
+    }
+
+    fn to_move(&self) -> Color {
+        self.position.to_move()
     }
 
     fn make_move(&mut self, mv: Move) -> Result<(), ()> {
@@ -77,6 +110,39 @@ impl Game for StandardGame {
         } else {
             Err(())
         }
+    }
+
+    fn search(&self, depth: u32) -> Move {
+        let mut position = self.position.clone();
+
+        if depth == 0 {
+            panic!("Depth can't be 0");
+        }
+
+        let moves = self.get_moves();
+        let mut best_score = Value::NegInf;
+        let mut best_move = *moves.get(0)
+            .expect("Search on a position with no moves");
+
+        for mv in moves {
+            let score;
+            unsafe {
+                position.make_move(mv);
+                score = Self::alpha_beta(&mut position, &self.move_gen, Value::NegInf, Value::Inf, depth - 1);
+                position.make_move(mv);
+            }
+
+            if score > best_score {
+                best_move = mv;
+                best_score = score;
+            }
+        }
+
+        best_move
+    }
+
+    fn search_moves(&self, depth: u32, moves: Vec<Move>) -> Move {
+        unimplemented!()
     }
 
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError> {

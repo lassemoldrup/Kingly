@@ -2,10 +2,10 @@ use std::mem::transmute;
 use std::ops::Not;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
-#[repr(u8)]
+#[repr(i8)]
 pub enum Color {
-    White = 0,
-    Black = !0,
+    White = 1,
+    Black = -1,
 }
 
 impl Not for Color {
@@ -13,7 +13,7 @@ impl Not for Color {
 
     fn not(self) -> Self::Output {
         unsafe {
-            transmute(!(self as u8))
+            transmute(-(self as i8))
         }
     }
 }
