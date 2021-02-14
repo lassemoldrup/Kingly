@@ -119,7 +119,7 @@ impl Game for StandardGame {
             panic!("Depth can't be 0");
         }
 
-        let moves = self.get_moves();
+        let moves = self.move_gen.gen_all_moves(&position);
         let mut best_score = Value::NegInf;
         let mut best_move = *moves.get(0)
             .expect("Search on a position with no moves");
@@ -129,7 +129,7 @@ impl Game for StandardGame {
             unsafe {
                 position.make_move(mv);
                 score = Self::alpha_beta(&mut position, &self.move_gen, Value::NegInf, Value::Inf, depth - 1);
-                position.make_move(mv);
+                position.unmake_move();
             }
 
             if score > best_score {

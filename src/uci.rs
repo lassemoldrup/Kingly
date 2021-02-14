@@ -1,31 +1,34 @@
 use crusty::framework::Game;
 use std::io::{BufRead, Write};
-use crusty::framework::fen::{STARTING_FEN, FenParseError};
+use crusty::framework::fen::STARTING_FEN;
 use std::process::exit;
 use crusty::framework::moves::Move;
 use crusty::framework::util::{get_king_sq, get_castling_sq};
 use crusty::framework::piece::PieceKind;
 use std::convert::TryFrom;
 use crusty::framework::square::Square;
-use std::time::Instant;
-use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
-use std::thread;
-use std::thread::JoinHandle;
+use std::time::{Instant, Duration};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, mpsc};
+use std::thread::{self, JoinHandle};
+use std::sync::mpsc::{Receiver, SendError};
 
-pub struct Uci<'a, G, I, O> {
-    game: Arc<Mutex<G>>,
-    input: &'a mut I,
-    output: &'a mut O,
+pub struct Uci<G: 'static, I, O: 'static> {
+    game: Arc<Mutex<&'static mut G>>,
+    input: I,
+    output: Arc<Mutex<&'static mut O>>,
     debug: bool,
-    think: Option<JoinHandle<()>>,
+    think: Option<Receiver<Move>>,
 }
 
-impl<'a, G: Game, I: BufRead + 'a, O: Write + 'a> Uci<'a, G, I, O> {
-    pub fn new(game: G, input: &'a mut I, output: &'a mut O) -> Self {
+impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, O> {
+    pub fn new(game: G, input: I, output: O) -> Self {
+        // In order to share game and output across threads we need 'static references to them
+        let game = Box::leak(Box::new(game));
+        let output = Box::leak(Box::new(output));
         Self {
             game: Arc::new(Mutex::new(game)),
             input,
-            output,
+            output: Arc::new(Mutex::new(output)),
             debug: false,
             think: None,
         }
@@ -42,7 +45,7 @@ impl<'a, G: Game, I: BufRead + 'a, O: Write + 'a> Uci<'a, G, I, O> {
             match self.parse_command(&command.trim()) {
                 Ok(cmd) => self.execute(cmd)?,
                 Err(_) => if self.debug {
-                    writeln!(self.output, "Failed to parse command '{:?}'", command.trim())?
+                    writeln!(self.output.lock().unwrap(), "Failed to parse command '{:?}'", command.trim())?
                 },
             }
         }
@@ -265,13 +268,13 @@ impl<'a, G: Game, I: BufRead + 'a, O: Write + 'a> Uci<'a, G, I, O> {
 
     fn execute(&mut self, cmd: Command) -> std::io::Result<()> {
         if self.debug {
-            writeln!(self.output, "Executing command '{:?}'", cmd)?;
+            writeln!(self.output.lock().unwrap(), "Executing command '{:?}'", cmd)?;
         }
 
         match cmd {
             Command::Debug(val) => {
                 self.debug = val;
-                writeln!(self.output, "Debug is now {}", match val {
+                writeln!(self.output.lock().unwrap(), "Debug is now {}", match val {
                     true => "on",
                     false => "off",
                 })?;
@@ -280,7 +283,7 @@ impl<'a, G: Game, I: BufRead + 'a, O: Write + 'a> Uci<'a, G, I, O> {
             Command::UciNewGame => match self.game.try_lock() {
                 Ok(ref mut game) => game.set_position(STARTING_FEN).unwrap(),
                 Err(_) => if self.debug {
-                    writeln!(self.output, "Can't start a new game while thinking")?;
+                    writeln!(self.output.lock().unwrap(), "Can't start a new game while thinking")?;
                 }
             }
             Command::Position { fen, moves } => match self.game.try_lock() {
@@ -291,11 +294,11 @@ impl<'a, G: Game, I: BufRead + 'a, O: Write + 'a> Uci<'a, G, I, O> {
                         }
                     }
                     Err(err) => if self.debug {
-                        writeln!(self.output, "{}", err)?;
+                        writeln!(self.output.lock().unwrap(), "{}", err)?;
                     }
                 }
                 Err(_) => if self.debug {
-                    writeln!(self.output, "Can't execute position command while thinking")?;
+                    writeln!(self.output.lock().unwrap(), "Can't execute position command while thinking")?;
                 }
             }
             Command::Go(opts) => match self.game.try_lock() {
@@ -317,45 +320,95 @@ impl<'a, G: Game, I: BufRead + 'a, O: Write + 'a> Uci<'a, G, I, O> {
                             GoOption::MoveTime(time) => search_time = Some(time),
                             GoOption::Infinite => max_depth = None,
                             _ => if self.debug {
-                                writeln!(self.output, "Unsupported go option {:?}", opt)?;
+                                writeln!(self.output.lock().unwrap(), "Unsupported go option {:?}", opt)?;
                             }
                         }
                     }
 
-                    self.start_think();
+                    let out = Arc::clone(&self.output);
+                    let game = Arc::clone(&self.game);
+                    let (tx, rx) = mpsc::channel();
+                    self.think = Some(rx);
+                    thread::spawn(move || {
+                        let game = game.lock().unwrap();
+
+                        match max_depth {
+                            None => {
+                                for d in 1.. {
+                                    let best = game.search(d);
+                                    if tx.send(best).is_err() {
+                                        return;
+                                    }
+                                    writeln!(out.lock().unwrap(), "info depth {}", d).unwrap();
+                                }
+                            }
+                            Some(depth) => {
+                                let mut best = Move::Regular(Square::E1, Square::E2);
+                                for d in 1..=depth {
+                                    best = game.search(d);
+                                    if tx.send(best).is_err() {
+                                        return;
+                                    }
+                                    writeln!(out.lock().unwrap(), "info depth {}", d).unwrap();
+                                }
+                                writeln!(out.lock().unwrap(), "bestmove {}", Self::format_move(&game, best)).unwrap();
+                            }
+                        }
+                    });
                 }
                 Err(_) => if self.debug {
-                    writeln!(self.output, "Can't execute position command while thinking")?;
+                    writeln!(self.output.lock().unwrap(), "Can't execute position command while thinking")?;
                 }
             },
+            Command::Stop => {
+                let best_mv = match self.think.as_ref().and_then(|rx| rx.try_recv().ok()) {
+                    None => {
+                        if self.debug {
+                            writeln!(self.output.lock().unwrap(), "stop called while not thinking")?;
+                        }
+                        return Ok(());
+                    }
+                    Some(mv) => mv
+                };
+                self.think = None;
+                self.best_move(best_mv)?;
+            }
             Command::Quit => exit(0),
             _ => if self.debug {
-                writeln!(self.output, "Unsupported command")?;
+                writeln!(self.output.lock().unwrap(), "Unsupported command")?;
             },
         }
 
         Ok(())
     }
 
-    fn start_think(&self) -> std::io::Result<()> {
-        let game = Arc::clone(&self.game);
-        self.think = Some(thread::spawn(move || {
-            game.lock().unwrap().search(10);
-        }));
-        Ok(())
-    }
-
     fn id(&mut self) -> std::io::Result<()> {
-        writeln!(self.output, "id name Crusty")?;
-        writeln!(self.output, "id author Lasse Møldrup")
+        writeln!(self.output.lock().unwrap(), "id name Crusty")?;
+        writeln!(self.output.lock().unwrap(), "id author Lasse Møldrup")
     }
 
     fn uci_ok(&mut self) -> std::io::Result<()> {
-        writeln!(self.output, "uciok")
+        writeln!(self.output.lock().unwrap(), "uciok")
     }
 
     fn ready_ok(&mut self) -> std::io::Result<()> {
-        writeln!(self.output, "readyok")
+        writeln!(self.output.lock().unwrap(), "readyok")
+    }
+
+    fn best_move(&mut self, mv: Move) -> std::io::Result<()> {
+        writeln!(self.output.lock().unwrap(), "bestmove {}", Self::format_move(&self.game.lock().unwrap(), mv))
+    }
+
+    fn format_move(game: &G, mv: Move) -> String {
+        match mv {
+            Move::Regular(from, to) |
+            Move::EnPassant(from, to) => format!("{}{}", from, to),
+            Move::Castling(side) => {
+                let to_move = game.to_move();
+                format!("{}{}", get_king_sq(to_move), get_castling_sq(to_move, side))
+            }
+            Move::Promotion(from, to, kind) => format!("{}{}{}", from, to, kind),
+        }
     }
 }
 

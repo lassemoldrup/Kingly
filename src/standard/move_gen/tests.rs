@@ -227,7 +227,6 @@ fn no_castling_when_in_check() {
 
 #[test]
 fn bishop_masks_initialized_correctly() {
-    let position = Position::new();
     let move_gen = MoveGen::new();
 
     use Square::*;
@@ -238,7 +237,6 @@ fn bishop_masks_initialized_correctly() {
 
 #[test]
 fn rook_masks_initialized_correctly() {
-    let position = Position::new();
     let move_gen = MoveGen::new();
 
     use Square::*;
@@ -350,7 +348,7 @@ fn checkers_correct_with_double_check() {
 #[test]
 fn check_avoidance_with_captures_blocks_and_dodges() {
     let position = Position::from_fen("rnbqk1nr/1ppp1p2/p5pp/3Pp3/1b1QP3/P7/1PP2PPP/RNB1KBNR w KQkq - 1 6").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -374,7 +372,7 @@ fn check_avoidance_with_captures_blocks_and_dodges() {
 #[test]
 fn check_avoidance_with_en_passant_capture_and_king_capture() {
     let position = Position::from_fen("rnbq1bnr/pppp1ppp/8/4k3/Q1PPp2P/6P1/PP2PP2/RNB1KBNR b KQ d3 0 6").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -417,7 +415,7 @@ fn pin_rays_correct() {
 #[test]
 fn pinned_pawns_can_only_move_along_pin_rays() {
     let position = Position::from_fen("N3kbn1/p2q1p2/2p1n3/1b1Pp2p/2P3p1/3K1Pr1/1P1P2PP/RNBQ1BNR w - - 16 22").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -433,7 +431,7 @@ fn pinned_pawns_can_only_move_along_pin_rays() {
 #[test]
 fn cant_capture_en_passant_due_to_pin() {
     let position = Position::from_fen("rnbq1bnr/pppp1p2/P5p1/8/N1RPpk1p/1P5P/1BP1PPP1/3QKBNR b K d3 0 12").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -443,7 +441,7 @@ fn cant_capture_en_passant_due_to_pin() {
 #[test]
 fn pinned_knights_cant_move() {
     let position = Position::from_fen("8/4k3/3nn3/8/1B2R3/8/3K4/8 b - - 0 1").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
     assert!(!moves.contains(Move::Regular(Square::D6, Square::E4)));
@@ -454,7 +452,7 @@ fn pinned_knights_cant_move() {
 #[test]
 fn pinned_sliding_pieces_can_only_move_along_pin_rays() {
     let position = Position::from_fen("8/4k1b1/8/4B3/3KRq2/8/5Q2/6q1 w - - 0 1").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -477,7 +475,7 @@ fn pinned_sliding_pieces_can_only_move_along_pin_rays() {
 #[test]
 fn test_position_1() {
     let position = Position::from_fen("4k2r/1b4bq/8/8/8/8/7B/rR2K2R w Kk - 0 1").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -488,7 +486,7 @@ fn test_position_1() {
 #[test]
 fn test_position_2() {
     let position = Position::from_fen("rnbqkb1r/pppppppp/8/8/4n3/3P4/PPPKPPPP/RNBQ1BNR w kq - 3 3").unwrap();
-    let mut move_gen = MoveGen::new();
+    let move_gen = MoveGen::new();
 
     let moves = move_gen.gen_all_moves(&position);
 

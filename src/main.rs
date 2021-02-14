@@ -12,7 +12,7 @@ fn main() -> std::io::Result<()> {
     let std_in = stdin();
     let std_out = stdout();
 
-    let cli = Cli::new(game, std_in.lock(), std_out.lock());
+    let cli = Cli::new(game, std_in.lock(), std_out);
 
     cli.start()
 }

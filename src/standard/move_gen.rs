@@ -53,7 +53,7 @@ impl MoveGen {
             king_attacks,
             bishop_masks,
             rook_masks,
-            slider_attacks: Vec::new(),
+            slider_attacks: Vec::with_capacity(107_648),
             bishop_offsets: SquareMap::new([0; 64]),
             rook_offsets: SquareMap::new([0; 64]),
             line_through,

@@ -7,20 +7,22 @@ use std::time::Instant;
 use crusty::framework::Game;
 use crusty::framework::moves::Move;
 use crate::uci::Uci;
-use crusty::standard::game::StandardGame;
+use crusty::framework::fen::STARTING_FEN;
 
 pub struct Cli<G, I, O> {
     game: G,
     input: I,
     output: O,
+    uci: bool,
 }
 
-impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
+impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, O> {
     pub fn new(game: G, input: I, output: O) -> Self {
         Self {
             game,
             input,
             output,
+            uci: false
         }
     }
 
@@ -28,6 +30,12 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
         self.print_welcome()?;
 
         loop {
+            if self.uci {
+                self.game.set_position(STARTING_FEN).unwrap();
+                let uci = Uci::new(self.game, self.input, self.output);
+                return uci.start();
+            }
+
             write!(self.output, "> ")?;
             self.output.flush()?;
 
@@ -96,8 +104,8 @@ impl<G: Game, I: BufRead, O: Write> Cli<G, I, O> {
     fn execute(&mut self, command: Command) -> std::io::Result<()> {
         match command {
             Command::Uci => {
-                let game = StandardGame::new();
-                Uci::new(game, &mut self.input, &mut self.output).start()?;
+                self.uci = true;
+                return Ok(());
             },
             Command::Perft(depth) => {
                 writeln!(self.output, "Running Perft with depth {}...", depth)?;
