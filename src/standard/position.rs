@@ -200,15 +200,18 @@ impl Position {
                     }
                 }
             }
-            Move::Castling(side) => {
-                let king_sq = get_king_sq(self.to_move);
-                let castling_sq = get_castling_sq(self.to_move, side);
+            Move::Castling(from, to) => {
+                let side = match to {
+                    Square::G1 | Square::G8 => Side::KingSide,
+                    Square::C1 | Square::C8 => Side::QueenSide,
+                    _ => unreachable_unchecked(),
+                };
                 let rook_sq = get_rook_sq(self.to_move, side);
                 let castling_rook_sq = get_castling_rook_sq(self.to_move, side);
 
-                self.pieces.set_sq(castling_sq, Piece(PieceKind::King, self.to_move));
+                self.pieces.set_sq(to, Piece(PieceKind::King, self.to_move));
                 self.pieces.set_sq(castling_rook_sq, Piece(PieceKind::Rook, self.to_move));
-                self.pieces.unset_sq(king_sq);
+                self.pieces.unset_sq(from);
                 self.pieces.unset_sq(rook_sq);
 
                 self.castling.set(self.to_move, Side::KingSide, false);
@@ -296,15 +299,18 @@ impl Position {
                 self.castling = unmake.castling;
 
             },
-            Move::Castling(side) => {
-                let king_sq = get_king_sq(self.to_move);
-                let castling_sq = get_castling_sq(self.to_move, side);
+            Move::Castling(from, to) => {
+                let side = match to {
+                    Square::G1 | Square::G8 => Side::KingSide,
+                    Square::C1 | Square::C8 => Side::QueenSide,
+                    _ => unreachable_unchecked(),
+                };
                 let rook_sq = get_rook_sq(self.to_move, side);
                 let castling_rook_sq = get_castling_rook_sq(self.to_move, side);
 
-                self.pieces.set_sq(king_sq, Piece(PieceKind::King, self.to_move));
+                self.pieces.set_sq(from, Piece(PieceKind::King, self.to_move));
                 self.pieces.set_sq(rook_sq, Piece(PieceKind::Rook, self.to_move));
-                self.pieces.unset_sq(castling_sq);
+                self.pieces.unset_sq(to);
                 self.pieces.unset_sq(castling_rook_sq);
 
                 self.castling = unmake.castling;

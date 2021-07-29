@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{BufRead, Write};
@@ -46,7 +45,7 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, 
                 continue;
             }
 
-            match Self::parse_command(&command) {
+            match self.parse_command(&command) {
                 Ok(cmd) => self.execute(cmd)?,
                 Err(err) => writeln!(self.output, "{}\n", err.0)?,
             }
@@ -65,32 +64,45 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, 
         writeln!(self.output)
     }
 
-    fn parse_command(command: &str) -> Result<Command, ParseError> {
+    fn parse_command(&mut self, command: &str) -> Result<Command, ParseError> {
         let command_args: Vec<&str> = command.split_ascii_whitespace().collect();
         match command_args[0] {
             "uci" => Ok(Command::Uci),
             "perft" => Ok(Command::Perft(
                 command_args.get(1)
-                    .ok_or(ParseError("Missing argument".to_string()))?.parse()
+                    .ok_or_else(|| ParseError("Missing argument".to_string()))?.parse()
                     .map_err(|_| ParseError("Argument must be a number".to_string()))?
             )),
             "divide" => Ok(Command::Divide(
                 command_args.get(1)
-                    .ok_or(ParseError("Missing argument".to_string()))?.parse()
+                    .ok_or_else(|| ParseError("Missing argument".to_string()))?.parse()
                     .map_err(|_| ParseError("Argument must be a number".to_string()))?
             )),
             "fen" => Ok(Command::Fen(
                 command[3..].trim().to_string()
             )),
             "move" => {
-                let maybe_moves: Vec<_> = command_args[1..].iter()
-                    .map(|&mv| Move::try_from(mv))
-                    .collect();
                 let mut moves = Vec::new();
-                for mv in maybe_moves {
-                    moves.push(mv?);
+
+                for mv in &command_args[1..] {
+                    match Move::try_from(mv, self.game.get_moves().as_ref()) {
+                        Ok(mv) => {
+                            moves.push(mv);
+                            self.game.make_move(mv);
+                        },
+                        Err(_) => {
+                            moves.iter()
+                                .for_each(|&mv| self.game.unmake_move().unwrap());
+                            break;
+                        },
+                    }
                 }
-                if moves.len() > 0 {
+
+                for _ in 0..moves.len() {
+                    self.game.unmake_move();
+                }
+
+                if !moves.is_empty() && moves.len() == command_args[1..].len() {
                     Ok(Command::Move(moves))
                 } else {
                     Err(ParseError("Missing argument".to_string()))

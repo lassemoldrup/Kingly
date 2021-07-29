@@ -150,7 +150,9 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                                         break;
                                     }
 
-                                    moves.push(Self::parse_move(game, arg)?);
+                                    let mv = Move::try_from(arg, game.get_moves().as_ref())
+                                        .map_err(|_| ())?;
+                                    moves.push(mv);
                                     i += 1;
                                 }
 
@@ -206,39 +208,11 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
         cmds.contains(&cmd)
     }
 
-    fn parse_move(game: &G, mv_str: &str) -> Result<Move, ()> {
-        let to_move = game.to_move();
-        let mut available_moves = game.get_moves().into_iter().map(|mv| match mv {
-            Move::Regular(from, to) |
-            Move::Promotion(from, to, _) |
-            Move::EnPassant(from, to) => (from, to, mv),
-            Move::Castling(side) => (get_king_sq(to_move), get_castling_sq(to_move, side), mv),
-        });
-
-        if mv_str.len() == 4 {
-            let from = Square::try_from(&mv_str[..2]).map_err(|_| ())?;
-            let to = Square::try_from(&mv_str[2..]).map_err(|_| ())?;
-
-            available_moves.find(|(f, t, _)| *f == from && *t == to)
-                .ok_or(()).map(|(_, _, mv)| mv)
-        } else if mv_str.len() == 5 {
-            let from = Square::try_from(&mv_str[..2]).map_err(|_| ())?;
-            let to = Square::try_from(&mv_str[2..4]).map_err(|_| ())?;
-            let kind = PieceKind::try_from(mv_str.chars().last().unwrap()).map_err(|_| ())?;
-            let mv = Move::Promotion(from, to, kind);
-
-            available_moves.find(|(_, _, m)| *m == mv)
-                .ok_or(()).map(|(_, _, mv)| mv)
-        } else {
-            Err(())
-        }
-    }
-
     fn parse_move_list(game: &mut G, moves: &[&str]) -> Result<Vec<Move>, ()> {
         let mut parsed = Vec::new();
 
         for mv in moves {
-            match Self::parse_move(game, mv) {
+            match Move::try_from(mv, game.get_moves().as_ref()) {
                 Ok(mv) => {
                     parsed.push(mv);
                     game.make_move(mv).unwrap();
@@ -351,7 +325,7 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                                     }
                                     writeln!(out.lock().unwrap(), "info depth {}", d).unwrap();
                                 }
-                                writeln!(out.lock().unwrap(), "bestmove {}", Self::format_move(&game, best)).unwrap();
+                                writeln!(out.lock().unwrap(), "bestmove {}", best).unwrap();
                             }
                         }
                     });
@@ -396,19 +370,7 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
     }
 
     fn best_move(&mut self, mv: Move) -> std::io::Result<()> {
-        writeln!(self.output.lock().unwrap(), "bestmove {}", Self::format_move(&self.game.lock().unwrap(), mv))
-    }
-
-    fn format_move(game: &G, mv: Move) -> String {
-        match mv {
-            Move::Regular(from, to) |
-            Move::EnPassant(from, to) => format!("{}{}", from, to),
-            Move::Castling(side) => {
-                let to_move = game.to_move();
-                format!("{}{}", get_king_sq(to_move), get_castling_sq(to_move, side))
-            }
-            Move::Promotion(from, to, kind) => format!("{}{}{}", from, to, kind),
-        }
+        writeln!(self.output.lock().unwrap(), "bestmove {}", mv)
     }
 }
 

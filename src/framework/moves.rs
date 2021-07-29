@@ -5,56 +5,58 @@ use std::slice::Iter;
 use arrayvec::{ArrayVec, IntoIter};
 
 use crate::framework::piece::PieceKind;
-use crate::framework::Side;
 use crate::framework::square::Square;
 use std::ops::Index;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Move {
     Regular(Square, Square),
-    Castling(Side),
+    Castling(Square, Square),
     Promotion(Square, Square, PieceKind),
     EnPassant(Square, Square),
 }
 
-impl TryFrom<&str> for Move {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "O-O" => Ok(Self::Castling(Side::KingSide)),
-            "O-O-O" => Ok(Self::Castling(Side::QueenSide)),
-            mv if mv.len() == 4 => {
-                let from = Square::try_from(&mv[..2])?;
-                let to = Square::try_from(&mv[2..])?;
-                Ok(Move::Regular(from, to))
-            },
-            mv if mv.len() == 5 => {
-                let from = Square::try_from(&mv[..2])?;
-                let to = Square::try_from(&mv[2..4])?;
-                let kind = PieceKind::try_from(mv[4..].chars().next().unwrap())?;
-                Ok(Move::Promotion(from, to, kind))
-            },
-            mv if mv.len() == 6 && &mv[4..] == "ep" => {
-                let from = Square::try_from(&mv[..2])?;
-                let to = Square::try_from(&mv[2..4])?;
-                Ok(Move::EnPassant(from, to))
-            },
-            _ => Err(format!("Invalid move '{}'", value)),
+impl Move {
+    fn from(self) -> Square {
+        match self {
+            Move::Regular(from, _) |
+            Move::Castling(from, _) |
+            Move::Promotion(from, _, _) |
+            Move::EnPassant(from, _) => from
         }
+    }
+
+    fn to(self) -> Square {
+        match self {
+            Move::Regular(_, to) |
+            Move::Castling(_, to) |
+            Move::Promotion(_, to, _) |
+            Move::EnPassant(_, to) => to
+        }
+    }
+
+    pub fn try_from(value: &str, legal_moves: &[Move]) -> Result<Self, String> {
+        if value.len() < 4 || value.len() > 5 {
+            return Err(format!("Invalid move '{}'", value));
+        }
+
+        let from = Square::try_from(&value[..2])?;
+        let to = Square::try_from(&value[2..4])?;
+
+        legal_moves.iter()
+            .find(|mv| mv.from() == from && mv.to() == to)
+            .ok_or(format!("Illegal move '{}'", value))
+            .map(|mv| *mv)
     }
 }
 
 impl Display for Move {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            Move::Regular(from, to) => write!(f, "{}{}", from, to),
-            Move::Castling(side) => write!(f, "{}", match side {
-                Side::KingSide => "O-O",
-                Side::QueenSide => "O-O-O",
-            }),
+            Move::Regular(from, to) |
+            Move::Castling(from, to) |
+            Move::EnPassant(from, to) => write!(f, "{}{}", from, to),
             Move::Promotion(from, to, kind) => write!(f, "{}{}{}", from, to, kind),
-            Move::EnPassant(from, to) => write!(f, "{}{}ep", from, to),
         }
     }
 }
@@ -109,5 +111,11 @@ impl Index<usize> for MoveList {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
+    }
+}
+
+impl AsRef<[Move]> for MoveList {
+    fn as_ref(&self) -> &[Move] {
+        self.0.as_slice()
     }
 }

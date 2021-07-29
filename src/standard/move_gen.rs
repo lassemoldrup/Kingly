@@ -15,6 +15,7 @@ use crate::framework::square_map::SquareMap;
 use crate::framework::square_vec::SquareVec;
 use crate::standard::bitboard::Bitboard;
 use crate::standard::position::Position;
+use crate::framework::util::{get_castling_sq, get_king_sq};
 
 #[cfg(test)]
 mod tests;
@@ -557,7 +558,9 @@ impl MoveGen {
             let occ = position.pieces().get_occ();
 
             if ((castling_sqs & danger_sqs) | (no_occ_sqs & occ)).is_empty() {
-                moves.push(Move::Castling(side));
+                let king_sq = get_king_sq(position.to_move());
+                let castling_sq = get_castling_sq(position.to_move(), side);
+                moves.push(Move::Castling(king_sq, castling_sq));
             }
         }
 

@@ -169,11 +169,11 @@ fn both_sides_castling_moves() {
     move_gen.gen_castling_moves(&position, move_gen.gen_danger_sqs(&position), &mut moves);
 
     let king_side_count = moves.iter()
-        .filter(|&&m| m == Move::Castling(Side::KingSide))
+        .filter(|&&m| m == Move::Castling(Square::E1, Square::G1))
         .count();
     
     let queen_side_count = moves.iter()
-        .filter(|&&m| m == Move::Castling(Side::QueenSide))
+        .filter(|&&m| m == Move::Castling(Square::E1, Square::C1))
         .count();
 
     assert_eq!(king_side_count, 1);
@@ -189,11 +189,11 @@ fn no_castling_through_pieces() {
     move_gen.gen_castling_moves(&position, move_gen.gen_danger_sqs(&position), &mut moves);
 
     let king_side_count = moves.iter()
-        .filter(|&&m| m == Move::Castling(Side::KingSide))
+        .filter(|&&m| m == Move::Castling(Square::E8, Square::G8))
         .count();
 
     assert_eq!(king_side_count, 1);
-    assert!(!moves.contains(Move::Castling(Side::QueenSide)));
+    assert!(!moves.contains(Move::Castling(Square::E8, Square::C8)));
 }
 
 
@@ -206,10 +206,10 @@ fn no_castling_through_attacks() {
     move_gen.gen_castling_moves(&position, move_gen.gen_danger_sqs(&position), &mut moves);
 
     let queen_side_count = moves.iter()
-        .filter(|&&m| m == Move::Castling(Side::QueenSide))
+        .filter(|&&m| m == Move::Castling(Square::E1, Square::C1))
         .count();
 
-    assert!(!moves.contains(Move::Castling(Side::KingSide)));
+    assert!(!moves.contains(Move::Castling(Square::E1, Square::G1)));
     assert_eq!(queen_side_count, 1);
 }
 
@@ -221,8 +221,8 @@ fn no_castling_when_in_check() {
     let mut moves = MoveList::new();
     move_gen.gen_castling_moves(&position, move_gen.gen_danger_sqs(&position), &mut moves);
 
-    assert!(!moves.contains(Move::Castling(Side::KingSide)));
-    assert!(!moves.contains(Move::Castling(Side::QueenSide)));
+    assert!(!moves.contains(Move::Castling(Square::E8, Square::G8)));
+    assert!(!moves.contains(Move::Castling(Square::E8, Square::C8)));
 }
 
 #[test]

@@ -103,8 +103,8 @@ fn castling_move_made_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::Castling(Side::KingSide));
-        position.make_move(Move::Castling(Side::QueenSide));
+        position.make_move(Move::Castling(Square::E8, Square::G8));
+        position.make_move(Move::Castling(Square::E1, Square::C1));
     }
 
     position_matches_fen(position, "rnbq1rk1/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/2KR1BNR b - - 7 5");
@@ -161,8 +161,8 @@ fn castling_moves_unmade_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::Castling(Side::KingSide));
-        position.make_move(Move::Castling(Side::QueenSide));
+        position.make_move(Move::Castling(Square::E8, Square::G8));
+        position.make_move(Move::Castling(Square::E1, Square::C1));
         position.unmake_move();
         position.unmake_move();
     }
