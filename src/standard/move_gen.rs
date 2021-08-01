@@ -9,16 +9,18 @@ use crate::framework::color::Color;
 use crate::framework::direction::Direction;
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::piece::{Piece, PieceKind};
-use crate::framework::Side;
+use crate::framework::{Side, Position};
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::framework::square_vec::SquareVec;
-use crate::standard::bitboard::Bitboard;
-use crate::standard::position::Position;
 use crate::framework::util::{get_castling_sq, get_king_sq};
+use crate::standard::bitboard::Bitboard;
+use crate::standard::piece_map::BitboardPieceMap;
 
 #[cfg(test)]
 mod tests;
+mod factory;
+pub use factory::MoveGenFactory;
 
 // TODO: maybe use const fns and statics for these lookup tables
 pub struct MoveGen {
@@ -47,7 +49,7 @@ impl MoveGen {
         let line_through = Self::init_line_through();
         let ray_to = Self::init_ray_to();
 
-        let mut move_gen = MoveGen {
+        let mut move_gen = Self {
             white_pawn_attacks,
             black_pawn_attacks,
             knight_attacks,
@@ -316,7 +318,9 @@ impl MoveGen {
         }
     }
 
-    fn gen_pawn_moves(&self, position: &Position, blocking_sqs: Bitboard, pin_rays: Bitboard, moves: &mut MoveList) {
+    fn gen_pawn_moves<P>(&self, position: &P, blocking_sqs: Bitboard, pin_rays: Bitboard, moves: &mut MoveList) where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
         let pawns = position.pieces().get_bb(Piece(PieceKind::Pawn, position.to_move()));
 
         if pawns.is_empty() {
@@ -400,8 +404,10 @@ impl MoveGen {
         add_promos(self, right_atk_promo, up_right, pin_rays, king_sq, moves);
 
         // En passant
-        fn add_en_passant(move_gen: &MoveGen, position: &Position, dir: Direction, to: Square,
-                          ep_pawn_sq: Square, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) {
+        fn add_en_passant<P>(move_gen: &MoveGen, position: &P, dir: Direction, to: Square,
+                          ep_pawn_sq: Square, pin_rays: Bitboard, king_sq: Square, moves: &mut MoveList) where
+            P: Position<PieceMap = BitboardPieceMap>
+        {
             let from = unsafe {
                 to.shift(-dir)
             };
@@ -490,7 +496,9 @@ impl MoveGen {
         }
     }
 
-    fn gen_danger_sqs(&self, position: &Position) -> Bitboard {
+    fn gen_danger_sqs<P>(&self, position: &P) -> Bitboard where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
         let opponent = !position.to_move();
         let pawn_pce = Piece(PieceKind::Pawn, opponent);
         let knight_pce = Piece(PieceKind::Knight, opponent);
@@ -511,8 +519,10 @@ impl MoveGen {
     }
 
     /// Generates all non-pawn moves for the given `PieceKind` `kind`, except castling moves
-    fn gen_non_pawn_moves(&self, position: &Position, kind: PieceKind, blocking_sqs: Bitboard,
-                          pin_rays: Bitboard, danger_sqs: Bitboard, moves: &mut MoveList) {
+    fn gen_non_pawn_moves<P>(&self, position: &P, kind: PieceKind, blocking_sqs: Bitboard,
+                          pin_rays: Bitboard, danger_sqs: Bitboard, moves: &mut MoveList) where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
         let pce = Piece(kind, position.to_move());
         let pieces = position.pieces().get_bb(pce);
 
@@ -541,8 +551,12 @@ impl MoveGen {
         }
     }
 
-    fn gen_castling_moves(&self, position: &Position, danger_sqs: Bitboard, moves: &mut MoveList) {
-        fn gen_castling_move(position: &Position, side: Side, danger_sqs: Bitboard, moves: &mut MoveList) {
+    fn gen_castling_moves<P>(&self, position: &P, danger_sqs: Bitboard, moves: &mut MoveList) where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
+        fn gen_castling_move<P>(position: &P, side: Side, danger_sqs: Bitboard, moves: &mut MoveList) where
+            P: Position<PieceMap = BitboardPieceMap>
+        {
             if !position.castling().get(position.to_move(), side) {
                 return;
             }
@@ -568,7 +582,9 @@ impl MoveGen {
         gen_castling_move(position, Side::QueenSide, danger_sqs, moves);
     }
 
-    fn checkers(&self, position: &Position) -> Bitboard {
+    fn checkers<P>(&self, position: &P) -> Bitboard where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
         let king_sq = position.pieces().get_king_sq(position.to_move());
         let occ = position.pieces().get_occ();
 
@@ -597,7 +613,9 @@ impl MoveGen {
         pawn_checkers | knight_checkers | bishop_queen_checkers | rook_queen_checkers
     }
 
-    fn pin_rays(&self, position: &Position) -> Bitboard {
+    fn pin_rays<P>(&self, position: &P) -> Bitboard where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
         let king_sq = position.pieces().get_king_sq(position.to_move());
 
         let bishop_pce = Piece(PieceKind::Bishop, !position.to_move());
@@ -629,8 +647,10 @@ impl MoveGen {
 
         pin_rays
     }
+}
 
-    pub fn gen_all_moves(&self, position: &Position) -> MoveList {
+impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::MoveGen<P> for MoveGen {
+    fn gen_all_moves(&self, position: &P) -> MoveList {
         let mut moves = MoveList::new();
 
         // TODO: Is this generated thrice?

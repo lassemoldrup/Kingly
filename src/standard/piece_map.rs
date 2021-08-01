@@ -7,6 +7,7 @@ use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
+use crate::framework::PieceMap;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub struct BitboardPieceMap {
@@ -52,10 +53,6 @@ impl BitboardPieceMap {
         self.get_occ_for(Color::White) | self.get_occ_for(Color::Black)
     }
 
-    pub fn get(&self, sq: Square) -> Option<Piece> {
-        self.map[sq]
-    }
-
     pub fn set_sq(&mut self, sq: Square, pce: Piece) {
         match pce.color() {
             Color::White => self.white_pieces.set_sq(pce.kind(), sq),
@@ -72,6 +69,12 @@ impl BitboardPieceMap {
         self.black_pieces.unset_sqs(bb);
         self.occupied -= bb;
         self.map[sq] = None;
+    }
+}
+
+impl PieceMap for BitboardPieceMap {
+    fn get(&self, sq: Square) -> Option<Piece> {
+        self.map[sq]
     }
 }
 

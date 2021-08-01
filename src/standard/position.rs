@@ -7,15 +7,14 @@ use crate::framework::direction::Direction;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::moves::Move;
 use crate::framework::piece::{Piece, PieceKind};
-use crate::framework::Side;
+use crate::framework::{Side, PieceMap};
 use crate::framework::square::Square;
 use crate::standard::piece_map::BitboardPieceMap;
-use crate::standard::position::castling::CastlingRights;
-use crate::framework::util::{get_castling_sq, get_rook_sq, get_castling_rook_sq, get_king_sq};
+use crate::framework::util::{get_rook_sq, get_castling_rook_sq};
+use crate::framework::castling::CastlingRights;
 
 #[cfg(test)]
 mod tests;
-mod castling;
 
 #[derive(Clone)]
 pub struct Position {
@@ -110,27 +109,6 @@ impl Position {
             move_number,
             history: Vec::new(),
         })
-    }
-
-    pub fn pieces(&self) -> &BitboardPieceMap {
-        &self.pieces
-    }
-
-    pub fn to_move(&self) -> Color {
-        self.to_move
-    }
-
-    pub fn castling(&self) -> &CastlingRights {
-        &self.castling
-    }
-
-    pub fn en_passant_sq(&self) -> Option<Square> {
-        self.en_passant_sq
-    }
-
-    pub fn last_move(&self) -> Option<Move> {
-        self.history.last()
-            .map(|um| um.mv)
     }
 
     /// Makes move `m`
@@ -336,6 +314,31 @@ impl Position {
                 self.pieces.set_sq(ep_pawn_sq, Piece(PieceKind::Pawn, !self.to_move));
             }
         }
+    }
+
+    pub fn last_move(&self) -> Option<Move> {
+        self.history.last()
+            .map(|um| um.mv)
+    }
+}
+
+impl crate::framework::Position for Position {
+    type PieceMap = BitboardPieceMap;
+
+    fn pieces(&self) -> &BitboardPieceMap {
+        &self.pieces
+    }
+
+    fn to_move(&self) -> Color {
+        self.to_move
+    }
+
+    fn castling(&self) -> &CastlingRights {
+        &self.castling
+    }
+
+    fn en_passant_sq(&self) -> Option<Square> {
+        self.en_passant_sq
     }
 }
 

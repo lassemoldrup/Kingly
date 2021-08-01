@@ -1,32 +1,33 @@
-use crusty::framework::Game;
 use std::io::{BufRead, Write};
 use crusty::framework::fen::STARTING_FEN;
 use std::process::exit;
 use crusty::framework::moves::Move;
-use crusty::framework::util::{get_king_sq, get_castling_sq};
-use crusty::framework::piece::PieceKind;
-use std::convert::TryFrom;
+use crusty::framework::Client;
 use crusty::framework::square::Square;
-use std::time::{Instant, Duration};
-use std::sync::{Arc, Mutex, MutexGuard, TryLockError, mpsc};
-use std::thread::{self, JoinHandle};
-use std::sync::mpsc::{Receiver, SendError};
+use std::time::Instant;
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use std::sync::mpsc::Receiver;
 
-pub struct Uci<G: 'static, I, O: 'static> {
-    game: Arc<Mutex<&'static mut G>>,
+pub struct Uci<C: 'static, I, O: 'static> {
+    client: Arc<Mutex<&'static mut C>>,
     input: I,
     output: Arc<Mutex<&'static mut O>>,
     debug: bool,
     think: Option<Receiver<Move>>,
 }
 
-impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, O> {
-    pub fn new(game: G, input: I, output: O) -> Self {
-        // In order to share game and output across threads we need 'static references to them
-        let game = Box::leak(Box::new(game));
+impl<C, I, O> Uci<C, I, O> where
+    C: Client + Send + 'static,
+    I: BufRead,
+    O: Write + Send + 'static
+{
+    pub fn new(client: C, input: I, output: O) -> Self {
+        // In order to share client and output across threads we need 'static references to them
+        let client = Box::leak(Box::new(client));
         let output = Box::leak(Box::new(output));
         Self {
-            game: Arc::new(Mutex::new(game)),
+            client: Arc::new(Mutex::new(client)),
             input,
             output: Arc::new(Mutex::new(output)),
             debug: false,
@@ -96,14 +97,14 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                 })
             },
 
-            "ucinewgame" => Ok(Command::UciNewGame),
+            "ucinewclient" => Ok(Command::UciNewclient),
 
-            "position" => match self.game.try_lock() {
-                Ok(ref mut game) => match *command_args.get(1).ok_or(())? {
+            "position" => match self.client.try_lock() {
+                Ok(ref mut client) => match *command_args.get(1).ok_or(())? {
                     "startpos" => match command_args.get(2) {
                         Some(&"moves") => Ok(Command::Position {
                             fen: STARTING_FEN.to_string(),
-                            moves: Self::parse_move_list(game, &command_args[3..])?,
+                            moves: Self::parse_move_list(client, &command_args[3..])?,
                         }),
                         Some(_) => Err(()),
                         None => Ok(Command::Position {
@@ -121,7 +122,7 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                         match command_args.get(2 + fen_vec.len()) {
                             Some(&"moves") => Ok(Command::Position {
                                 fen,
-                                moves: Self::parse_move_list(game, &command_args[3 + fen_vec.len()..])?,
+                                moves: Self::parse_move_list(client, &command_args[3 + fen_vec.len()..])?,
                             }),
                             Some(_) => Err(()),
                             None => Ok(Command::Position {
@@ -135,8 +136,8 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                 Err(_) => Err(()),
             },
 
-            "go" => match self.game.try_lock() {
-                Ok(ref game) => {
+            "go" => match self.client.try_lock() {
+                Ok(ref client) => {
                     let mut opts = Vec::new();
 
                     let mut i = 1;
@@ -150,7 +151,7 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                                         break;
                                     }
 
-                                    let mv = Move::try_from(arg, game.get_moves().as_ref())
+                                    let mv = Move::try_from(arg, client.get_moves().as_ref())
                                         .map_err(|_| ())?;
                                     moves.push(mv);
                                     i += 1;
@@ -208,21 +209,21 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
         cmds.contains(&cmd)
     }
 
-    fn parse_move_list(game: &mut G, moves: &[&str]) -> Result<Vec<Move>, ()> {
+    fn parse_move_list(client: &mut C, moves: &[&str]) -> Result<Vec<Move>, ()> {
         let mut parsed = Vec::new();
 
         for mv in moves {
-            match Move::try_from(mv, game.get_moves().as_ref()) {
+            match Move::try_from(mv, client.get_moves().as_ref()) {
                 Ok(mv) => {
                     parsed.push(mv);
-                    game.make_move(mv).unwrap();
+                    client.make_move(mv).unwrap();
                 },
                 Err(_) => break,
             }
         }
 
         for _ in 0..parsed.len() {
-            game.unmake_move().unwrap();
+            client.unmake_move().unwrap();
         }
 
         if parsed.len() == moves.len() {
@@ -254,17 +255,17 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                 })?;
             },
             Command::IsReady => self.ready_ok()?,
-            Command::UciNewGame => match self.game.try_lock() {
-                Ok(ref mut game) => game.set_position(STARTING_FEN).unwrap(),
+            Command::UciNewclient => match self.client.try_lock() {
+                Ok(ref mut client) => client.set_position(STARTING_FEN).unwrap(),
                 Err(_) => if self.debug {
-                    writeln!(self.output.lock().unwrap(), "Can't start a new game while thinking")?;
+                    writeln!(self.output.lock().unwrap(), "Can't start a new client while thinking")?;
                 }
             }
-            Command::Position { fen, moves } => match self.game.try_lock() {
-                Ok(ref mut game) => match game.set_position(&fen) {
+            Command::Position { fen, moves } => match self.client.try_lock() {
+                Ok(ref mut client) => match client.set_position(&fen) {
                     Ok(_) => {
                         for mv in moves {
-                            game.make_move(mv).unwrap();
+                            client.make_move(mv).unwrap();
                         }
                     }
                     Err(err) => if self.debug {
@@ -275,8 +276,8 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                     writeln!(self.output.lock().unwrap(), "Can't execute position command while thinking")?;
                 }
             }
-            Command::Go(opts) => match self.game.try_lock() {
-                Ok(game) => {
+            Command::Go(opts) => match self.client.try_lock() {
+                Ok(client) => {
                     let think_start = Instant::now();
 
                     let mut search_moves = None;
@@ -300,16 +301,16 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                     }
 
                     let out = Arc::clone(&self.output);
-                    let game = Arc::clone(&self.game);
+                    let client = Arc::clone(&self.client);
                     let (tx, rx) = mpsc::channel();
                     self.think = Some(rx);
                     thread::spawn(move || {
-                        let game = game.lock().unwrap();
+                        let client = client.lock().unwrap();
 
                         match max_depth {
                             None => {
                                 for d in 1.. {
-                                    let best = game.search(d);
+                                    let best = client.search(d);
                                     if tx.send(best).is_err() {
                                         return;
                                     }
@@ -319,7 +320,7 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Uci<G, I, 
                             Some(depth) => {
                                 let mut best = Move::Regular(Square::E1, Square::E2);
                                 for d in 1..=depth {
-                                    best = game.search(d);
+                                    best = client.search(d);
                                     if tx.send(best).is_err() {
                                         return;
                                     }
@@ -385,7 +386,7 @@ enum Command {
         name: Option<String>,
         code: Option<String>,
     },
-    UciNewGame,
+    UciNewclient,
     Position {
         fen: String,
         moves: Vec<Move>,

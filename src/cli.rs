@@ -3,22 +3,26 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::{BufRead, Write};
 use std::time::Instant;
 
-use crusty::framework::Game;
 use crusty::framework::moves::Move;
-use crate::uci::Uci;
 use crusty::framework::fen::STARTING_FEN;
+use crusty::framework::Client;
+use crate::uci::Uci;
 
-pub struct Cli<G, I, O> {
-    game: G,
+pub struct Cli<C, I, O> {
+    client: C,
     input: I,
     output: O,
     uci: bool,
 }
 
-impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, O> {
-    pub fn new(game: G, input: I, output: O) -> Self {
+impl<C, I, O> Cli<C, I, O> where
+    C: Client + Debug + Send + 'static,
+    I: BufRead,
+    O: Write + Send + 'static
+{
+    pub fn new(client: C, input: I, output: O) -> Self {
         Self {
-            game,
+            client,
             input,
             output,
             uci: false
@@ -30,8 +34,8 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, 
 
         loop {
             if self.uci {
-                self.game.set_position(STARTING_FEN).unwrap();
-                let uci = Uci::new(self.game, self.input, self.output);
+                self.client.set_position(STARTING_FEN).unwrap();
+                let uci = Uci::new(self.client, self.input, self.output);
                 return uci.start();
             }
 
@@ -64,6 +68,16 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, 
         writeln!(self.output)
     }
 
+    fn init_client(&mut self) -> std::io::Result<()> {
+        if self.client.is_init() {
+            return Ok(());
+        }
+
+        writeln!(self.output, "Initializing tables...")?;
+        self.client.init();
+        writeln!(self.output, "Tables initialized")
+    }
+
     fn parse_command(&mut self, command: &str) -> Result<Command, ParseError> {
         let command_args: Vec<&str> = command.split_ascii_whitespace().collect();
         match command_args[0] {
@@ -85,21 +99,21 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, 
                 let mut moves = Vec::new();
 
                 for mv in &command_args[1..] {
-                    match Move::try_from(mv, self.game.get_moves().as_ref()) {
+                    match Move::try_from(mv, self.client.get_moves().as_ref()) {
                         Ok(mv) => {
                             moves.push(mv);
-                            self.game.make_move(mv);
+                            self.client.make_move(mv).unwrap();
                         },
                         Err(_) => {
                             moves.iter()
-                                .for_each(|&mv| self.game.unmake_move().unwrap());
+                                .for_each(|_| self.client.unmake_move().unwrap());
                             break;
                         },
                     }
                 }
 
                 for _ in 0..moves.len() {
-                    self.game.unmake_move();
+                    self.client.unmake_move().unwrap();
                 }
 
                 if !moves.is_empty() && moves.len() == command_args[1..].len() {
@@ -120,41 +134,47 @@ impl<G: Game + Send + 'static, I: BufRead, O: Write + Send + 'static> Cli<G, I, 
                 return Ok(());
             },
             Command::Perft(depth) => {
+                self.init_client()?;
+
                 writeln!(self.output, "Running Perft with depth {}...", depth)?;
                 let start = Instant::now();
-                let nodes = self.game.perft(depth);
+                let nodes = self.client.perft(depth);
                 let elapsed = start.elapsed();
                 writeln!(self.output, "Nodes:\t{}\nTime:\t{} ms\nNPS:\t{:.0} kn/s",
                          nodes, elapsed.as_millis(), (nodes as f64)/elapsed.as_secs_f64()/1000.0)?;
             },
             Command::Divide(depth) => {
+                self.init_client()?;
+
                 writeln!(self.output, "Running Divide with depth {}...", depth)?;
 
                 let mut total = 0;
-                for mv in self.game.get_moves() {
-                    self.game.make_move(mv).unwrap();
-                    let nodes = self.game.perft(depth - 1);
+                for mv in self.client.get_moves() {
+                    self.client.make_move(mv).unwrap();
+                    let nodes = self.client.perft(depth - 1);
                     total += nodes;
-                    self.game.unmake_move().unwrap();
+                    self.client.unmake_move().unwrap();
 
                     writeln!(self.output, "{}: {}", mv, nodes)?;
                 }
 
                 writeln!(self.output, "\nTotal: {}", total)?;
             },
-            Command::Fen(fen) => match self.game.set_position(&fen) {
+            Command::Fen(fen) => match self.client.set_position(&fen) {
                 Ok(_) => { },
                 Err(err) => writeln!(self.output, "{}", err)?,
             },
             Command::Move(moves) => {
+                self.init_client()?;
+
                 for mv in moves {
-                    if self.game.make_move(mv).is_err() {
+                    if self.client.make_move(mv).is_err() {
                         writeln!(self.output, "Illegal move '{}'", mv)?;
                         break;
                     }
                 }
             }
-            Command::Debug => writeln!(self.output, "{:?}", self.game)?,
+            Command::Debug => writeln!(self.output, "{:?}", self.client)?,
         }
         writeln!(self.output)
     }
