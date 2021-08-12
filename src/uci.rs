@@ -1,377 +1,136 @@
-use std::io::{BufRead, Write};
-use crusty::framework::fen::STARTING_FEN;
+use std::io::{BufRead, Write, self};
+use crusty::framework::fen::{STARTING_FEN, FenParseError};
 use std::process::exit;
 use crusty::framework::moves::Move;
 use crusty::framework::Client;
 use crusty::framework::square::Square;
-use std::time::Instant;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, channel};
+use parser::Parser;
+use std::fmt::{Debug, Display, Formatter};
+use crusty::framework::io::{Input, Output};
+use crate::uci::writer::Writer;
+use std::ops::{Deref, DerefMut};
+use crusty::framework::piece::PieceKind;
+use std::str::FromStr;
+use std::convert::TryFrom;
+use crusty::framework::search::Search;
+use crusty::framework::value::Value;
+use std::convert::AsRef;
+use strum_macros::AsRefStr;
 
-pub struct Uci<C: 'static, I, O: 'static> {
-    client: Arc<Mutex<&'static mut C>>,
-    input: I,
-    output: Arc<Mutex<&'static mut O>>,
+
+#[cfg(test)]
+mod tests;
+mod parser;
+mod writer;
+
+pub struct Uci<C, I, O> {
+    client: Arc<Mutex<C>>,
+    search_stream: Option<Receiver<Move>>,
+    parser: Parser<I>,
+    writer: Arc<Mutex<Writer<O>>>,
     debug: bool,
-    think: Option<Receiver<Move>>,
 }
 
-impl<C, I, O> Uci<C, I, O> where
-    C: Client + Send + 'static,
-    I: BufRead,
-    O: Write + Send + 'static
+impl<'a, C, I, O> Uci<C, I, O>  where
+    C: Client<'a> + Send + 'static,
+    I: Input,
+    O: Output
 {
     pub fn new(client: C, input: I, output: O) -> Self {
-        // In order to share client and output across threads we need 'static references to them
-        let client = Box::leak(Box::new(client));
-        let output = Box::leak(Box::new(output));
+        let client = client;
+
         Self {
             client: Arc::new(Mutex::new(client)),
-            input,
-            output: Arc::new(Mutex::new(output)),
+            search_stream: None,
+            parser: Parser::new(input),
+            writer: Arc::new(Mutex::new(Writer::new(output))),
             debug: false,
-            think: None,
         }
     }
 
-    pub fn start(mut self) -> std::io::Result<()> {
-        self.id()?;
-        self.uci_ok()?;
+    pub fn start(mut self) -> io::Result<()> {
+        let mut writer = self.writer.lock().unwrap();
+
+        writer.id()?;
+        writer.uci_ok()?;
+        drop(writer);
+
+        self.client.lock().unwrap()
+            .init();
 
         loop {
-            let mut command = String::new();
-            self.input.read_line(&mut command)?;
-
-            match self.parse_command(&command.trim()) {
+            match self.parser.parse() {
                 Ok(cmd) => self.execute(cmd)?,
-                Err(_) => if self.debug {
-                    writeln!(self.output.lock().unwrap(), "Failed to parse command '{:?}'", command.trim())?
-                },
+                Err(err) => self.debug(err)?,
             }
         }
     }
 
-    fn parse_command(&mut self, cmd: &str) -> Result<Command, ()> {
-        let cmd = cmd.to_ascii_lowercase();
-        let command_args: Vec<&str> = cmd.split_ascii_whitespace()
-            .collect();
-
-        match *command_args.get(0).unwrap_or(&"") {
-            "debug" => match *command_args.get(1).ok_or(())? {
-                "on" => Ok(Command::Debug(true)),
-                "off" => Ok(Command::Debug(false)),
-                _ => Err(()),
-            },
-
-            "isready" => Ok(Command::IsReady),
-
-            "setoption" => Ok(Command::SetOption(UciOption::None)),
-
-            "register" => {
-                let mut name = None;
-                let mut code = None;
-
-                let mut args = command_args[1..].iter();
-                loop {
-                    let arg = match args.next() {
-                        None => break,
-                        Some(a) => a,
-                    };
-                    match *arg {
-                        "later" => return Ok(Command::Register {
-                            later: true,
-                            name: None,
-                            code: None,
-                        }),
-                        "name" => name = args.next().map(|a| a.to_string()),
-                        "code" => code = args.next().map(|a| a.to_string()),
-                        _ => return Err(()),
-                    }
-                }
-
-                Ok(Command::Register {
-                    later: false,
-                    name,
-                    code,
-                })
-            },
-
-            "ucinewclient" => Ok(Command::UciNewclient),
-
-            "position" => match self.client.try_lock() {
-                Ok(ref mut client) => match *command_args.get(1).ok_or(())? {
-                    "startpos" => match command_args.get(2) {
-                        Some(&"moves") => Ok(Command::Position {
-                            fen: STARTING_FEN.to_string(),
-                            moves: Self::parse_move_list(client, &command_args[3..])?,
-                        }),
-                        Some(_) => Err(()),
-                        None => Ok(Command::Position {
-                            fen: STARTING_FEN.to_string(),
-                            moves: Vec::new(),
-                        }),
-                    },
-                    "fen" => {
-                        let fen_vec = command_args[2..].iter()
-                            .take_while(|&&arg| arg != "moves")
-                            .map(|s| *s)
-                            .collect::<Vec<_>>();
-                        let fen = fen_vec.join(" ");
-
-                        match command_args.get(2 + fen_vec.len()) {
-                            Some(&"moves") => Ok(Command::Position {
-                                fen,
-                                moves: Self::parse_move_list(client, &command_args[3 + fen_vec.len()..])?,
-                            }),
-                            Some(_) => Err(()),
-                            None => Ok(Command::Position {
-                                fen,
-                                moves: Vec::new(),
-                            }),
-                        }
-                    },
-                    _ => Err(())
-                },
-                Err(_) => Err(()),
-            },
-
-            "go" => match self.client.try_lock() {
-                Ok(ref client) => {
-                    let mut opts = Vec::new();
-
-                    let mut i = 1;
-                    while i < command_args.len() {
-                        match command_args[i] {
-                            "searchmoves" => {
-                                let mut moves = Vec::new();
-
-                                while let Some(arg) = command_args.get(i + 1) {
-                                    if Self::is_go_command(arg) {
-                                        break;
-                                    }
-
-                                    let mv = Move::try_from(arg, client.get_moves().as_ref())
-                                        .map_err(|_| ())?;
-                                    moves.push(mv);
-                                    i += 1;
-                                }
-
-                                opts.push(GoOption::SearchMoves(moves))
-                            },
-                            "ponder" => opts.push(GoOption::Ponder),
-                            "wtime" =>
-                                opts.push(GoOption::WTime(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "btime" =>
-                                opts.push(GoOption::BTime(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "winc" =>
-                                opts.push(GoOption::WInc(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "binc" =>
-                                opts.push(GoOption::BInc(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "movestogo" =>
-                                opts.push(GoOption::MovesToGo(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "depth" =>
-                                opts.push(GoOption::Depth(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "nodes" =>
-                                opts.push(GoOption::Nodes(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "mate" =>
-                                opts.push(GoOption::Mate(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "movetime" =>
-                                opts.push(GoOption::MoveTime(Self::parse_num_arg(&command_args, &mut i)?)),
-                            "infinite" => opts.push(GoOption::Infinite),
-                            _ => return Err(()),
-                        }
-
-                        i += 1;
-                    }
-
-                    Ok(Command::Go(opts))
-                },
-                Err(_) => Err(()),
-            },
-
-            "stop" => Ok(Command::Stop),
-
-            "ponderhit" => Ok(Command::PonderHit),
-
-            "quit" => Ok(Command::Quit),
-
-            "" => Err(()),
-
-            _ => self.parse_command(&command_args[1..].join(" ")),
-        }
-    }
-
-    fn is_go_command(cmd: &str) -> bool {
-        let cmds = ["searchmoves", "ponder", "wtime", "btime", "winc", "binc", "movestogo", "depth",
-            "nodes", "mate", "movetime", "infinite"];
-
-        cmds.contains(&cmd)
-    }
-
-    fn parse_move_list(client: &mut C, moves: &[&str]) -> Result<Vec<Move>, ()> {
-        let mut parsed = Vec::new();
-
-        for mv in moves {
-            match Move::try_from(mv, client.get_moves().as_ref()) {
-                Ok(mv) => {
-                    parsed.push(mv);
-                    client.make_move(mv).unwrap();
-                },
-                Err(_) => break,
-            }
-        }
-
-        for _ in 0..parsed.len() {
-            client.unmake_move().unwrap();
-        }
-
-        if parsed.len() == moves.len() {
-            Ok(parsed)
-        } else {
-            Err(())
-        }
-    }
-
-    fn parse_num_arg<T: std::str::FromStr>(command_args: &[&str], i: &mut usize) -> Result<T, ()> {
-        *i += 1;
-        command_args.get(*i)
-            .ok_or(())?
-            .parse()
-            .map_err(|_| ())
-    }
-
-    fn execute(&mut self, cmd: Command) -> std::io::Result<()> {
-        if self.debug {
-            writeln!(self.output.lock().unwrap(), "Executing command '{:?}'", cmd)?;
-        }
-
+    fn execute(&mut self, cmd: Command) -> io::Result<()> {
         match cmd {
-            Command::Debug(val) => {
-                self.debug = val;
-                writeln!(self.output.lock().unwrap(), "Debug is now {}", match val {
-                    true => "on",
-                    false => "off",
-                })?;
-            },
-            Command::IsReady => self.ready_ok()?,
-            Command::UciNewclient => match self.client.try_lock() {
-                Ok(ref mut client) => client.set_position(STARTING_FEN).unwrap(),
-                Err(_) => if self.debug {
-                    writeln!(self.output.lock().unwrap(), "Can't start a new client while thinking")?;
+            Command::Debug(val) => self.debug = val,
+
+            Command::IsReady => self.writer.lock().unwrap()
+                .ready_ok()?,
+
+            Command::SetOption(_) => {},
+
+            Command::Register { .. } => {},
+
+            Command::RegisterLater => {},
+
+            Command::UciNewGame => {},
+
+            Command::Position { fen, moves } => self.client.try_lock()
+                .map_err(|_| "Attempt to change position while searching".to_string())
+                .and_then(|mut client| client.set_position(&fen).as_ref()
+                    .map_err(ToString::to_string)
+                    .and_then(|_| {
+                        moves.iter()
+                            .find_map(|&mv| mv.into_move(&client.get_moves())
+                                .and_then(|mv| client.make_move(mv))
+                                .err())
+                            .map_or(Ok(()), Err)
+                    }))
+                .or_else(|err| self.debug(err))?,
+
+            Command::Go(options) => {
+                if !options.contains(&GoOption::Infinite) {
+                    panic!("Only infinite searching is currently supported")
                 }
-            }
-            Command::Position { fen, moves } => match self.client.try_lock() {
-                Ok(ref mut client) => match client.set_position(&fen) {
-                    Ok(_) => {
-                        for mv in moves {
-                            client.make_move(mv).unwrap();
-                        }
-                    }
-                    Err(err) => if self.debug {
-                        writeln!(self.output.lock().unwrap(), "{}", err)?;
-                    }
-                }
-                Err(_) => if self.debug {
-                    writeln!(self.output.lock().unwrap(), "Can't execute position command while thinking")?;
-                }
-            }
-            Command::Go(opts) => match self.client.try_lock() {
-                Ok(client) => {
-                    let think_start = Instant::now();
 
-                    let mut search_moves = None;
-                    let mut max_depth = None;
-                    let mut max_nodes = None;
-                    let mut search_time = None;
-                    let mut find_mate = None;
+                let client = self.client.clone();
+                let writer = self.writer.clone();
+                thread::spawn(move || {
+                    let test = client.lock().unwrap();
+                    let mut search = test.search();
 
-                    for opt in opts {
-                        match opt {
-                            GoOption::SearchMoves(moves) => search_moves = Some(moves),
-                            GoOption::Depth(depth) => max_depth = Some(depth),
-                            GoOption::Nodes(nodes) => max_nodes = Some(nodes),
-                            GoOption::Mate(mate) => find_mate = Some(mate),
-                            GoOption::MoveTime(time) => search_time = Some(time),
-                            GoOption::Infinite => max_depth = None,
-                            _ => if self.debug {
-                                writeln!(self.output.lock().unwrap(), "Unsupported go option {:?}", opt)?;
-                            }
-                        }
-                    }
+                    search.on_info(|info| {
 
-                    let out = Arc::clone(&self.output);
-                    let client = Arc::clone(&self.client);
-                    let (tx, rx) = mpsc::channel();
-                    self.think = Some(rx);
-                    thread::spawn(move || {
-                        let client = client.lock().unwrap();
-
-                        match max_depth {
-                            None => {
-                                for d in 1.. {
-                                    let best = client.search(d);
-                                    if tx.send(best).is_err() {
-                                        return;
-                                    }
-                                    writeln!(out.lock().unwrap(), "info depth {}", d).unwrap();
-                                }
-                            }
-                            Some(depth) => {
-                                let mut best = Move::Regular(Square::E1, Square::E2);
-                                for d in 1..=depth {
-                                    best = client.search(d);
-                                    if tx.send(best).is_err() {
-                                        return;
-                                    }
-                                    writeln!(out.lock().unwrap(), "info depth {}", d).unwrap();
-                                }
-                                writeln!(out.lock().unwrap(), "bestmove {}", best).unwrap();
-                            }
-                        }
                     });
-                }
-                Err(_) => if self.debug {
-                    writeln!(self.output.lock().unwrap(), "Can't execute position command while thinking")?;
-                }
-            },
-            Command::Stop => {
-                let best_mv = match self.think.as_ref().and_then(|rx| rx.try_recv().ok()) {
-                    None => {
-                        if self.debug {
-                            writeln!(self.output.lock().unwrap(), "stop called while not thinking")?;
-                        }
-                        return Ok(());
-                    }
-                    Some(mv) => mv
-                };
-                self.think = None;
-                self.best_move(best_mv)?;
-            }
-            Command::Quit => exit(0),
-            _ => if self.debug {
-                writeln!(self.output.lock().unwrap(), "Unsupported command")?;
-            },
-        }
 
+                    drop(search);
+                    drop(test);
+                });
+            },
+
+            Command::Stop => {},
+
+            Command::PonderHit => {},
+
+            Command::Quit => exit(0),
+        }
         Ok(())
     }
 
-    fn id(&mut self) -> std::io::Result<()> {
-        writeln!(self.output.lock().unwrap(), "id name Crusty")?;
-        writeln!(self.output.lock().unwrap(), "id author Lasse Møldrup")
-    }
-
-    fn uci_ok(&mut self) -> std::io::Result<()> {
-        writeln!(self.output.lock().unwrap(), "uciok")
-    }
-
-    fn ready_ok(&mut self) -> std::io::Result<()> {
-        writeln!(self.output.lock().unwrap(), "readyok")
-    }
-
-    fn best_move(&mut self, mv: Move) -> std::io::Result<()> {
-        writeln!(self.output.lock().unwrap(), "bestmove {}", mv)
+    fn debug(&self, msg: impl AsRef<str>) -> io::Result<()> {
+        if self.debug {
+            self.writer.lock().unwrap().debug(msg)?;
+        }
+        Ok(())
     }
 }
 
@@ -382,16 +141,16 @@ enum Command {
     IsReady,
     SetOption(UciOption),
     Register {
-        later: bool,
-        name: Option<String>,
-        code: Option<String>,
+        name: String,
+        code: String,
     },
-    UciNewclient,
+    RegisterLater,
+    UciNewGame,
     Position {
         fen: String,
-        moves: Vec<Move>,
+        moves: Box<[PseudoMove]>,
     },
-    Go(Vec<GoOption>),
+    Go(Box<[GoOption]>),
     Stop,
     PonderHit,
     Quit,
@@ -403,10 +162,9 @@ enum UciOption {
     None,
 }
 
-
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 enum GoOption {
-    SearchMoves(Vec<Move>),
+    SearchMoves(Box<[PseudoMove]>),
     Ponder,
     WTime(u32),
     BTime(u32),
@@ -418,4 +176,78 @@ enum GoOption {
     Mate(u32),
     MoveTime(u32),
     Infinite,
+}
+
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+struct PseudoMove {
+    from: Square,
+    to: Square,
+    kind: Option<PieceKind>,
+}
+
+impl PseudoMove {
+    fn into_move(self, legal_moves: &[Move]) -> Result<Move, String> {
+        legal_moves.iter().copied()
+            .find(|&mv| mv.from() == self.from && mv.to() == self.to && match mv {
+                Move::Promotion(_, _, kind) => Some(kind) == self.kind,
+                _ => true,
+            })
+            .ok_or_else(|| format!("Illegal move '{}'", self))
+    }
+}
+
+impl FromStr for PseudoMove {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() == 4 || s.len() == 5 {
+            let from = Square::try_from(&s[0..2])?;
+            let to = Square::try_from(&s[2..4])?;
+
+            let kind = if s.len() == 5 {
+                Some(PieceKind::try_from(s.chars().nth(4).unwrap())?)
+            } else {
+                None
+            };
+
+            Ok(PseudoMove {
+                from, to, kind
+            })
+        } else {
+            Err(format!("Invalid move '{}'", s))
+        }
+    }
+}
+
+impl Display for PseudoMove {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.from, self.to)
+    }
+}
+
+
+#[derive(AsRefStr, Debug)]
+enum SearchInfo {
+    Depth(u32),
+    SelDepth(u32),
+    Time(u32),
+    Nodes(u64),
+    PV(Box<[Move]>),
+    Score(Value),
+    CurrMove(Move),
+    CurrMoveNumber(u32),
+    HashFull(u32),
+    NPS(u64),
+    String(String),
+    CurrLine {
+        cpu_number: u32,
+        line: Box<[Move]>,
+    },
+}
+
+impl Display for SearchInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref().to_ascii_lowercase())
+    }
 }

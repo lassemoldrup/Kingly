@@ -10,6 +10,8 @@ edition = "2018"
 arrayvec = "0.5.2"
 bitintr = "0.3.0"
 take-until = "0.1.0"
+itertools = "0.10.1"
+strum_macros = "0.21.0"
 
 [dev-dependencies]
 serde = { version = "1.0.123", features = ["derive"] }

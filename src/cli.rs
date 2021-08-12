@@ -1,12 +1,12 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::io::{BufRead, Write};
 use std::time::Instant;
 
 use crusty::framework::moves::Move;
 use crusty::framework::fen::STARTING_FEN;
 use crusty::framework::Client;
 use crate::uci::Uci;
+use crusty::framework::io::{Input, Output};
 
 pub struct Cli<C, I, O> {
     client: C,
@@ -15,10 +15,10 @@ pub struct Cli<C, I, O> {
     uci: bool,
 }
 
-impl<C, I, O> Cli<C, I, O> where
-    C: Client + Debug + Send + 'static,
-    I: BufRead,
-    O: Write + Send + 'static
+impl<'a, C, I, O> Cli<C, I, O> where
+    C: Client<'a> + Send + Debug + 'static,
+    I: Input,
+    O: Output
 {
     pub fn new(client: C, input: I, output: O) -> Self {
         Self {
@@ -42,9 +42,7 @@ impl<C, I, O> Cli<C, I, O> where
             write!(self.output, "> ")?;
             self.output.flush()?;
 
-            let mut command = String::new();
-            self.input.read_line(&mut command)?;
-
+            let command = self.input.read_line()?;
             if command.trim().is_empty() {
                 continue;
             }
@@ -73,7 +71,7 @@ impl<C, I, O> Cli<C, I, O> where
             return Ok(());
         }
 
-        writeln!(self.output, "Initializing tables...")?;
+        writeln!(self.output, "Initializing tables..")?;
         self.client.init();
         writeln!(self.output, "Tables initialized")
     }

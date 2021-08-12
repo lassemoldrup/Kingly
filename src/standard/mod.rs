@@ -4,6 +4,7 @@ mod bitboard;
 mod piece_map;
 mod move_gen;
 mod eval;
+mod search;
 
 pub use client::Client;
 pub(crate) use position::Position;

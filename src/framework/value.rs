@@ -1,6 +1,6 @@
 use std::ops::Neg;
 
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub enum Value {
     NegInf,
     CentiPawn(i32),

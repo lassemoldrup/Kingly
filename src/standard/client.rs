@@ -5,8 +5,9 @@ use crate::framework::{MoveGen, MoveGenFactory, Eval};
 use crate::framework::moves::Move;
 use crate::framework::fen::FenParseError;
 use crate::standard::Position;
-use crate::framework::value::Value;
 use crate::framework::Client as ClientTrait;
+//use crate::framework::search::Search;
+use crate::standard::search::Search;
 
 pub struct Client<MG, MGF, E>
 {
@@ -35,40 +36,17 @@ impl<MG, MGF, E> Client<MG, MGF, E> where
     fn move_legal(&self, mv: Move) -> bool {
         self.get_moves().contains(mv)
     }
-
-    fn alpha_beta(position: &mut Position, move_gen: &MG, eval: &E, mut alpha: Value, beta: Value, depth: u32) -> Value {
-        if depth == 0 {
-            return eval.eval(position)
-        }
-
-        let moves = move_gen.gen_all_moves(position);
-        for mv in moves {
-            let score;
-            unsafe {
-                position.make_move(mv);
-                score = -Self::alpha_beta(position, move_gen, eval, -beta, -alpha, depth - 1);
-                position.unmake_move();
-            }
-
-            if score >= beta  {
-                return beta;
-            }
-
-            if score > alpha {
-                alpha = score;
-            }
-        }
-
-        alpha
-    }
 }
 
-impl<MG, MGF, E> crate::framework::Client for Client<MG, MGF, E>
+impl<'a, MG, MGF, E> crate::framework::Client<'a> for Client<MG, MGF, E>
 where
-    MG: MoveGen<Position>,
+    MG: MoveGen<Position> + 'a,
     MGF: MoveGenFactory<MG, Position>,
-    E: Eval<Position>
+    E: Eval<Position> + 'a
 {
+    type InfSearch = Search<'a, MG, E>;
+    type DepthSearch = Search<'a, MG, E>;
+
     fn init(&mut self) {
         self.move_gen = Some(self.move_gen_factory.create());
     }
@@ -87,56 +65,37 @@ where
             .gen_all_moves(&self.position)
     }
 
-    fn make_move(&mut self, mv: Move) -> Result<(), ()> {
+    fn make_move(&mut self, mv: Move) -> Result<(), String> {
         if self.move_legal(mv) {
             unsafe {
                 self.position.make_move(mv);
             }
             Ok(())
         } else {
-            Err(())
+            Err(format!("Illegal move: {}", mv))
         }
     }
 
-    fn unmake_move(&mut self) -> Result<(), ()> {
+    fn unmake_move(&mut self) -> Result<(), String> {
         if self.position.last_move().is_some() {
             unsafe {
                 self.position.unmake_move();
             }
             Ok(())
         } else {
-            Err(())
+            Err("No move to unmake".to_string())
         }
     }
 
-    fn search(&self, depth: u32) -> Move {
+    fn search_depth(&self, depth: u32) -> Self::DepthSearch {
+        todo!()
+    }
+
+    fn search(&'a self) -> Self::InfSearch {
         let move_gen = self.move_gen.as_ref().expect(Self::NOT_INIT);
-        let mut position = self.position.clone();
+        let position = self.position.clone();
 
-        if depth == 0 {
-            panic!("Depth can't be 0");
-        }
-
-        let moves = move_gen.gen_all_moves(&position);
-        let mut best_score = Value::NegInf;
-        let mut best_move = *moves.get(0)
-            .expect("Search on a position with no moves");
-
-        for mv in moves {
-            let score;
-            unsafe {
-                position.make_move(mv);
-                score = Self::alpha_beta(&mut position, &move_gen, &self.eval, Value::NegInf, Value::Inf, depth - 1);
-                position.unmake_move();
-            }
-
-            if score > best_score {
-                best_move = mv;
-                best_score = score;
-            }
-        }
-
-        best_move
+        Search::new(position, move_gen, &self.eval)
     }
 
     fn perft(&self, depth: u32) -> u64 {

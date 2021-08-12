@@ -6,7 +6,8 @@ use arrayvec::{ArrayVec, IntoIter};
 
 use crate::framework::piece::PieceKind;
 use crate::framework::square::Square;
-use std::ops::Index;
+use std::ops::{Index, Deref};
+
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Move {
@@ -17,7 +18,7 @@ pub enum Move {
 }
 
 impl Move {
-    fn from(self) -> Square {
+    pub fn from(self) -> Square {
         match self {
             Move::Regular(from, _) |
             Move::Castling(from, _) |
@@ -26,7 +27,7 @@ impl Move {
         }
     }
 
-    fn to(self) -> Square {
+    pub fn to(self) -> Square {
         match self {
             Move::Regular(_, to) |
             Move::Castling(_, to) |
@@ -106,6 +107,15 @@ impl IntoIterator for MoveList {
     }
 }
 
+impl<'a> IntoIterator for &'a MoveList {
+    type Item = &'a Move;
+    type IntoIter = Iter<'a, Move>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl Index<usize> for MoveList {
     type Output = Move;
 
@@ -117,5 +127,13 @@ impl Index<usize> for MoveList {
 impl AsRef<[Move]> for MoveList {
     fn as_ref(&self) -> &[Move] {
         self.0.as_slice()
+    }
+}
+
+impl Deref for MoveList {
+    type Target = [Move];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
