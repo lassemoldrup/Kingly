@@ -4,6 +4,7 @@ use crusty::framework::io::Output;
 use crate::uci::SearchInfo;
 use itertools::Itertools;
 
+#[derive(Clone)]
 pub struct Writer<O> {
     output: O,
 }
@@ -13,6 +14,10 @@ impl<O: Output> Writer<O> {
         Self {
             output,
         }
+    }
+
+    pub fn into_output(self) -> O {
+        self.output
     }
 
     pub fn debug(&mut self, msg: impl AsRef<str>) -> io::Result<()> {

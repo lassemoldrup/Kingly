@@ -71,7 +71,6 @@ impl<I: Input> Parser<I> {
                         .map(|&mv| PseudoMove::from_str(mv))
                         .collect::<Result<Vec<_>, String>>()?;
                 }
-                let moves = moves.into_boxed_slice();
 
                 Ok(Command::Position {
                     fen, moves
@@ -88,7 +87,7 @@ impl<I: Input> Parser<I> {
                     remaining = rem;
                 }
 
-                Ok(Command::Go(options.into_boxed_slice()))
+                Ok(Command::Go(options))
             },
 
             "stop" => Ok(Command::Stop),

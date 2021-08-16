@@ -48,7 +48,7 @@ impl Client for ClientStub {
 
     fn unmake_move(&mut self) -> Result<(), String> {
         self.moves_made.pop()
-            .ok_or("No moves to unmake".to_string())
+            .ok_or_else(|| "No moves to unmake".to_string())
             .map(|_| ())
     }
 
@@ -57,7 +57,7 @@ impl Client for ClientStub {
     }
 }
 
-impl<'f> Searchable<'f> for ClientStub {
+impl<'f> Searchable<'f> for &'f ClientStub {
     type InfSearch = SearchStub;
     type DepthSearch = SearchStub;
 

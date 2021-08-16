@@ -1,17 +1,16 @@
-use std::io::{BufRead, Write, self};
-use crusty::framework::fen::{STARTING_FEN, FenParseError};
+use std::io;
+use crusty::framework::fen::FenParseError;
 use std::process::exit;
 use crusty::framework::moves::Move;
 use crusty::framework::{Client, Searchable};
 use crusty::framework::square::Square;
 use std::sync::{Arc, Mutex, mpsc, MutexGuard, TryLockError};
 use std::thread;
-use std::sync::mpsc::{Receiver, channel};
 use parser::Parser;
 use std::fmt::{Debug, Display, Formatter};
 use crusty::framework::io::{Input, Output};
 use crate::uci::writer::Writer;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use crusty::framework::piece::PieceKind;
 use std::str::FromStr;
 use std::convert::TryFrom;
@@ -93,11 +92,11 @@ impl<C, I, O> Uci<C, I, O>  where
                 .and_then(|mut client| client.set_position(&fen).as_ref()
                     .map_err(ToString::to_string)
                     .and_then(|_| {
-                        moves.iter()
-                            .find_map(|&mv| mv.into_move(&client.get_moves())
-                                .and_then(|mv| client.make_move(mv))
-                                .err())
-                            .map_or(Ok(()), Err)
+                        for mv in moves {
+                            let mv = mv.into_move(&client.get_moves())?;
+                            client.make_move(mv)?;
+                        }
+                        Ok(())
                     }))
                 .or_else(|err| self.debug(err))?,
 
@@ -106,10 +105,8 @@ impl<C, I, O> Uci<C, I, O>  where
                     panic!("Only infinite searching is currently supported")
                 }
 
-                // TODO: Better way of checking for search
-                match self.client.try_lock() {
-                    Ok(_) => {},
-                    Err(_) => return self.debug("Already searching"),
+                if self.is_searching() {
+                    return self.debug("Already searching");
                 }
 
                 let stop_search = self.stop_search.clone();
@@ -119,7 +116,6 @@ impl<C, I, O> Uci<C, I, O>  where
                 let writer = self.writer.clone();
                 thread::spawn(move || {
                     let client = client.lock().unwrap();
-                    let writer = writer;
                     let mut search = client.deref().search();
 
                     let start = Instant::now();
@@ -136,9 +132,10 @@ impl<C, I, O> Uci<C, I, O>  where
             },
 
             // TODO: Ordering ok?
-            Command::Stop => match self.client.try_lock() {
-                Ok(_) => self.debug("Attempt to stop with no search")?,
-                Err(_) => self.stop_search.store(true, Ordering::Relaxed),
+            Command::Stop => if self.is_searching() {
+                self.stop_search.store(true, Ordering::SeqCst);
+            } else {
+                self.debug("Attempt to stop with no search")?;
             },
 
             Command::PonderHit => self.debug("Pondering not supported")?,
@@ -153,6 +150,10 @@ impl<C, I, O> Uci<C, I, O>  where
             self.writer.lock().unwrap().debug(msg)?;
         }
         Ok(())
+    }
+
+    fn is_searching(&self) -> bool {
+        !self.stop_search.load(Ordering::SeqCst)
     }
 }
 
@@ -169,6 +170,13 @@ fn search_result_to_info(result: &SearchResult) -> Vec<SearchInfo> {
     info
 }
 
+#[cfg(test)]
+impl<C, I, O: Output + Clone> Uci<C, I, O> {
+    fn get_output(&self) -> O {
+        self.writer.lock().unwrap().clone().into_output()
+    }
+}
+
 
 #[derive(Debug)]
 enum Command {
@@ -183,9 +191,9 @@ enum Command {
     UciNewGame,
     Position {
         fen: String,
-        moves: Box<[PseudoMove]>,
+        moves: Vec<PseudoMove>,
     },
-    Go(Box<[GoOption]>),
+    Go(Vec<GoOption>),
     Stop,
     PonderHit,
     Quit,
@@ -199,7 +207,7 @@ enum UciOption {
 
 #[derive(PartialEq, Debug)]
 enum GoOption {
-    SearchMoves(Box<[PseudoMove]>),
+    SearchMoves(Vec<PseudoMove>),
     Ponder,
     WTime(u32),
     BTime(u32),
@@ -218,17 +226,41 @@ enum GoOption {
 struct PseudoMove {
     from: Square,
     to: Square,
-    kind: Option<PieceKind>,
+    promotion: Option<PieceKind>,
 }
 
 impl PseudoMove {
     fn into_move(self, legal_moves: &[Move]) -> Result<Move, String> {
         legal_moves.iter().copied()
             .find(|&mv| mv.from() == self.from && mv.to() == self.to && match mv {
-                Move::Promotion(_, _, kind) => Some(kind) == self.kind,
+                Move::Promotion(_, _, kind) => Some(kind) == self.promotion,
                 _ => true,
             })
             .ok_or_else(|| format!("Illegal move '{}'", self))
+    }
+}
+
+impl From<Move> for PseudoMove {
+    fn from(mv: Move) -> Self {
+        Self {
+            from: mv.from(),
+            to: mv.to(),
+            promotion: match mv {
+                Move::Promotion(_, _, kind) => Some(kind),
+                _ => None
+            }
+        }
+    }
+}
+
+impl PartialEq<Move> for PseudoMove {
+    fn eq(&self, other: &Move) -> bool {
+        self.from == other.from()
+            && self.to == other.to()
+            && match other {
+                Move::Promotion(_, _, kind) => self.promotion == Some(*kind),
+                _ => true,
+            }
     }
 }
 
@@ -240,14 +272,16 @@ impl FromStr for PseudoMove {
             let from = Square::try_from(&s[0..2])?;
             let to = Square::try_from(&s[2..4])?;
 
-            let kind = if s.len() == 5 {
+            let promotion = if s.len() == 5 {
                 Some(PieceKind::try_from(s.chars().nth(4).unwrap())?)
             } else {
                 None
             };
 
             Ok(PseudoMove {
-                from, to, kind
+                from,
+                to,
+                promotion,
             })
         } else {
             Err(format!("Invalid move '{}'", s))
