@@ -1,5 +1,5 @@
 use crate::framework::moves::{Move, MoveList};
-use crate::framework::Client;
+use crate::framework::{Client, Searchable};
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::square::Square;
 use crate::test::search::SearchStub;
@@ -20,10 +20,7 @@ impl ClientStub {
     }
 }
 
-impl Client<'_> for ClientStub {
-    type InfSearch = SearchStub;
-    type DepthSearch = SearchStub;
-
+impl Client for ClientStub {
     fn init(&mut self) {
         self.is_init = true;
     }
@@ -55,15 +52,20 @@ impl Client<'_> for ClientStub {
             .map(|_| ())
     }
 
+    fn perft(&self, depth: u32) -> u64 {
+        todo!()
+    }
+}
+
+impl<'f> Searchable<'f> for ClientStub {
+    type InfSearch = SearchStub;
+    type DepthSearch = SearchStub;
+
     fn search_depth(&self, depth: u32) -> Self::DepthSearch {
         todo!()
     }
 
     fn search(&self) -> Self::InfSearch {
-        todo!()
-    }
-
-    fn perft(&self, depth: u32) -> u64 {
         todo!()
     }
 }

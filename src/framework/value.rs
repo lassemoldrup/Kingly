@@ -1,4 +1,5 @@
 use std::ops::Neg;
+use std::fmt::{Display, Formatter};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub enum Value {
@@ -15,6 +16,17 @@ impl Neg for Value {
             Value::NegInf => Value::Inf,
             Value::CentiPawn(val) => Value::CentiPawn(-val),
             Value::Inf => Value::NegInf,
+        }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            // TODO
+            Value::NegInf => write!(f, "mate {}", -1),
+            Value::CentiPawn(val) => write!(f, "cp {}", val),
+            Value::Inf => write!(f, "mate {}", 1),
         }
     }
 }

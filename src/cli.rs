@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crusty::framework::moves::Move;
 use crusty::framework::fen::STARTING_FEN;
-use crusty::framework::Client;
+use crusty::framework::{Client, Searchable};
 use crate::uci::Uci;
 use crusty::framework::io::{Input, Output};
 
@@ -15,10 +15,11 @@ pub struct Cli<C, I, O> {
     uci: bool,
 }
 
-impl<'a, C, I, O> Cli<C, I, O> where
-    C: Client<'a> + Send + Debug + 'static,
+impl<C, I, O> Cli<C, I, O> where
+    C: Client + Send + Debug + 'static,
+    for<'a> &'a C: Searchable<'a>,
     I: Input,
-    O: Output
+    O: Output + Send + 'static
 {
     pub fn new(client: C, input: I, output: O) -> Self {
         Self {

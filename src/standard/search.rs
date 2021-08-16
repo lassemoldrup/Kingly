@@ -6,18 +6,18 @@ use crate::framework::value::Value;
 use crate::standard::Position;
 use std::time::Instant;
 
-pub struct Search<'a, MG, E> {
-    callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'a>>,
+pub struct Search<'client, MG, E> {
+    callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'client>>,
     position: Position,
-    move_gen: &'a MG,
-    eval: &'a E,
+    move_gen: &'client MG,
+    eval: &'client E,
 }
 
-impl<'a, MG, E> Search<'a, MG, E> where
+impl<'client, MG, E> Search<'client, MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
-    pub fn new(position: Position, move_gen: &'a MG, eval: &'a E) -> Self {
+    pub fn new(position: Position, move_gen: &'client MG, eval: &'client E) -> Self {
         let callbacks = vec![];
         Self {
             callbacks, position, move_gen, eval
@@ -51,11 +51,12 @@ impl<'a, MG, E> Search<'a, MG, E> where
     }
 }
 
-impl<'a, MG, E>  crate::framework::search::Search<'a> for Search<'a, MG, E> where
+impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'client, MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
-    fn on_info<F: FnMut(&SearchResult) + 'a>(&mut self, callback: F) {
+    fn on_info<F: FnMut(&SearchResult) + 'client>(&mut self, callback: F)
+    {
         self.callbacks.push(Box::new(callback));
     }
 

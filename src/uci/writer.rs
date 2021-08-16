@@ -1,6 +1,8 @@
 use std::io;
 
 use crusty::framework::io::Output;
+use crate::uci::SearchInfo;
+use itertools::Itertools;
 
 pub struct Writer<O> {
     output: O,
@@ -30,7 +32,7 @@ impl<O: Output> Writer<O> {
         writeln!(self.output, "readyok")
     }
 
-    pub fn info(&mut self) -> io::Result<()> {
-        writeln!(self.output, "info")
+    pub(in crate::uci) fn info(&mut self, info: &[SearchInfo]) -> io::Result<()> {
+        writeln!(self.output, "info {}", info.iter().join(" "))
     }
 }

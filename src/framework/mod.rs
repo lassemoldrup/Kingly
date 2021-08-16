@@ -23,18 +23,22 @@ pub mod search;
 pub mod util;
 pub mod io;
 
-pub trait Client<'a> {
-    type InfSearch: Search<'a>;
-    type DepthSearch: Search<'a>;
+pub trait Client {
     fn init(&mut self);
     fn is_init(&self) -> bool;
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError>;
     fn get_moves(&self) -> MoveList;
     fn make_move(&mut self, mv: Move) -> Result<(), String>;
     fn unmake_move(&mut self) -> Result<(), String>;
-    fn search_depth(&'a self, depth: u32) -> Self::DepthSearch;
-    fn search(&'a self) -> Self::InfSearch;
     fn perft(&self, depth: u32) -> u64;
+}
+
+pub trait Searchable<'f> {
+    type InfSearch: Search<'f>;
+    type DepthSearch: Search<'f>;
+
+    fn search_depth(&self, depth: u32) -> Self::DepthSearch;
+    fn search(&self) -> Self::InfSearch;
 }
 
 pub trait PieceMap {

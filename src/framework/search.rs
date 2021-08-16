@@ -4,8 +4,8 @@ use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-pub trait Search<'a> {
-    fn on_info<F: FnMut(&SearchResult) + 'a>(&mut self, callback: F);
+pub trait Search<'f> {
+    fn on_info<F: FnMut(&SearchResult) + 'f>(&mut self, callback: F);
     fn start(self, stop_switch: Arc<AtomicBool>);
 }
 

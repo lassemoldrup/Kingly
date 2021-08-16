@@ -2,9 +2,9 @@ use std::io::{BufRead, Write, self};
 use crusty::framework::fen::{STARTING_FEN, FenParseError};
 use std::process::exit;
 use crusty::framework::moves::Move;
-use crusty::framework::Client;
+use crusty::framework::{Client, Searchable};
 use crusty::framework::square::Square;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, mpsc, MutexGuard, TryLockError};
 use std::thread;
 use std::sync::mpsc::{Receiver, channel};
 use parser::Parser;
@@ -15,10 +15,13 @@ use std::ops::{Deref, DerefMut};
 use crusty::framework::piece::PieceKind;
 use std::str::FromStr;
 use std::convert::TryFrom;
-use crusty::framework::search::Search;
+use crusty::framework::search::{Search, SearchResult};
 use crusty::framework::value::Value;
 use std::convert::AsRef;
-use strum_macros::AsRefStr;
+use strum_macros::Display;
+use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use itertools::Itertools;
 
 
 #[cfg(test)]
@@ -28,23 +31,24 @@ mod writer;
 
 pub struct Uci<C, I, O> {
     client: Arc<Mutex<C>>,
-    search_stream: Option<Receiver<Move>>,
+    stop_search: Arc<AtomicBool>,
     parser: Parser<I>,
     writer: Arc<Mutex<Writer<O>>>,
     debug: bool,
 }
 
-impl<'a, C, I, O> Uci<C, I, O>  where
-    C: Client<'a> + Send + 'static,
+impl<C, I, O> Uci<C, I, O>  where
+    C: Client + Send + 'static,
+    for<'a> &'a C: Searchable<'a>,
     I: Input,
-    O: Output
+    O: Output + Send + 'static
 {
     pub fn new(client: C, input: I, output: O) -> Self {
         let client = client;
 
         Self {
             client: Arc::new(Mutex::new(client)),
-            search_stream: None,
+            stop_search: Arc::new(AtomicBool::new(true)),
             parser: Parser::new(input),
             writer: Arc::new(Mutex::new(Writer::new(output))),
             debug: false,
@@ -76,11 +80,11 @@ impl<'a, C, I, O> Uci<C, I, O>  where
             Command::IsReady => self.writer.lock().unwrap()
                 .ready_ok()?,
 
-            Command::SetOption(_) => {},
+            Command::SetOption(option) =>
+                self.debug(format!("Unsupported option {}", option))?,
 
-            Command::Register { .. } => {},
-
-            Command::RegisterLater => {},
+            Command::Register { .. } | Command::RegisterLater =>
+                self.debug("Registration not supported")?,
 
             Command::UciNewGame => {},
 
@@ -102,24 +106,42 @@ impl<'a, C, I, O> Uci<C, I, O>  where
                     panic!("Only infinite searching is currently supported")
                 }
 
+                // TODO: Better way of checking for search
+                match self.client.try_lock() {
+                    Ok(_) => {},
+                    Err(_) => return self.debug("Already searching"),
+                }
+
+                let stop_search = self.stop_search.clone();
+                self.stop_search.store(false, Ordering::SeqCst);
+
                 let client = self.client.clone();
                 let writer = self.writer.clone();
                 thread::spawn(move || {
-                    let test = client.lock().unwrap();
-                    let mut search = test.search();
+                    let client = client.lock().unwrap();
+                    let writer = writer;
+                    let mut search = client.deref().search();
 
+                    let start = Instant::now();
                     search.on_info(|info| {
+                        let mut info = search_result_to_info(info);
+                        let elapsed = start.elapsed().as_millis() as u64;
+                        info.push(SearchInfo::Time(elapsed));
 
+                        writer.lock().unwrap().info(&info).unwrap();
                     });
 
-                    drop(search);
-                    drop(test);
+                    search.start(stop_search);
                 });
             },
 
-            Command::Stop => {},
+            // TODO: Ordering ok?
+            Command::Stop => match self.client.try_lock() {
+                Ok(_) => self.debug("Attempt to stop with no search")?,
+                Err(_) => self.stop_search.store(true, Ordering::Relaxed),
+            },
 
-            Command::PonderHit => {},
+            Command::PonderHit => self.debug("Pondering not supported")?,
 
             Command::Quit => exit(0),
         }
@@ -132,6 +154,19 @@ impl<'a, C, I, O> Uci<C, I, O>  where
         }
         Ok(())
     }
+}
+
+fn search_result_to_info(result: &SearchResult) -> Vec<SearchInfo> {
+    let mut info = Vec::with_capacity(6);
+
+    info.push(SearchInfo::Depth(result.depth()));
+    info.push(SearchInfo::Score(result.value()));
+    info.push(SearchInfo::Nodes(result.nodes_searched()));
+    let nps = result.nodes_searched() as u128 * 1_000_000_000 / result.duration().as_nanos();
+    info.push(SearchInfo::NPS(nps as u64));
+    info.push(SearchInfo::PV(result.line().to_vec()));
+
+    info
 }
 
 
@@ -157,7 +192,7 @@ enum Command {
 }
 
 
-#[derive(Debug)]
+#[derive(Display, Debug)]
 enum UciOption {
     None,
 }
@@ -227,13 +262,13 @@ impl Display for PseudoMove {
 }
 
 
-#[derive(AsRefStr, Debug)]
+#[derive(Debug)]
 enum SearchInfo {
     Depth(u32),
     SelDepth(u32),
-    Time(u32),
+    Time(u64),
     Nodes(u64),
-    PV(Box<[Move]>),
+    PV(Vec<Move>),
     Score(Value),
     CurrMove(Move),
     CurrMoveNumber(u32),
@@ -242,12 +277,26 @@ enum SearchInfo {
     String(String),
     CurrLine {
         cpu_number: u32,
-        line: Box<[Move]>,
+        line: Vec<Move>,
     },
 }
 
 impl Display for SearchInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref().to_ascii_lowercase())
+        match self {
+            SearchInfo::Depth(depth) => write!(f, "depth {}", depth),
+            SearchInfo::SelDepth(depth) => write!(f, "seldepth {}", depth),
+            SearchInfo::Time(time) => write!(f, "time {}", time),
+            SearchInfo::Nodes(nodes) => write!(f, "nodes {}", nodes),
+            SearchInfo::PV(pv) => write!(f, "pv {}", pv.iter().join(" ")),
+            SearchInfo::Score(score) => write!(f, "score {}", score),
+            SearchInfo::CurrMove(mv) => write!(f, "currmove {}", mv),
+            SearchInfo::CurrMoveNumber(mv_number) => write!(f, "currmovenumber {}", mv_number),
+            SearchInfo::HashFull(hash) => write!(f, "hashfull {}", hash),
+            SearchInfo::NPS(nps) => write!(f, "nps {}", nps),
+            SearchInfo::String(string) => write!(f, "string {}", string),
+            SearchInfo::CurrLine { cpu_number, line } =>
+                write!(f, "currline {} {}", cpu_number, line.iter().join(" ")),
+        }
     }
 }

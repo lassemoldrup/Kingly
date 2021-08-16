@@ -1,13 +1,14 @@
 use std::fmt;
 
 use crate::framework::moves::MoveList;
-use crate::framework::{MoveGen, MoveGenFactory, Eval};
+use crate::framework::{MoveGen, MoveGenFactory, Eval, Searchable};
 use crate::framework::moves::Move;
 use crate::framework::fen::FenParseError;
 use crate::standard::Position;
 use crate::framework::Client as ClientTrait;
-//use crate::framework::search::Search;
 use crate::standard::search::Search;
+
+const NOT_INIT: &str = "Client not initialized";
 
 pub struct Client<MG, MGF, E>
 {
@@ -22,8 +23,6 @@ impl<MG, MGF, E> Client<MG, MGF, E> where
     MGF: MoveGenFactory<MG, Position>,
     E: Eval<Position>
 {
-    const NOT_INIT: &'static str = "Client not initialized";
-
     pub fn new(move_gen_factory: MGF, eval: E) -> Self {
         Self {
             position: Position::new(),
@@ -38,15 +37,11 @@ impl<MG, MGF, E> Client<MG, MGF, E> where
     }
 }
 
-impl<'a, MG, MGF, E> crate::framework::Client<'a> for Client<MG, MGF, E>
-where
-    MG: MoveGen<Position> + 'a,
+impl<MG, MGF, E> crate::framework::Client for Client<MG, MGF, E> where
+    MG: MoveGen<Position>,
     MGF: MoveGenFactory<MG, Position>,
-    E: Eval<Position> + 'a
+    E: Eval<Position>
 {
-    type InfSearch = Search<'a, MG, E>;
-    type DepthSearch = Search<'a, MG, E>;
-
     fn init(&mut self) {
         self.move_gen = Some(self.move_gen_factory.create());
     }
@@ -61,7 +56,7 @@ where
     }
 
     fn get_moves(&self) -> MoveList {
-        self.move_gen.as_ref().expect(Self::NOT_INIT)
+        self.move_gen.as_ref().expect(NOT_INIT)
             .gen_all_moves(&self.position)
     }
 
@@ -87,19 +82,8 @@ where
         }
     }
 
-    fn search_depth(&self, depth: u32) -> Self::DepthSearch {
-        todo!()
-    }
-
-    fn search(&'a self) -> Self::InfSearch {
-        let move_gen = self.move_gen.as_ref().expect(Self::NOT_INIT);
-        let position = self.position.clone();
-
-        Search::new(position, move_gen, &self.eval)
-    }
-
     fn perft(&self, depth: u32) -> u64 {
-        let move_gen = self.move_gen.as_ref().expect(Self::NOT_INIT);
+        let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
 
         if depth == 0 {
             return 1;
@@ -124,6 +108,26 @@ where
         }
 
         inner(&mut self.position.clone(), move_gen, depth)
+    }
+}
+
+impl<'client, MG, MGF, E> Searchable<'client> for &'client Client<MG, MGF, E> where
+    MG: MoveGen<Position>,
+    MGF: MoveGenFactory<MG, Position>,
+    E: Eval<Position>
+{
+    type InfSearch = Search<'client, MG, E>;
+    type DepthSearch = Search<'client, MG, E>;
+
+    fn search_depth(&self, depth: u32) -> Self::DepthSearch {
+        todo!()
+    }
+
+    fn search(&self) -> Self::InfSearch {
+        let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
+        let position = self.position.clone();
+
+        Search::new(position, move_gen, &self.eval)
     }
 }
 
