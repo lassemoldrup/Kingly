@@ -2,16 +2,16 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Formatter};
 use std::hint::unreachable_unchecked;
 
+use crate::framework::{PieceMap, Side};
+use crate::framework::castling::CastlingRights;
 use crate::framework::color::Color;
 use crate::framework::direction::Direction;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::moves::Move;
 use crate::framework::piece::{Piece, PieceKind};
-use crate::framework::{Side, PieceMap};
 use crate::framework::square::Square;
+use crate::framework::util::{get_castling_rook_sq, get_rook_sq};
 use crate::standard::piece_map::BitboardPieceMap;
-use crate::framework::util::{get_rook_sq, get_castling_rook_sq};
-use crate::framework::castling::CastlingRights;
 
 #[cfg(test)]
 mod tests;

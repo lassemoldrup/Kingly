@@ -1,9 +1,9 @@
 use crate::bb;
+use crate::framework::MoveGen as MoveGenTrait;
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::piece::PieceKind;
 use crate::framework::square::Square;
-use crate::framework::MoveGen as MoveGenTrait;
-use crate::standard::{Position, Bitboard, MoveGen};
+use crate::standard::{Bitboard, MoveGen, Position};
 
 // Unit testing for MoveGen
 

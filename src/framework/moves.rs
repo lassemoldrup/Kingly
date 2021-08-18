@@ -1,13 +1,12 @@
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
+use std::ops::{Deref, Index};
 use std::slice::Iter;
 
 use arrayvec::{ArrayVec, IntoIter};
 
 use crate::framework::piece::PieceKind;
 use crate::framework::square::Square;
-use std::ops::{Index, Deref};
-
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Move {

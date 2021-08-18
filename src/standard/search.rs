@@ -1,10 +1,11 @@
-use crate::framework::search::SearchResult;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::framework::{MoveGen, Eval};
+use std::time::Instant;
+
+use crate::framework::{Eval, MoveGen};
+use crate::framework::search::SearchResult;
 use crate::framework::value::Value;
 use crate::standard::Position;
-use std::time::Instant;
 
 pub struct Search<'client, MG, E> {
     callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'client>>,

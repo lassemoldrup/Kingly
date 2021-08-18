@@ -1,8 +1,9 @@
-use crate::framework::moves::Move;
-use crate::framework::value::Value;
-use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
+
+use crate::framework::moves::Move;
+use crate::framework::value::Value;
 
 pub trait Search<'f> {
     fn on_info<F: FnMut(&SearchResult) + 'f>(&mut self, callback: F);
@@ -10,6 +11,7 @@ pub trait Search<'f> {
 }
 
 
+#[derive(Clone)]
 pub struct SearchResult {
     value: Value,
     line: Box<[Move]>,

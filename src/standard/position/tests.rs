@@ -2,9 +2,9 @@ use crate::framework::color::Color;
 use crate::framework::fen::STARTING_FEN;
 use crate::framework::moves::Move;
 use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::PieceMap;
 use crate::framework::Side;
 use crate::framework::square::Square;
-use crate::framework::PieceMap;
 use crate::standard::position::Position;
 
 #[test]

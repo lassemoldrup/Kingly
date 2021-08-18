@@ -1,7 +1,7 @@
-use crate::framework::value::Value;
-use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::color::Color;
+use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::Position;
+use crate::framework::value::Value;
 use crate::standard::piece_map::BitboardPieceMap;
 
 pub struct Eval;

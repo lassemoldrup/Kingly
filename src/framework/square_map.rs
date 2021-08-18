@@ -1,9 +1,9 @@
+use std::convert::TryFrom;
+use std::fmt::{Debug, Formatter};
 use std::iter::{Enumerate, FusedIterator, Map};
 use std::ops::{Index, IndexMut};
 
 use crate::framework::square::Square;
-use std::fmt::{Debug, Formatter};
-use std::convert::TryFrom;
 
 #[derive(Copy, Clone)]
 pub struct SquareMap<T>([T; 64]);

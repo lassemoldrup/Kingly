@@ -1,6 +1,7 @@
-use super::MoveGen;
 use crate::framework::Position;
 use crate::standard::piece_map::BitboardPieceMap;
+
+use super::MoveGen;
 
 pub struct MoveGenFactory;
 

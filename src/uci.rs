@@ -1,27 +1,28 @@
-use std::io;
-use crusty::framework::fen::FenParseError;
-use std::process::exit;
-use crusty::framework::moves::Move;
-use crusty::framework::{Client, Searchable};
-use crusty::framework::square::Square;
-use std::sync::{Arc, Mutex, mpsc, MutexGuard, TryLockError};
-use std::thread;
-use parser::Parser;
-use std::fmt::{Debug, Display, Formatter};
-use crusty::framework::io::{Input, Output};
-use crate::uci::writer::Writer;
-use std::ops::Deref;
-use crusty::framework::piece::PieceKind;
-use std::str::FromStr;
-use std::convert::TryFrom;
-use crusty::framework::search::{Search, SearchResult};
-use crusty::framework::value::Value;
 use std::convert::AsRef;
-use strum_macros::Display;
-use std::time::Instant;
+use std::convert::TryFrom;
+use std::fmt::{Debug, Display, Formatter};
+use std::io;
+use std::ops::Deref;
+use std::process::exit;
+use std::str::FromStr;
+use std::sync::{Arc, mpsc, Mutex, MutexGuard, TryLockError};
 use std::sync::atomic::{AtomicBool, Ordering};
-use itertools::Itertools;
+use std::thread;
+use std::time::Instant;
 
+use itertools::Itertools;
+use strum_macros::Display;
+
+use crusty::framework::{Client, Searchable};
+use crusty::framework::io::{Input, Output};
+use crusty::framework::moves::Move;
+use crusty::framework::piece::PieceKind;
+use crusty::framework::search::{Search, SearchResult};
+use crusty::framework::square::Square;
+use crusty::framework::value::Value;
+use parser::Parser;
+
+use crate::uci::writer::Writer;
 
 #[cfg(test)]
 mod tests;

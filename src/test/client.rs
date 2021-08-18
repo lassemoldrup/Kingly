@@ -1,6 +1,7 @@
-use crate::framework::moves::{Move, MoveList};
 use crate::framework::{Client, Searchable};
 use crate::framework::fen::{FenParseError, STARTING_FEN};
+use crate::framework::moves::{Move, MoveList};
+use crate::framework::search::SearchResult;
 use crate::framework::square::Square;
 use crate::test::search::SearchStub;
 
@@ -8,14 +9,16 @@ pub struct ClientStub {
     is_init: bool,
     pub last_fen: String,
     pub moves_made: Vec<Move>,
+    search_result: SearchResult,
 }
 
 impl ClientStub {
-    pub fn new() -> Self {
+    pub fn new(search_result: SearchResult) -> Self {
         Self {
             is_init: false,
             last_fen: STARTING_FEN.to_string(),
-            moves_made: vec![]
+            moves_made: vec![],
+            search_result
         }
     }
 }
@@ -58,14 +61,14 @@ impl Client for ClientStub {
 }
 
 impl<'f> Searchable<'f> for &'f ClientStub {
-    type InfSearch = SearchStub;
-    type DepthSearch = SearchStub;
+    type InfSearch = SearchStub<'f>;
+    type DepthSearch = SearchStub<'f>;
 
     fn search_depth(&self, depth: u32) -> Self::DepthSearch {
         todo!()
     }
 
     fn search(&self) -> Self::InfSearch {
-        todo!()
+        SearchStub::new(self.search_result.clone())
     }
 }

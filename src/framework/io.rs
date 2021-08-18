@@ -1,5 +1,5 @@
-use std::io::{self, Stdin, Stdout, Write, Sink, Empty, BufRead};
 use std::fmt::Arguments;
+use std::io::{self, BufRead, Empty, Sink, Stdin, Stdout, Write};
 
 pub trait Input {
     fn read_line(&mut self) -> io::Result<String>;

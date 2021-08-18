@@ -4,10 +4,10 @@ use std::fmt::{Debug, Display, Formatter};
 use crate::bb;
 use crate::framework::color::Color;
 use crate::framework::piece::{Piece, PieceKind};
+use crate::framework::PieceMap;
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::standard::bitboard::Bitboard;
-use crate::framework::PieceMap;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub struct BitboardPieceMap {

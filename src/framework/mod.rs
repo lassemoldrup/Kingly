@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 
+use crate::framework::castling::CastlingRights;
+use crate::framework::color::Color;
 use crate::framework::fen::FenParseError;
 use crate::framework::moves::{Move, MoveList};
-use crate::framework::color::Color;
-use crate::framework::square::Square;
 use crate::framework::piece::Piece;
-use crate::framework::castling::CastlingRights;
-use crate::framework::value::Value;
 use crate::framework::search::Search;
+use crate::framework::square::Square;
+use crate::framework::value::Value;
 
 pub mod square;
 pub mod color;

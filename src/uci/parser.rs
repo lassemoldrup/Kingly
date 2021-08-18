@@ -1,11 +1,14 @@
-use super::Command;
-use crusty::framework::io::Input;
-use crate::uci::{UciOption, PseudoMove, GoOption};
-use itertools::Itertools;
-use crusty::framework::fen::STARTING_FEN;
-use std::str::FromStr;
 use std::num::ParseIntError;
+use std::str::FromStr;
 
+use itertools::Itertools;
+
+use crusty::framework::fen::STARTING_FEN;
+use crusty::framework::io::Input;
+
+use crate::uci::{GoOption, PseudoMove, UciOption};
+
+use super::Command;
 
 pub struct Parser<I> {
     input: I,

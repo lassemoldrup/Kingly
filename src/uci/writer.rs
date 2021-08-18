@@ -1,8 +1,10 @@
 use std::io;
 
-use crusty::framework::io::Output;
-use crate::uci::SearchInfo;
 use itertools::Itertools;
+
+use crusty::framework::io::Output;
+
+use crate::uci::SearchInfo;
 
 #[derive(Clone)]
 pub struct Writer<O> {

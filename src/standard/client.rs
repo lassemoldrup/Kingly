@@ -1,11 +1,11 @@
 use std::fmt;
 
-use crate::framework::moves::MoveList;
-use crate::framework::{MoveGen, MoveGenFactory, Eval, Searchable};
-use crate::framework::moves::Move;
-use crate::framework::fen::FenParseError;
-use crate::standard::Position;
+use crate::framework::{Eval, MoveGen, MoveGenFactory, Searchable};
 use crate::framework::Client as ClientTrait;
+use crate::framework::fen::FenParseError;
+use crate::framework::moves::Move;
+use crate::framework::moves::MoveList;
+use crate::standard::Position;
 use crate::standard::search::Search;
 
 const NOT_INIT: &str = "Client not initialized";
@@ -145,11 +145,11 @@ mod tests {
 
     use serde::Deserialize;
     use serde_json::from_reader;
-    use crate::standard;
-    use crate::framework::Client;
-    use crate::standard::move_gen::MoveGenFactory;
-    use crate::standard::Eval;
 
+    use crate::framework::Client;
+    use crate::standard;
+    use crate::standard::Eval;
+    use crate::standard::move_gen::MoveGenFactory;
 
     #[derive(Deserialize)]
     struct PerftPosition {

@@ -1,15 +1,28 @@
-use crate::framework::search::{Search, SearchResult};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-pub struct SearchStub;
+use crate::framework::search::{Search, SearchResult};
 
-impl<'f> Search<'f> for SearchStub {
-    fn on_info<F: FnMut(&SearchResult) + 'f>(&mut self, callback: F) {
-        todo!()
+pub struct SearchStub<'a> {
+    callback: Box<dyn FnMut(&SearchResult) + 'a>,
+    search_result: SearchResult,
+}
+
+impl<'a> SearchStub<'a> {
+    pub fn new(search_result: SearchResult) -> Self {
+        Self {
+            callback: Box::new(|_| {}),
+            search_result,
+        }
+    }
+}
+
+impl<'a> Search<'a> for SearchStub<'a> {
+    fn on_info<F: FnMut(&SearchResult) + 'a>(&mut self, callback: F) {
+        self.callback = Box::new(callback);
     }
 
-    fn start(self, stop_switch: Arc<AtomicBool>) {
-        todo!()
+    fn start(mut self, _stop_switch: Arc<AtomicBool>) {
+        (self.callback)(&self.search_result);
     }
 }

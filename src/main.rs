@@ -1,7 +1,7 @@
 use std::io::{stdin, stdout};
 
-use crusty::standard::{Client, MoveGenFactory, Eval};
 use cli::Cli;
+use crusty::standard::{Client, Eval, MoveGenFactory};
 
 mod cli;
 mod uci;

@@ -4,12 +4,14 @@ use std::iter::repeat;
 use bitintr::{Pdep, Pext};
 use take_until::TakeUntilExt;
 
+pub use factory::MoveGenFactory;
+
 use crate::bb;
+use crate::framework::{Position, Side};
 use crate::framework::color::Color;
 use crate::framework::direction::Direction;
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::piece::{Piece, PieceKind};
-use crate::framework::{Side, Position};
 use crate::framework::square::Square;
 use crate::framework::square_map::SquareMap;
 use crate::framework::square_vec::SquareVec;
@@ -20,7 +22,6 @@ use crate::standard::piece_map::BitboardPieceMap;
 #[cfg(test)]
 mod tests;
 mod factory;
-pub use factory::MoveGenFactory;
 
 // TODO: maybe use const fns and statics for these lookup tables
 pub struct MoveGen {

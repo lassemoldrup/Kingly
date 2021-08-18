@@ -1,5 +1,5 @@
-use std::ops::Neg;
 use std::fmt::{Display, Formatter};
+use std::ops::Neg;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub enum Value {

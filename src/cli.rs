@@ -2,11 +2,12 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
-use crusty::framework::moves::Move;
-use crusty::framework::fen::STARTING_FEN;
 use crusty::framework::{Client, Searchable};
-use crate::uci::Uci;
+use crusty::framework::fen::STARTING_FEN;
 use crusty::framework::io::{Input, Output};
+use crusty::framework::moves::Move;
+
+use crate::uci::Uci;
 
 pub struct Cli<C, I, O> {
     client: C,

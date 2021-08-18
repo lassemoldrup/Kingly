@@ -1,11 +1,22 @@
-use crate::uci::{Uci, Command, PseudoMove};
-use crusty::test::client::ClientStub;
-use std::io::{sink, empty};
-use crusty::framework::io::{Output, Input};
+use std::io::{empty, sink};
+use std::time::Duration;
+
+use crusty::framework::io::{Input, Output};
+use crusty::framework::moves::Move;
+use crusty::framework::search::SearchResult;
 use crusty::framework::square::Square;
+use crusty::framework::value::Value;
+use crusty::test::client::ClientStub;
+
+use crate::uci::{Command, GoOption, PseudoMove, Uci};
 
 fn get_uci<I: Input, O: Output + Send + 'static>(inp: I, out: O) -> Uci<ClientStub, I, O> {
-    let client = ClientStub::new();
+    let search_result = SearchResult::new(Value::CentiPawn(10),
+                                          vec![Move::Regular(Square::A1, Square::A2)],
+                                          1,
+                                          100,
+                                          Duration::from_millis(1000));
+    let client = ClientStub::new(search_result);
     Uci::new(client, inp, out)
 }
 
@@ -54,4 +65,13 @@ fn position_cmd_updates_position_correctly() {
 
     assert_eq!(uci.client.lock().unwrap().last_fen, position);
     assert_eq!(uci.client.lock().unwrap().moves_made, vec![]);
+}
+
+#[test]
+fn go_infinite_cmd_correctly_starts_search() {
+    let mut uci = get_uci(empty(), String::new());
+
+    uci.execute(Command::Go(vec![GoOption::Infinite])).unwrap();
+    std::thread::sleep(Duration::from_millis(1));
+    assert!(uci.get_output().starts_with("info depth 1 score cp 10 nodes 100 nps 100 pv a1a2"));
 }
