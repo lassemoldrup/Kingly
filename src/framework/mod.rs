@@ -34,11 +34,8 @@ pub trait Client {
 }
 
 pub trait Searchable<'f> {
-    type InfSearch: Search<'f>;
-    type DepthSearch: Search<'f>;
-
-    fn search_depth(&self, depth: u32) -> Self::DepthSearch;
-    fn search(&self) -> Self::InfSearch;
+    type Search: Search<'f>;
+    fn search(&self) -> Self::Search;
 }
 
 pub trait PieceMap {

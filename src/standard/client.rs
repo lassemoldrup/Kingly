@@ -116,14 +116,9 @@ impl<'client, MG, MGF, E> Searchable<'client> for &'client Client<MG, MGF, E> wh
     MGF: MoveGenFactory<MG, Position>,
     E: Eval<Position>
 {
-    type InfSearch = Search<'client, MG, E>;
-    type DepthSearch = Search<'client, MG, E>;
+    type Search = Search<'client, MG, E>;
 
-    fn search_depth(&self, depth: u32) -> Self::DepthSearch {
-        todo!()
-    }
-
-    fn search(&self) -> Self::InfSearch {
+    fn search(&self) -> Self::Search {
         let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
         let position = self.position.clone();
 

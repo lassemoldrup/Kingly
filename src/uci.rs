@@ -1,13 +1,13 @@
 use std::convert::AsRef;
-use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
+use std::mem::swap;
 use std::ops::Deref;
 use std::process::exit;
-use std::str::FromStr;
-use std::sync::{Arc, mpsc, Mutex, MutexGuard, TryLockError};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use itertools::Itertools;
@@ -15,10 +15,8 @@ use strum_macros::Display;
 
 use crusty::framework::{Client, Searchable};
 use crusty::framework::io::{Input, Output};
-use crusty::framework::moves::Move;
-use crusty::framework::piece::PieceKind;
+use crusty::framework::moves::{Move, PseudoMove};
 use crusty::framework::search::{Search, SearchResult};
-use crusty::framework::square::Square;
 use crusty::framework::value::Value;
 use parser::Parser;
 
@@ -32,6 +30,7 @@ mod writer;
 pub struct Uci<C, I, O> {
     client: Arc<Mutex<C>>,
     stop_search: Arc<AtomicBool>,
+    search_thread: Option<JoinHandle<()>>,
     parser: Parser<I>,
     writer: Arc<Mutex<Writer<O>>>,
     debug: bool,
@@ -49,6 +48,7 @@ impl<C, I, O> Uci<C, I, O>  where
         Self {
             client: Arc::new(Mutex::new(client)),
             stop_search: Arc::new(AtomicBool::new(true)),
+            search_thread: None,
             parser: Parser::new(input),
             writer: Arc::new(Mutex::new(Writer::new(output))),
             debug: false,
@@ -70,6 +70,15 @@ impl<C, I, O> Uci<C, I, O>  where
                 Ok(cmd) => self.execute(cmd)?,
                 Err(err) => self.debug(err)?,
             }
+        }
+    }
+
+    fn wait_for_search(&mut self) {
+        let mut search_thread = None;
+        swap(&mut self.search_thread, &mut search_thread);
+
+        if let Some(handle) = search_thread {
+            handle.join().unwrap();
         }
     }
 
@@ -109,27 +118,41 @@ impl<C, I, O> Uci<C, I, O>  where
                 if self.is_searching() {
                     return self.debug("Already searching");
                 }
+                self.wait_for_search();
 
-                let stop_search = self.stop_search.clone();
                 self.stop_search.store(false, Ordering::SeqCst);
+                let stop_search = self.stop_search.clone();
 
                 let client = self.client.clone();
                 let writer = self.writer.clone();
-                thread::spawn(move || {
+                self.search_thread = Some(thread::spawn(move || {
                     let client = client.lock().unwrap();
-                    let mut search = client.deref().search();
 
                     let start = Instant::now();
+                    let mut search = client.deref().search();
+
+                    for option in options {
+                        match option {
+                            // TODO: How to test this?
+                            GoOption::SearchMoves(moves) => search = search.moves(&moves),
+                            GoOption::Depth(depth) => search = search.depth(depth),
+                            _ => { },
+                        }
+                    }
+
                     search.on_info(|info| {
-                        let mut info = search_result_to_info(info);
-                        let elapsed = start.elapsed().as_millis() as u64;
-                        info.push(SearchInfo::Time(elapsed));
+                            let mut info = search_result_to_info(info);
+                            let elapsed = start.elapsed().as_millis() as u64;
+                            info.push(SearchInfo::Time(elapsed));
 
-                        writer.lock().unwrap().info(&info).unwrap();
-                    });
+                            writer.lock().unwrap()
+                                .info(&info)
+                                .unwrap();
+                        })
+                        .start(&stop_search);
 
-                    search.start(stop_search);
-                });
+                    stop_search.store(false, Ordering::Release);
+                }));
             },
 
             // TODO: Ordering ok?
@@ -220,80 +243,6 @@ enum GoOption {
     Mate(u32),
     MoveTime(u32),
     Infinite,
-}
-
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-struct PseudoMove {
-    from: Square,
-    to: Square,
-    promotion: Option<PieceKind>,
-}
-
-impl PseudoMove {
-    fn into_move(self, legal_moves: &[Move]) -> Result<Move, String> {
-        legal_moves.iter().copied()
-            .find(|&mv| mv.from() == self.from && mv.to() == self.to && match mv {
-                Move::Promotion(_, _, kind) => Some(kind) == self.promotion,
-                _ => true,
-            })
-            .ok_or_else(|| format!("Illegal move '{}'", self))
-    }
-}
-
-impl From<Move> for PseudoMove {
-    fn from(mv: Move) -> Self {
-        Self {
-            from: mv.from(),
-            to: mv.to(),
-            promotion: match mv {
-                Move::Promotion(_, _, kind) => Some(kind),
-                _ => None
-            }
-        }
-    }
-}
-
-impl PartialEq<Move> for PseudoMove {
-    fn eq(&self, other: &Move) -> bool {
-        self.from == other.from()
-            && self.to == other.to()
-            && match other {
-                Move::Promotion(_, _, kind) => self.promotion == Some(*kind),
-                _ => true,
-            }
-    }
-}
-
-impl FromStr for PseudoMove {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() == 4 || s.len() == 5 {
-            let from = Square::try_from(&s[0..2])?;
-            let to = Square::try_from(&s[2..4])?;
-
-            let promotion = if s.len() == 5 {
-                Some(PieceKind::try_from(s.chars().nth(4).unwrap())?)
-            } else {
-                None
-            };
-
-            Ok(PseudoMove {
-                from,
-                to,
-                promotion,
-            })
-        } else {
-            Err(format!("Invalid move '{}'", s))
-        }
-    }
-}
-
-impl Display for PseudoMove {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.from, self.to)
-    }
 }
 
 

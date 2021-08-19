@@ -55,20 +55,15 @@ impl Client for ClientStub {
             .map(|_| ())
     }
 
-    fn perft(&self, depth: u32) -> u64 {
+    fn perft(&self, _depth: u32) -> u64 {
         todo!()
     }
 }
 
 impl<'f> Searchable<'f> for &'f ClientStub {
-    type InfSearch = SearchStub<'f>;
-    type DepthSearch = SearchStub<'f>;
+    type Search = SearchStub<'f>;
 
-    fn search_depth(&self, depth: u32) -> Self::DepthSearch {
-        todo!()
-    }
-
-    fn search(&self) -> Self::InfSearch {
+    fn search(&self) -> Self::Search {
         SearchStub::new(self.search_result.clone())
     }
 }

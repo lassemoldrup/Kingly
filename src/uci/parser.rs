@@ -5,8 +5,9 @@ use itertools::Itertools;
 
 use crusty::framework::fen::STARTING_FEN;
 use crusty::framework::io::Input;
+use crusty::framework::moves::PseudoMove;
 
-use crate::uci::{GoOption, PseudoMove, UciOption};
+use crate::uci::{GoOption, UciOption};
 
 use super::Command;
 
@@ -114,7 +115,18 @@ fn get_arg<'a>(cmds: &[&'a str], idx: usize) -> Result<&'a str, String> {
 
 fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b str]), String> {
     match opts {
-        ["searchmoves", end @ ..] => todo!(),
+        ["searchmoves", end @ ..] => {
+            let moves: Vec<_> = end.iter()
+                .map(|&opt| PseudoMove::from_str(opt).ok())
+                .while_some()
+                .collect();
+            if moves.is_empty() {
+                Err("searchmoves must be provided with at least 1 argument".to_string())
+            } else {
+                let num = moves.len();
+                Ok((GoOption::SearchMoves(moves), &end[num..]))
+            }
+        },
         ["ponder", end @ ..] => Ok((GoOption::Ponder, end)),
         ["wtime", time, end @ ..] => {
             let time = time.parse()
@@ -162,6 +174,7 @@ fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b st
             Ok((GoOption::MoveTime(time), end))
         },
         ["infinite", end @ ..] => Ok((GoOption::Infinite, end)),
+        [_] => Err("Unrecognized option or missing argument".to_string()),
         [opt, ..] => Err(format!("Unrecognized option '{}'", opt)),
         [] => Err("Missing go option".to_string()),
     }

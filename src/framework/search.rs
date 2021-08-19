@@ -1,13 +1,14 @@
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use crate::framework::moves::Move;
+use crate::framework::moves::{Move, PseudoMove};
 use crate::framework::value::Value;
 
 pub trait Search<'f> {
-    fn on_info<F: FnMut(&SearchResult) + 'f>(&mut self, callback: F);
-    fn start(self, stop_switch: Arc<AtomicBool>);
+    fn moves(self, moves: &[PseudoMove]) -> Self;
+    fn depth(self, depth: u32) -> Self;
+    fn on_info<F: FnMut(&SearchResult) + 'f>(self, callback: F) -> Self;
+    fn start(self, stop_search: &AtomicBool);
 }
 
 

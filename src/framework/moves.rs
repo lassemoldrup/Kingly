@@ -2,6 +2,7 @@ use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, Index};
 use std::slice::Iter;
+use std::str::FromStr;
 
 use arrayvec::{ArrayVec, IntoIter};
 
@@ -95,6 +96,10 @@ impl MoveList {
     pub fn get(&self, index: usize) -> Option<&Move> {
         self.0.get(index)
     }
+
+    pub fn into_vec(self) -> Vec<Move> {
+        self.0.as_slice().to_vec()
+    }
 }
 
 impl IntoIterator for MoveList {
@@ -134,5 +139,87 @@ impl Deref for MoveList {
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
+    }
+}
+
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct PseudoMove {
+    from: Square,
+    to: Square,
+    promotion: Option<PieceKind>,
+}
+
+impl PseudoMove {
+    pub fn new(from: Square, to: Square, promotion: Option<PieceKind>) -> Self {
+        Self {
+            from,
+            to,
+            promotion,
+        }
+    }
+
+    pub fn into_move(self, legal_moves: &[Move]) -> Result<Move, String> {
+        legal_moves.iter().copied()
+            .find(|&mv| mv.from() == self.from && mv.to() == self.to && match mv {
+                Move::Promotion(_, _, kind) => Some(kind) == self.promotion,
+                _ => true,
+            })
+            .ok_or_else(|| format!("Illegal move '{}'", self))
+    }
+}
+
+impl From<Move> for PseudoMove {
+    fn from(mv: Move) -> Self {
+        Self {
+            from: mv.from(),
+            to: mv.to(),
+            promotion: match mv {
+                Move::Promotion(_, _, kind) => Some(kind),
+                _ => None
+            }
+        }
+    }
+}
+
+impl PartialEq<Move> for PseudoMove {
+    fn eq(&self, other: &Move) -> bool {
+        self.from == other.from()
+            && self.to == other.to()
+            && match other {
+                Move::Promotion(_, _, kind) => self.promotion == Some(*kind),
+                _ => true,
+            }
+    }
+}
+
+impl FromStr for PseudoMove {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() == 4 || s.len() == 5 {
+            let from = Square::try_from(&s[0..2])?;
+            let to = Square::try_from(&s[2..4])?;
+
+            let promotion = if s.len() == 5 {
+                Some(PieceKind::try_from(s.chars().nth(4).unwrap())?)
+            } else {
+                None
+            };
+
+            Ok(PseudoMove {
+                from,
+                to,
+                promotion,
+            })
+        } else {
+            Err(format!("Invalid move '{}'", s))
+        }
+    }
+}
+
+impl Display for PseudoMove {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.from, self.to)
     }
 }
