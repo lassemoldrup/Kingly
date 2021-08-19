@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+use std::mem::swap;
 
 use crate::framework::{Eval, MoveGen};
 use crate::framework::search::SearchResult;
 use crate::framework::value::Value;
 use crate::standard::Position;
 use crate::framework::moves::{PseudoMove, Move};
-use std::mem::swap;
 
 pub struct Search<'client, MG, E> {
     search_moves: Option<Vec<Move>>,
@@ -33,9 +33,10 @@ impl<'client, MG, E> Search<'client, MG, E> where
         }
     }
 
-    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32) -> Value {
+    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, nodes: &mut u64) -> Value {
         if depth == 0 {
-            return self.eval.eval(&self.position)
+            *nodes += 1;
+            return self.eval.eval(&self.position);
         }
 
         let moves = self.move_gen.gen_all_moves(&self.position);
@@ -43,7 +44,7 @@ impl<'client, MG, E> Search<'client, MG, E> where
             let score;
             unsafe {
                 self.position.make_move(mv);
-                score = -Self::alpha_beta(self, -beta, -alpha, depth - 1);
+                score = -Self::alpha_beta(self, -beta, -alpha, depth - 1, nodes);
                 self.position.unmake_move();
             }
 
@@ -106,7 +107,7 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                 let score;
                 unsafe {
                     self.position.make_move(mv);
-                    score = self.alpha_beta(Value::NegInf, Value::Inf, depth);
+                    score = self.alpha_beta(Value::NegInf, Value::Inf, depth, &mut nodes);
                     self.position.unmake_move();
                 }
 

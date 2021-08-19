@@ -18,6 +18,7 @@ impl<O: Output> Writer<O> {
         }
     }
 
+    #[cfg(test)]
     pub fn into_output(self) -> O {
         self.output
     }
