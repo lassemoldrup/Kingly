@@ -6,8 +6,7 @@ use std::ops::Deref;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use itertools::Itertools;
@@ -188,8 +187,8 @@ fn search_result_to_info(result: &SearchResult) -> Vec<SearchInfo> {
     info.push(SearchInfo::Score(result.value()));
     info.push(SearchInfo::Nodes(result.nodes_searched()));
     let nps = result.nodes_searched() as u128 * 1_000_000_000 / result.duration().as_nanos();
-    info.push(SearchInfo::NPS(nps as u64));
-    info.push(SearchInfo::PV(result.line().to_vec()));
+    info.push(SearchInfo::Nps(nps as u64));
+    info.push(SearchInfo::Pv(result.line().to_vec()));
 
     info
 }
@@ -245,19 +244,19 @@ enum GoOption {
     Infinite,
 }
 
-
+#[allow(dead_code)]
 #[derive(Debug)]
 enum SearchInfo {
     Depth(u32),
     SelDepth(u32),
     Time(u64),
     Nodes(u64),
-    PV(Vec<Move>),
+    Pv(Vec<Move>),
     Score(Value),
     CurrMove(Move),
     CurrMoveNumber(u32),
     HashFull(u32),
-    NPS(u64),
+    Nps(u64),
     String(String),
     CurrLine {
         cpu_number: u32,
@@ -272,12 +271,12 @@ impl Display for SearchInfo {
             SearchInfo::SelDepth(depth) => write!(f, "seldepth {}", depth),
             SearchInfo::Time(time) => write!(f, "time {}", time),
             SearchInfo::Nodes(nodes) => write!(f, "nodes {}", nodes),
-            SearchInfo::PV(pv) => write!(f, "pv {}", pv.iter().join(" ")),
+            SearchInfo::Pv(pv) => write!(f, "pv {}", pv.iter().join(" ")),
             SearchInfo::Score(score) => write!(f, "score {}", score),
             SearchInfo::CurrMove(mv) => write!(f, "currmove {}", mv),
             SearchInfo::CurrMoveNumber(mv_number) => write!(f, "currmovenumber {}", mv_number),
             SearchInfo::HashFull(hash) => write!(f, "hashfull {}", hash),
-            SearchInfo::NPS(nps) => write!(f, "nps {}", nps),
+            SearchInfo::Nps(nps) => write!(f, "nps {}", nps),
             SearchInfo::String(string) => write!(f, "string {}", string),
             SearchInfo::CurrLine { cpu_number, line } =>
                 write!(f, "currline {} {}", cpu_number, line.iter().join(" ")),
