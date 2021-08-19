@@ -151,7 +151,7 @@ impl<C, I, O> Uci<C, I, O>  where
                         })
                         .start(&stop_search);
 
-                    stop_search.store(false, Ordering::Release);
+                    stop_search.store(true, Ordering::Release);
                 }));
             },
 
