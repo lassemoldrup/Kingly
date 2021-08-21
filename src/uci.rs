@@ -110,10 +110,6 @@ impl<C, I, O> Uci<C, I, O>  where
                 .or_else(|err| self.debug(err))?,
 
             Command::Go(options) => {
-                if !options.contains(&GoOption::Infinite) {
-                    panic!("Only infinite searching is currently supported")
-                }
-
                 if self.is_searching() {
                     return self.debug("Already searching");
                 }

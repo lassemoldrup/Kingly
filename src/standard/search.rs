@@ -92,7 +92,10 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
         let moves = search_moves
             .unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).into_vec());
 
-        for depth in 0.. {
+        let max_depth = self.search_depth
+            .unwrap_or(u32::MAX);
+
+        for depth in 0..max_depth {
             let start = Instant::now();
 
             let mut nodes = 0;

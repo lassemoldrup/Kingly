@@ -24,7 +24,7 @@ impl<O: Output> Writer<O> {
     }
 
     pub fn debug(&mut self, msg: impl AsRef<str>) -> io::Result<()> {
-        writeln!(self.output, "Debug: {}", msg.as_ref())
+        self.info(&[SearchInfo::String(format!("Debug: {}", msg.as_ref()))])
     }
 
     pub fn id(&mut self) -> io::Result<()> {
