@@ -7,7 +7,7 @@ use std::process::exit;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
 use itertools::Itertools;
 use strum_macros::Display;
@@ -128,12 +128,13 @@ impl<C, I, O> Uci<C, I, O>  where
                     let mut search = client.deref().search();
 
                     for option in options {
-                        match option {
+                        search = match option {
                             // TODO: How to test this?
-                            GoOption::SearchMoves(moves) => search = search.moves(&moves),
-                            GoOption::Depth(depth) => search = search.depth(depth),
-                            _ => { },
-                        }
+                            GoOption::SearchMoves(moves) => search.moves(&moves),
+                            GoOption::Depth(depth) => search.depth(depth),
+                            GoOption::MoveTime(time) => search.time(time),
+                            _ => search,
+                        };
                     }
 
                     search.on_info(|info| {
@@ -237,7 +238,7 @@ enum GoOption {
     Depth(u32),
     Nodes(u64),
     Mate(u32),
-    MoveTime(u32),
+    MoveTime(Duration),
     Infinite,
 }
 

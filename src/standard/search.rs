@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use std::mem::swap;
 
 use crate::framework::{Eval, MoveGen};
@@ -11,6 +11,7 @@ use crate::framework::moves::{PseudoMove, Move};
 pub struct Search<'client, MG, E> {
     search_moves: Option<Vec<Move>>,
     search_depth: Option<u32>,
+    search_time: Option<Duration>,
     callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'client>>,
     position: Position,
     move_gen: &'client MG,
@@ -26,6 +27,7 @@ impl<'client, MG, E> Search<'client, MG, E> where
         Self {
             search_moves: None,
             search_depth: None,
+            search_time: None,
             callbacks,
             position,
             move_gen,
@@ -80,6 +82,11 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
         self
     }
 
+    fn time(mut self, time: Duration) -> Self {
+        self.search_time = Some(time);
+        self
+    }
+
     fn on_info<F: FnMut(&SearchResult) + 'client>(mut self, callback: F) -> Self
     {
         self.callbacks.push(Box::new(callback));
@@ -87,6 +94,8 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
     }
 
     fn start(mut self, stop_search: &AtomicBool) {
+        let search_start = Instant::now();
+
         let mut search_moves = None;
         swap(&mut search_moves, &mut self.search_moves);
         let moves = search_moves
@@ -96,14 +105,15 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
             .unwrap_or(u32::MAX);
 
         for depth in 0..max_depth {
-            let start = Instant::now();
+            let depth_start = Instant::now();
 
             let mut nodes = 0;
             let mut max_score = Value::NegInf;
             let mut best_line = vec![];
 
             for &mv in &moves {
-                if stop_search.load(Ordering::Acquire) {
+                if stop_search.load(Ordering::Acquire)
+                || self.search_time.map_or(false, |time| search_start.elapsed() >= time) {
                     return;
                 }
 
@@ -120,7 +130,7 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                 }
             }
 
-            let duration = start.elapsed();
+            let duration = depth_start.elapsed();
             let search_result = SearchResult::new(max_score, best_line, depth + 1, nodes, duration);
             for callback in &mut self.callbacks {
                 callback(&search_result);

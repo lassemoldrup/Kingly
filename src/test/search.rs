@@ -2,6 +2,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::framework::search::{Search, SearchResult};
 use crate::framework::moves::PseudoMove;
+use std::time::Duration;
 
 pub struct SearchStub<'a> {
     search_moves: Option<Vec<PseudoMove>>,
@@ -26,6 +27,10 @@ impl<'a> Search<'a> for SearchStub<'a> {
     }
 
     fn depth(self, _depth: u32) -> Self {
+        todo!()
+    }
+
+    fn time(self, _time: Duration) -> Self {
         todo!()
     }
 

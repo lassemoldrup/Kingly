@@ -7,6 +7,7 @@ use crate::framework::value::Value;
 pub trait Search<'f> {
     fn moves(self, moves: &[PseudoMove]) -> Self;
     fn depth(self, depth: u32) -> Self;
+    fn time(self, time: Duration) -> Self;
     fn on_info<F: FnMut(&SearchResult) + 'f>(self, callback: F) -> Self;
     fn start(self, stop_search: &AtomicBool);
 }
@@ -25,7 +26,11 @@ impl SearchResult {
     pub fn new(value: Value, line: Vec<Move>, depth: u32, nodes_searched: u64, duration: Duration) -> Self {
         let line = line.into_boxed_slice();
         Self {
-            value, line, depth, nodes_searched, duration
+            value,
+            line,
+            depth,
+            nodes_searched,
+            duration,
         }
     }
 

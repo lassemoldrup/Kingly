@@ -10,6 +10,7 @@ use crusty::framework::moves::PseudoMove;
 use crate::uci::{GoOption, UciOption};
 
 use super::Command;
+use std::time::Duration;
 
 pub struct Parser<I> {
     input: I,
@@ -171,7 +172,7 @@ fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b st
         ["movetime", time, end @ ..] => {
             let time = time.parse()
                 .map_err(|err: ParseIntError| err.to_string())?;
-            Ok((GoOption::MoveTime(time), end))
+            Ok((GoOption::MoveTime(Duration::from_millis(time)), end))
         },
         ["infinite", end @ ..] => Ok((GoOption::Infinite, end)),
         [_] => Err("Unrecognized option or missing argument".to_string()),
