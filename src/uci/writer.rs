@@ -6,7 +6,7 @@ use crusty::framework::io::Output;
 
 use crate::uci::SearchInfo;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Writer<O> {
     output: O,
 }

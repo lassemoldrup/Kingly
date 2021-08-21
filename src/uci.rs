@@ -4,7 +4,7 @@ use std::io;
 use std::mem::swap;
 use std::ops::Deref;
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -26,12 +26,12 @@ mod tests;
 mod parser;
 mod writer;
 
-pub struct Uci<C, I, O> {
-    client: Arc<Mutex<C>>,
-    stop_search: Arc<AtomicBool>,
+pub struct Uci<C: 'static, I, O: 'static> {
+    client: &'static Mutex<C>,
+    stop_search: &'static AtomicBool,
     search_thread: Option<JoinHandle<()>>,
     parser: Parser<I>,
-    writer: Arc<Mutex<Writer<O>>>,
+    writer: &'static Mutex<Writer<O>>,
     debug: bool,
 }
 
@@ -45,11 +45,11 @@ impl<C, I, O> Uci<C, I, O>  where
         let client = client;
 
         Self {
-            client: Arc::new(Mutex::new(client)),
-            stop_search: Arc::new(AtomicBool::new(true)),
+            client: Box::leak(Box::new(Mutex::new(client))),
+            stop_search: Box::leak(Box::new(AtomicBool::new(true))),
             search_thread: None,
             parser: Parser::new(input),
-            writer: Arc::new(Mutex::new(Writer::new(output))),
+            writer: Box::leak(Box::new(Mutex::new(Writer::new(output)))),
             debug: false,
         }
     }
@@ -59,6 +59,7 @@ impl<C, I, O> Uci<C, I, O>  where
 
         writer.id()?;
         writer.uci_ok()?;
+        // Unlock the writer mutex
         drop(writer);
 
         self.client.lock().unwrap()
@@ -116,10 +117,10 @@ impl<C, I, O> Uci<C, I, O>  where
                 self.wait_for_search();
 
                 self.stop_search.store(false, Ordering::SeqCst);
-                let stop_search = self.stop_search.clone();
 
-                let client = self.client.clone();
-                let writer = self.writer.clone();
+                let stop_search = self.stop_search;
+                let client = self.client;
+                let writer = self.writer;
                 self.search_thread = Some(thread::spawn(move || {
                     let client = client.lock().unwrap();
 
@@ -136,15 +137,15 @@ impl<C, I, O> Uci<C, I, O>  where
                     }
 
                     search.on_info(|info| {
-                            let mut info = search_result_to_info(info);
-                            let elapsed = start.elapsed().as_millis() as u64;
-                            info.push(SearchInfo::Time(elapsed));
+                        let mut info = search_result_to_info(info);
+                        let elapsed = start.elapsed().as_millis() as u64;
+                        info.push(SearchInfo::Time(elapsed));
 
-                            writer.lock().unwrap()
-                                .info(&info)
-                                .unwrap();
-                        })
-                        .start(&stop_search);
+                        writer.lock().unwrap()
+                            .info(&info)
+                            .unwrap();
+                    })
+                        .start(stop_search);
 
                     stop_search.store(true, Ordering::Release);
                 }));
