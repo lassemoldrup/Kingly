@@ -34,6 +34,10 @@ impl<'a> Search<'a> for SearchStub<'a> {
         todo!()
     }
 
+    fn nodes(self, _nodes: u64) -> Self {
+        todo!()
+    }
+
     fn on_info<F: FnMut(&SearchResult) + 'a>(mut self, callback: F) -> Self {
         self.callback = Box::new(callback);
         self

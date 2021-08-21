@@ -8,6 +8,7 @@ pub trait Search<'f> {
     fn moves(self, moves: &[PseudoMove]) -> Self;
     fn depth(self, depth: u32) -> Self;
     fn time(self, time: Duration) -> Self;
+    fn nodes(self, nodes: u64) -> Self;
     fn on_info<F: FnMut(&SearchResult) + 'f>(self, callback: F) -> Self;
     fn start(self, stop_search: &AtomicBool);
 }
@@ -16,7 +17,7 @@ pub trait Search<'f> {
 #[derive(Clone)]
 pub struct SearchResult {
     value: Value,
-    line: Box<[Move]>,
+    line: Vec<Move>,
     depth: u32,
     nodes_searched: u64,
     duration: Duration,
@@ -24,7 +25,6 @@ pub struct SearchResult {
 
 impl SearchResult {
     pub fn new(value: Value, line: Vec<Move>, depth: u32, nodes_searched: u64, duration: Duration) -> Self {
-        let line = line.into_boxed_slice();
         Self {
             value,
             line,
@@ -39,7 +39,7 @@ impl SearchResult {
     }
 
     pub fn line(&self) -> &[Move] {
-        &*self.line
+        &self.line
     }
 
     pub fn depth(&self) -> u32 {

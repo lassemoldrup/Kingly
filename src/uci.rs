@@ -132,6 +132,7 @@ impl<C, I, O> Uci<C, I, O>  where
                             // TODO: How to test this?
                             GoOption::SearchMoves(moves) => search.moves(&moves),
                             GoOption::Depth(depth) => search.depth(depth),
+                            GoOption::Nodes(nodes) => search.nodes(nodes),
                             GoOption::MoveTime(time) => search.time(time),
                             _ => search,
                         };

@@ -11,6 +11,7 @@ use crate::framework::moves::{PseudoMove, Move};
 pub struct Search<'client, MG, E> {
     search_moves: Option<Vec<Move>>,
     search_depth: Option<u32>,
+    search_nodes: Option<u64>,
     search_time: Option<Duration>,
     callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'client>>,
     position: Position,
@@ -27,6 +28,7 @@ impl<'client, MG, E> Search<'client, MG, E> where
         Self {
             search_moves: None,
             search_depth: None,
+            search_nodes: None,
             search_time: None,
             callbacks,
             position,
@@ -61,6 +63,18 @@ impl<'client, MG, E> Search<'client, MG, E> where
 
         alpha
     }
+
+    fn should_stop(&self, stop_search: &AtomicBool, time_searched: Duration, nodes_searched: u64) -> bool {
+        stop_search.load(Ordering::Acquire)
+            || self.search_time.map_or(false, |time| time_searched >= time)
+            || self.search_nodes.map_or(false, |nodes| nodes_searched >= nodes)
+    }
+
+    fn notify_info(&mut self, search_result: &SearchResult) {
+        for callback in &mut self.callbacks {
+            callback(search_result);
+        }
+    }
 }
 
 impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'client, MG, E> where
@@ -87,6 +101,11 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
         self
     }
 
+    fn nodes(mut self, nodes: u64) -> Self {
+        self.search_nodes = Some(nodes);
+        self
+    }
+
     fn on_info<F: FnMut(&SearchResult) + 'client>(mut self, callback: F) -> Self
     {
         self.callbacks.push(Box::new(callback));
@@ -109,11 +128,10 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
 
             let mut nodes = 0;
             let mut max_score = Value::NegInf;
-            let mut best_line = vec![];
+            let mut primary_variation = vec![];
 
             for &mv in &moves {
-                if stop_search.load(Ordering::Acquire)
-                || self.search_time.map_or(false, |time| search_start.elapsed() >= time) {
+                if self.should_stop(stop_search, search_start.elapsed(), nodes) {
                     return;
                 }
 
@@ -126,15 +144,19 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
 
                 if score > max_score {
                     max_score = score;
-                    best_line = vec![mv];
+                    primary_variation = vec![mv];
                 }
             }
 
             let duration = depth_start.elapsed();
-            let search_result = SearchResult::new(max_score, best_line, depth + 1, nodes, duration);
-            for callback in &mut self.callbacks {
-                callback(&search_result);
-            }
+            let search_result = SearchResult::new(
+                max_score,
+                primary_variation,
+                depth + 1,
+                nodes,
+                duration
+            );
+            self.notify_info(&search_result);
         }
     }
 }
