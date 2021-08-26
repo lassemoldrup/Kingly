@@ -51,14 +51,12 @@ pub trait Position {
 }
 
 pub trait MoveGen<P: Position> {
+    fn create() -> Self;
     fn gen_all_moves(&self, position: &P) -> MoveList;
 }
 
-pub trait MoveGenFactory<MG: MoveGen<P>, P: Position> {
-    fn create(&self) -> MG;
-}
-
 pub trait Eval<P: Position> {
+    fn create() -> Self;
     fn eval(&self, position: &P) -> Value;
 }
 

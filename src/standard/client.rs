@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::framework::{Eval, MoveGen, MoveGenFactory, Searchable};
+use crate::framework::{Eval, MoveGen, Searchable};
 use crate::framework::Client as ClientTrait;
 use crate::framework::fen::FenParseError;
 use crate::framework::moves::Move;
@@ -10,25 +10,22 @@ use crate::standard::search::Search;
 
 const NOT_INIT: &str = "Client not initialized";
 
-pub struct Client<MG, MGF, E>
+pub struct Client<MG, E>
 {
     position: Position,
     move_gen: Option<MG>,
-    move_gen_factory: MGF,
-    eval: E,
+    eval: Option<E>,
 }
 
-impl<MG, MGF, E> Client<MG, MGF, E> where
+impl<MG, E> Client<MG, E> where
     MG: MoveGen<Position>,
-    MGF: MoveGenFactory<MG, Position>,
     E: Eval<Position>
 {
-    pub fn new(move_gen_factory: MGF, eval: E) -> Self {
+    pub fn new() -> Self {
         Self {
             position: Position::new(),
             move_gen: None,
-            move_gen_factory,
-            eval,
+            eval: None,
         }
     }
 
@@ -37,13 +34,13 @@ impl<MG, MGF, E> Client<MG, MGF, E> where
     }
 }
 
-impl<MG, MGF, E> crate::framework::Client for Client<MG, MGF, E> where
+impl<MG, E> crate::framework::Client for Client<MG, E> where
     MG: MoveGen<Position>,
-    MGF: MoveGenFactory<MG, Position>,
     E: Eval<Position>
 {
     fn init(&mut self) {
-        self.move_gen = Some(self.move_gen_factory.create());
+        self.move_gen = Some(MoveGen::create());
+        self.eval = Some(Eval::create());
     }
 
     fn is_init(&self) -> bool {
@@ -111,22 +108,22 @@ impl<MG, MGF, E> crate::framework::Client for Client<MG, MGF, E> where
     }
 }
 
-impl<'client, MG, MGF, E> Searchable<'client> for &'client Client<MG, MGF, E> where
+impl<'client, MG, E> Searchable<'client> for &'client Client<MG, E> where
     MG: MoveGen<Position>,
-    MGF: MoveGenFactory<MG, Position>,
     E: Eval<Position>
 {
     type Search = Search<'client, MG, E>;
 
     fn search(&self) -> Self::Search {
         let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
+        let eval = self.eval.as_ref().unwrap();
         let position = self.position.clone();
 
-        Search::new(position, move_gen, &self.eval)
+        Search::new(position, move_gen, eval)
     }
 }
 
-impl<MG, MGF, E> fmt::Debug for Client<MG, MGF, E> {
+impl<MG, E> fmt::Debug for Client<MG, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(&self.position, f)
     }
@@ -143,8 +140,7 @@ mod tests {
 
     use crate::framework::Client;
     use crate::standard;
-    use crate::standard::Eval;
-    use crate::standard::move_gen::MoveGenFactory;
+    use crate::standard::{Eval, MoveGen};
 
     #[derive(Deserialize)]
     struct PerftPosition {
@@ -155,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_perft() {
-        let mut client = standard::Client::new(MoveGenFactory, Eval);
+        let mut client = standard::Client::<MoveGen, Eval>::new();
         client.init();
 
         let mut test_path = PathBuf::new();

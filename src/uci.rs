@@ -138,7 +138,11 @@ impl<C, I, O> Uci<C, I, O>  where
                         };
                     }
 
+                    let mut best_move = None;
+
                     search.on_info(|info| {
+                        best_move = Some(info.line()[0]);
+
                         let mut info = search_result_to_info(info);
                         let elapsed = start.elapsed().as_millis() as u64;
                         info.push(SearchInfo::Time(elapsed));
@@ -150,6 +154,9 @@ impl<C, I, O> Uci<C, I, O>  where
                         .start(stop_search);
 
                     stop_search.store(true, Ordering::Release);
+                    writer.lock().unwrap()
+                        .best_move(best_move.unwrap())
+                        .unwrap();
                 }));
             },
 

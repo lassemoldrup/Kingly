@@ -5,6 +5,7 @@ use itertools::Itertools;
 use crusty::framework::io::Output;
 
 use crate::uci::SearchInfo;
+use crusty::framework::moves::Move;
 
 #[derive(Clone, Debug)]
 pub struct Writer<O> {
@@ -42,5 +43,9 @@ impl<O: Output> Writer<O> {
 
     pub(in crate::uci) fn info(&mut self, info: &[SearchInfo]) -> io::Result<()> {
         writeln!(self.output, "info {}", info.iter().join(" "))
+    }
+
+    pub fn best_move(&mut self, best_move: Move) -> io::Result<()> {
+        writeln!(self.output, "bestmove {}", best_move)
     }
 }
