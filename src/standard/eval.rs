@@ -42,7 +42,7 @@ fn get_material_score<P>(position: &P) -> i32 where
     use PieceKind::*;
 
     let piece_values = [100, 300, 300, 500, 900];
-    IntoIterator::into_iter([Pawn, Knight, Bishop, Rook, Queen])
+    [Pawn, Knight, Bishop, Rook, Queen].into_iter()
         .zip(piece_values)
         .map(|(kind, val)| val * piece_diff(position, kind))
         .sum()

@@ -64,7 +64,7 @@ impl Display for Move {
 
 
 #[derive(Debug)]
-pub struct MoveList(ArrayVec<[Move; 256]>);
+pub struct MoveList(ArrayVec<Move, 256>);
 
 impl MoveList {
     pub fn new() -> Self {
@@ -104,7 +104,7 @@ impl MoveList {
 
 impl IntoIterator for MoveList {
     type Item = Move;
-    type IntoIter = IntoIter<[Move; 256]>;
+    type IntoIter = IntoIter<Move, 256>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()

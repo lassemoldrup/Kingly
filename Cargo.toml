@@ -1,17 +1,17 @@
 [package]
 name = "crusty"
 version = "0.1.0"
-authors = ["Lasse Overgaard Møldrup <lasse.moeldrup@@gmail.com>"]
-edition = "2018"
+authors = ["Lasse Overgaard Møldrup <lasse.moeldrup@gmail.com>"]
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arrayvec = "0.5.2"
+arrayvec = "0.7.2"
 bitintr = "0.3.0"
 take-until = "0.1.0"
 itertools = "0.10.1"
-strum_macros = "0.21.0"
+strum_macros = "0.23.1"
 lazy_static = "1.4.0"
 
 [dev-dependencies]

@@ -372,7 +372,7 @@ impl MoveGen {
         use PieceKind::*;
 
         let occ = position.pieces().get_occ();
-        IntoIterator::into_iter([Pawn, Knight, Bishop, Rook, Queen, King])
+        [Pawn, Knight, Bishop, Rook, Queen, King].into_iter()
             .map(|kind| {
                 let pce = Piece(kind, color);
                 let pce_bb = position.pieces().get_bb(pce);
