@@ -8,6 +8,9 @@ use crate::framework::value::Value;
 use crate::standard::Position;
 use crate::framework::moves::{PseudoMove, Move};
 
+#[cfg(test)]
+mod tests;
+
 pub struct Search<'client, MG, E> {
     search_moves: Option<Vec<Move>>,
     search_depth: Option<u32>,
@@ -138,7 +141,7 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                 let score;
                 unsafe {
                     self.position.make_move(mv);
-                    score = self.alpha_beta(Value::NegInf, Value::Inf, depth, &mut nodes);
+                    score = -self.alpha_beta(Value::NegInf, Value::Inf, depth, &mut nodes);
                     self.position.unmake_move();
                 }
 

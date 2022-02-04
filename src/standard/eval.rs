@@ -8,6 +8,7 @@ use crate::standard::MoveGen;
 #[cfg(test)]
 mod tests;
 
+/// NegaMax evaluation of the position
 pub struct Eval {
     move_gen: MoveGen,
 }
@@ -32,7 +33,22 @@ impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::Eval<P> for Eva
         let mobility = self.move_gen.get_mobility(position, position.to_move()) as i32
             - self.move_gen.get_mobility(position, !position.to_move()) as i32;
 
-        Value::CentiPawn(material)// + 2 * mobility)
+        Value::CentiPawn(material + 2 * mobility)
+    }
+}
+
+/// Only evaluates based on material
+pub struct MaterialEval;
+
+impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::Eval<P> for MaterialEval {
+    fn create() -> Self {
+        Self
+    }
+
+    fn eval(&self, position: &P) -> Value {
+        let material = get_material_score(position);
+
+        Value::CentiPawn(material)
     }
 }
 
