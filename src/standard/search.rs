@@ -40,22 +40,31 @@ impl<'client, MG, E> Search<'client, MG, E> where
         }
     }
 
-    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, nodes: &mut u64) -> Value {
+    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, start_depth: u32, nodes: &mut u64) -> Value {
+        let (moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
+        if moves.len() == 0 {
+            *nodes += 1;
+            return if check {
+                Value::NegInf((start_depth - depth + 1) / 2)
+            } else {
+                Value::CentiPawn(0)
+            }
+        }
+
         if depth == 0 {
             *nodes += 1;
             return self.eval.eval(&self.position);
         }
 
-        let moves = self.move_gen.gen_all_moves(&self.position);
         for mv in moves {
             let score;
             unsafe {
                 self.position.make_move(mv);
-                score = -Self::alpha_beta(self, -beta, -alpha, depth - 1, nodes);
+                score = -Self::alpha_beta(self, -beta, -alpha, depth - 1, start_depth, nodes);
                 self.position.unmake_move();
             }
 
-            if score >= beta  {
+            if score >= beta {
                 return beta;
             }
 
@@ -130,8 +139,8 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
             let depth_start = Instant::now();
 
             let mut nodes = 0;
-            let mut max_score = Value::NegInf;
-            let mut primary_variation = vec![];
+            let mut max_score = Value::NegInf(0);
+            let mut principal_variation = vec![];
 
             for &mv in &moves {
                 if self.should_stop(stop_search, search_start.elapsed(), nodes) {
@@ -141,20 +150,20 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                 let score;
                 unsafe {
                     self.position.make_move(mv);
-                    score = -self.alpha_beta(Value::NegInf, Value::Inf, depth, &mut nodes);
+                    score = -self.alpha_beta(Value::NegInf(0), Value::Inf(0), depth, depth + 1, &mut nodes);
                     self.position.unmake_move();
                 }
 
                 if score > max_score {
                     max_score = score;
-                    primary_variation = vec![mv];
+                    principal_variation = vec![mv];
                 }
             }
 
             let duration = depth_start.elapsed();
             let search_result = SearchResult::new(
                 max_score,
-                primary_variation,
+                principal_variation,
                 depth + 1,
                 nodes,
                 duration

@@ -209,7 +209,7 @@ impl MoveGen {
                 (pce_bb >> left) | (pce_bb >> right)
             },
             _ => pce_bb.into_iter()
-                .fold(Bitboard::new(), |atks, sq| atks | self.gen_attacks_from_sq(occ, pce, sq))
+                .fold(bb!(), |atks, sq| atks | self.gen_attacks_from_sq(occ, pce, sq))
         }
     }
 
@@ -257,7 +257,7 @@ impl MoveGen {
             let pin_ray = if pce.kind() != PieceKind::King && pin_rays.contains(from) {
                 pin_rays & self.tables.line_through[from][king_sq]
             } else {
-                !Bitboard::new()
+                !bb!()
             };
 
             let legal_atks = self.gen_attacks_from_sq(occ, pce, from) & legal_sqs & pin_ray;
@@ -350,7 +350,7 @@ impl MoveGen {
             & (opp_rooks | opp_queens);
         let pinners = bishop_queen_pinners | rook_queen_pinners;
 
-        let mut pin_rays = Bitboard::new();
+        let mut pin_rays = bb!();
 
         // No need to only look at our own pieces (which is slower), since opp pieces are removed above
         let occ = position.pieces().get_occ();
@@ -388,6 +388,12 @@ impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::MoveGen<P> for 
     }
 
     fn gen_all_moves(&self, position: &P) -> MoveList {
+        self.gen_all_moves_and_check(position).0
+    }
+
+    fn gen_all_moves_and_check(&self, position: &P) -> (MoveList, bool) where
+        P: Position<PieceMap = BitboardPieceMap>
+    {
         let mut moves = MoveList::new();
 
         // TODO: Is this generated thrice?
@@ -395,11 +401,12 @@ impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::MoveGen<P> for 
         let pin_rays = self.pin_rays(position);
         let danger_sqs = self.gen_danger_sqs(position);
 
-        if danger_sqs.contains(king_sq) {
+        let check = danger_sqs.contains(king_sq);
+        if check {
             let checkers = self.checkers(position);
 
             if checkers.len() == 2 {
-                self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), pin_rays, danger_sqs, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::King, !bb!(), pin_rays, danger_sqs, &mut moves);
             } else {
                 let checking_sq = unsafe {
                     checkers.first_sq_unchecked()
@@ -407,22 +414,22 @@ impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::MoveGen<P> for 
                 let blocking_sqs = self.tables.ray_to[king_sq][checking_sq] | checkers;
 
                 self.gen_pawn_moves(position, blocking_sqs, pin_rays, &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Knight, blocking_sqs, pin_rays, Bitboard::new(), &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Bishop, blocking_sqs, pin_rays, Bitboard::new(), &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Rook, blocking_sqs, pin_rays, Bitboard::new(), &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::Queen, blocking_sqs, pin_rays, Bitboard::new(), &mut moves);
-                self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), Bitboard::new(), danger_sqs, &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Knight, blocking_sqs, pin_rays, bb!(), &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Bishop, blocking_sqs, pin_rays, bb!(), &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Rook, blocking_sqs, pin_rays, bb!(), &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::Queen, blocking_sqs, pin_rays, bb!(), &mut moves);
+                self.gen_non_pawn_moves(position, PieceKind::King, !bb!(), bb!(), danger_sqs, &mut moves);
             }
         } else {
-            self.gen_pawn_moves(position, !Bitboard::new(), pin_rays, &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Knight, !Bitboard::new(), pin_rays, Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Bishop, !Bitboard::new(), pin_rays, Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Rook, !Bitboard::new(), pin_rays, Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::Queen, !Bitboard::new(), pin_rays, Bitboard::new(), &mut moves);
-            self.gen_non_pawn_moves(position, PieceKind::King, !Bitboard::new(), Bitboard::new(), danger_sqs, &mut moves);
+            self.gen_pawn_moves(position, !bb!(), pin_rays, &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Knight, !bb!(), pin_rays, bb!(), &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Bishop, !bb!(), pin_rays, bb!(), &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Rook, !bb!(), pin_rays, bb!(), &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::Queen, !bb!(), pin_rays, bb!(), &mut moves);
+            self.gen_non_pawn_moves(position, PieceKind::King, !bb!(), bb!(), danger_sqs, &mut moves);
             self.gen_castling_moves(position, danger_sqs, &mut moves);
         }
 
-        moves
+        (moves, check)
     }
 }

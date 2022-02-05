@@ -29,3 +29,19 @@ fn queen_standoff_should_give_advantage_to_player_to_move() {
     assert_eq!(w_value, Value::CentiPawn(900));
     assert_eq!(b_value, Value::CentiPawn(900));
 }
+
+#[test]
+fn finds_mate_in_two() {
+    let eval = MaterialEval;
+    let move_gen = MoveGen::new(Tables::get());
+
+    let position = Position::from_fen("3r2k1/5ppp/8/8/8/8/4R3/K3R3 w - - 0 1").unwrap();
+    let mut value = Value::CentiPawn(0);
+
+    Search::new(position, &move_gen, &eval)
+        .depth(4)
+        .on_info(|sr| value = sr.value())
+        .start(&AtomicBool::new(false));
+
+    assert_eq!(value, Value::Inf(2));
+}

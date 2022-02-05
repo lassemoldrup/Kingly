@@ -53,6 +53,7 @@ pub trait Position {
 pub trait MoveGen<P: Position> {
     fn create() -> Self;
     fn gen_all_moves(&self, position: &P) -> MoveList;
+    fn gen_all_moves_and_check(&self, position: &P) -> (MoveList, bool);
 }
 
 pub trait Eval<P: Position> {
