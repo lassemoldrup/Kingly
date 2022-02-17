@@ -164,14 +164,14 @@ impl Position {
                 match dest_pce {
                     Some(dest_pce) => {
                         self.unset_sq(to, dest_pce);
+
+                        self.remove_castling_on_rook_capture(to);
                         
                         self.ply_clock = 0;
                     },
                     None => self.ply_clock += 1,
                 }
                 self.set_sq(to, pce);
-
-                self.remove_castling_on_rook_capture(to);
 
                 if pce.kind() == PieceKind::Pawn {
                     self.ply_clock = 0;
@@ -225,11 +225,11 @@ impl Position {
 
                 if let Some(dest_pce) = unmake.capture {
                     self.unset_sq(to, dest_pce);
+
+                    self.remove_castling_on_rook_capture(to);
                 }
                 self.set_sq(to, promotion_pce);
                 self.unset_sq(from, pawn_pce);
-
-                self.remove_castling_on_rook_capture(to);
 
                 self.ply_clock = 0;
             },
@@ -258,8 +258,6 @@ impl Position {
         self.toggle_zobrist(&Color::White);
 
         self.history.push(unmake);
-
-        println!("{:#066b}", self.zobrist);
     }
 
     fn remove_castling_on_rook_capture(&mut self, to: Square) {
