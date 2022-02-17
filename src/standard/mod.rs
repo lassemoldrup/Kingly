@@ -12,3 +12,4 @@ mod tables;
 mod move_gen;
 mod eval;
 mod search;
+mod zobrist;

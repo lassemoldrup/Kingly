@@ -96,6 +96,9 @@ impl<C, I, O> Cli<C, I, O> where
                 command[3..].trim().to_string()
             )),
             "move" => {
+                // We need to use the client in order to parse the moves
+                self.init_client().unwrap();
+                
                 let mut moves = Vec::new();
 
                 for mv in &command_args[1..] {

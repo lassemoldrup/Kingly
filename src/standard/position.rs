@@ -12,6 +12,8 @@ use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::framework::util::{get_castling_rook_sq, get_rook_sq};
 use crate::standard::piece_map::BitboardPieceMap;
+use crate::standard::tables::Tables;
+use crate::standard::zobrist::ZobristKey;
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +27,8 @@ pub struct Position {
     ply_clock: u8,
     move_number: u32,
     history: Vec<Unmake>,
+    zobrist: u64,
+    tables: &'static Tables,
 }
 
 impl Position {
@@ -77,10 +81,10 @@ impl Position {
         let mut castling = CastlingRights::new(false, false, false, false);
         for right in fields[2].chars() {
             match right {
-                'K' => castling.set(Color::White, Side::KingSide, true),
-                'Q' => castling.set(Color::White, Side::QueenSide, true),
-                'k' => castling.set(Color::Black, Side::KingSide, true),
-                'q' => castling.set(Color::Black, Side::QueenSide, true),
+                'K' => castling.set(Color::White, 0b01),
+                'Q' => castling.set(Color::White, 0b10),
+                'k' => castling.set(Color::Black, 0b01),
+                'q' => castling.set(Color::Black, 0b10),
                 '-' => break,
                 _ => return Err(FenParseError::from("Invalid castling right")),
             }
@@ -100,6 +104,21 @@ impl Position {
         let move_number = fields[5].parse()
             .map_err(|_| "Invalid move number")?;
 
+        // Zobrist hash
+        let tables = Tables::get();
+        let mut zobrist = 0;
+
+        use PieceKind::*;
+        for kind in [Pawn, Knight, Bishop, Rook, Queen, King] {
+            for color in [Color::White, Color::Black] {
+                let pce = Piece(kind, color);
+                zobrist ^= (pce, pieces.get_bb(pce)).key(tables);
+            }
+        }
+        zobrist ^= to_move.key(tables);
+        zobrist ^= castling.key(tables);
+        zobrist ^= en_passant_sq.key(tables);
+
         Ok(Position {
             pieces,
             to_move,
@@ -108,6 +127,8 @@ impl Position {
             ply_clock,
             move_number,
             history: Vec::new(),
+            zobrist,
+            tables,
         })
     }
 
@@ -123,6 +144,12 @@ impl Position {
             ply_clock: self.ply_clock,
         };
 
+        let pawn_pce = Piece(PieceKind::Pawn, self.to_move);
+        let enemy_pawn_pce = Piece(PieceKind::Pawn, !self.to_move);
+        let rook_pce = Piece(PieceKind::Rook, self.to_move);
+        let king_pce = Piece(PieceKind::King, self.to_move);
+
+        self.toggle_zobrist(&self.en_passant_sq.clone());
         self.en_passant_sq = None;
         match m {
             Move::Regular(from, to) => {
@@ -133,14 +160,20 @@ impl Position {
 
                 unmake.capture = dest_pce;
 
-                self.pieces.unset_sq(from);
+                self.unset_sq(from, pce);
+                match dest_pce {
+                    Some(dest_pce) => {
+                        self.unset_sq(to, dest_pce);
+                        
+                        self.ply_clock = 0;
+                    },
+                    None => self.ply_clock += 1,
+                }
+                self.set_sq(to, pce);
 
                 self.remove_castling_on_rook_capture(to);
 
                 if pce.kind() == PieceKind::Pawn {
-                    self.pieces.unset_sq(to);
-                    self.pieces.set_sq(to, pce);
-
                     self.ply_clock = 0;
 
                     let (snd_rank, frth_rank, up) = match self.to_move {
@@ -150,31 +183,20 @@ impl Position {
 
                     if from.rank() == snd_rank && to.rank() == frth_rank {
                         self.en_passant_sq = Some(from.shift(up));
+                        self.toggle_zobrist(&Some(from));
                     }
                 } else {
-                    if dest_pce.is_some() {
-                        self.pieces.unset_sq(to);
-                        self.pieces.set_sq(to, pce);
-
-                        self.ply_clock = 0;
-                    } else {
-                        self.pieces.set_sq(to, pce);
-
-                        self.ply_clock += 1;
-                    }
-
                     let (king_sq, king_rook_sq, queen_rook_sq) = match self.to_move {
                         Color::White => (Square::E1, Square::H1, Square::A1),
                         Color::Black => (Square::E8, Square::H8, Square::A8),
                     };
 
                     if from == king_rook_sq {
-                        self.castling.set(self.to_move, Side::KingSide, false);
+                        self.remove_castling_rights(self.to_move, 0b01);
                     } else if from == queen_rook_sq {
-                        self.castling.set(self.to_move, Side::QueenSide, false);
+                        self.remove_castling_rights(self.to_move, 0b10);
                     } else if from == king_sq {
-                        self.castling.set(self.to_move, Side::KingSide, false);
-                        self.castling.set(self.to_move, Side::QueenSide, false);
+                        self.remove_castling_rights(self.to_move, 0b11);
                     }
                 }
             }
@@ -187,22 +209,25 @@ impl Position {
                 let rook_sq = get_rook_sq(self.to_move, side);
                 let castling_rook_sq = get_castling_rook_sq(self.to_move, side);
 
-                self.pieces.set_sq(to, Piece(PieceKind::King, self.to_move));
-                self.pieces.set_sq(castling_rook_sq, Piece(PieceKind::Rook, self.to_move));
-                self.pieces.unset_sq(from);
-                self.pieces.unset_sq(rook_sq);
+                self.unset_sq(from, king_pce);
+                self.unset_sq(rook_sq, rook_pce);
+                self.set_sq(to, king_pce);
+                self.set_sq(castling_rook_sq, rook_pce);
 
-                self.castling.set(self.to_move, Side::KingSide, false);
-                self.castling.set(self.to_move, Side::QueenSide, false);
+                self.remove_castling_rights(self.to_move, 0b11);
 
                 self.ply_clock += 1;
             },
             Move::Promotion(from, to, kind) => {
                 unmake.capture = self.pieces.get(to);
 
-                self.pieces.unset_sq(to);
-                self.pieces.set_sq(to, Piece(kind, self.to_move));
-                self.pieces.unset_sq(from);
+                let promotion_pce = Piece(kind, self.to_move);
+
+                if let Some(dest_pce) = unmake.capture {
+                    self.unset_sq(to, dest_pce);
+                }
+                self.set_sq(to, promotion_pce);
+                self.unset_sq(from, pawn_pce);
 
                 self.remove_castling_on_rook_capture(to);
 
@@ -214,10 +239,10 @@ impl Position {
                     Color::Black => Direction::North,
                 };
 
-                self.pieces.set_sq(to, Piece(PieceKind::Pawn, self.to_move));
-                self.pieces.unset_sq(from);
-                let ep_pawn_sq = to.shift(down);
-                self.pieces.unset_sq(ep_pawn_sq);
+                self.set_sq(to, pawn_pce);
+                self.unset_sq(from, pawn_pce);
+                let captured_pawn_sq = to.shift(down);
+                self.unset_sq(captured_pawn_sq, enemy_pawn_pce);
 
                 self.ply_clock = 0;
             },
@@ -230,16 +255,21 @@ impl Position {
                 self.move_number += 1;
             },
         }
+        self.toggle_zobrist(&Color::White);
 
         self.history.push(unmake);
+
+        println!("{:#066b}", self.zobrist);
     }
 
     fn remove_castling_on_rook_capture(&mut self, to: Square) {
         let opp = !self.to_move;
         if to == get_rook_sq(opp, Side::KingSide) {
-            self.castling.set(opp, Side::KingSide, false);
+            self.remove_castling_rights(opp, 0b01);
         } else if to == get_rook_sq(opp, Side::QueenSide) {
-            self.castling.set(opp, Side::QueenSide, false);
+            self.remove_castling_rights(opp, 0b10);
+        } else {
+            return;
         }
     }
 
@@ -251,7 +281,9 @@ impl Position {
         let unmake = self.history.pop()
             .unwrap_or_else(|| unreachable_unchecked());
 
+        self.toggle_zobrist(&self.en_passant_sq.clone());
         self.en_passant_sq = unmake.en_passant_sq;
+        self.toggle_zobrist(&self.en_passant_sq.clone());
         self.ply_clock = unmake.ply_clock;
 
         match self.to_move {
@@ -261,6 +293,12 @@ impl Position {
             },
             Color::Black => self.to_move = Color::White,
         }
+        self.toggle_zobrist(&Color::White);
+
+        let pawn_pce = Piece(PieceKind::Pawn, self.to_move);
+        let enemy_pawn_pce = Piece(PieceKind::Pawn, !self.to_move);
+        let rook_pce = Piece(PieceKind::Rook, self.to_move);
+        let king_pce = Piece(PieceKind::King, self.to_move);
 
         match unmake.mv {
             Move::Regular(from, to) => {
@@ -268,14 +306,13 @@ impl Position {
                 let pce = self.pieces.get(to)
                     .unwrap_or_else(|| unreachable_unchecked());
 
-                self.pieces.set_sq(from, pce);
-                self.pieces.unset_sq(to);
+                self.set_sq(from, pce);
+                self.unset_sq(to, pce);
                 if let Some(cap_pce) = unmake.capture {
-                    self.pieces.set_sq(to, cap_pce);
+                    self.set_sq(to, cap_pce);
                 }
 
-                self.castling = unmake.castling;
-
+                self.set_castling(unmake.castling);
             },
             Move::Castling(from, to) => {
                 let side = match to {
@@ -286,21 +323,21 @@ impl Position {
                 let rook_sq = get_rook_sq(self.to_move, side);
                 let castling_rook_sq = get_castling_rook_sq(self.to_move, side);
 
-                self.pieces.set_sq(from, Piece(PieceKind::King, self.to_move));
-                self.pieces.set_sq(rook_sq, Piece(PieceKind::Rook, self.to_move));
-                self.pieces.unset_sq(to);
-                self.pieces.unset_sq(castling_rook_sq);
+                self.set_sq(from, king_pce);
+                self.set_sq(rook_sq, rook_pce);
+                self.unset_sq(to, king_pce);
+                self.unset_sq(castling_rook_sq, rook_pce);
 
-                self.castling = unmake.castling;
+                self.set_castling(unmake.castling);
             },
             Move::Promotion(from, to, _) => {
-                self.pieces.set_sq(from, Piece(PieceKind::Pawn, self.to_move));
-                self.pieces.unset_sq(to);
+                self.set_sq(from, pawn_pce);
+                self.unset_sq(to, pawn_pce);
                 if let Some(pce) = unmake.capture {
-                    self.pieces.set_sq(to, pce);
+                    self.set_sq(to, pce);
                 }
 
-                self.castling = unmake.castling;
+                self.set_castling(unmake.castling);
             },
             Move::EnPassant(from, to) => {
                 let down = match self.to_move {
@@ -309,11 +346,37 @@ impl Position {
                 };
                 let ep_pawn_sq = to.shift(down);
 
-                self.pieces.set_sq(from, Piece(PieceKind::Pawn, self.to_move));
-                self.pieces.unset_sq(to);
-                self.pieces.set_sq(ep_pawn_sq, Piece(PieceKind::Pawn, !self.to_move));
+                self.set_sq(from, pawn_pce);
+                self.unset_sq(to, pawn_pce);
+                self.set_sq(ep_pawn_sq, enemy_pawn_pce);
             }
         }
+    }
+
+    fn set_sq(&mut self, sq: Square, pce: Piece) {
+        self.pieces.set_sq(sq, pce);
+        self.toggle_zobrist(&(pce, sq));
+    }
+
+    fn unset_sq(&mut self, sq: Square, pce: Piece) {
+        self.pieces.unset_sq(sq);
+        self.toggle_zobrist(&(pce, sq));
+    }
+
+    fn set_castling(&mut self, castling: CastlingRights) {
+        self.toggle_zobrist(&self.castling.clone());
+        self.castling = castling;
+        self.toggle_zobrist(&self.castling.clone());
+    }
+
+    fn remove_castling_rights(&mut self, color: Color, rights: usize) {
+        self.toggle_zobrist(&self.castling.clone());
+        self.castling.remove(color, rights);
+        self.toggle_zobrist(&self.castling.clone());
+    }
+
+    fn toggle_zobrist(&mut self, key: &impl ZobristKey) {
+        self.zobrist ^= key.key(self.tables);
     }
 
     pub fn last_move(&self) -> Option<Move> {

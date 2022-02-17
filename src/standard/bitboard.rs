@@ -177,9 +177,9 @@ impl SubAssign for Bitboard {
     }
 }
 
-impl Into<u64> for Bitboard {
-    fn into(self) -> u64 {
-        self.0
+impl From<Bitboard> for u64 {
+    fn from(bb: Bitboard) -> Self {
+        bb.0
     }
 }
 

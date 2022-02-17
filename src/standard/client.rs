@@ -12,7 +12,7 @@ const NOT_INIT: &str = "Client not initialized";
 
 pub struct Client<MG, E>
 {
-    position: Position,
+    position: Option<Position>,
     move_gen: Option<MG>,
     eval: Option<E>,
 }
@@ -23,7 +23,7 @@ impl<MG, E> Client<MG, E> where
 {
     pub fn new() -> Self {
         Self {
-            position: Position::new(),
+            position: None,
             move_gen: None,
             eval: None,
         }
@@ -39,6 +39,7 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
     E: Eval<Position>
 {
     fn init(&mut self) {
+        self.position = Some(Position::new());
         self.move_gen = Some(MoveGen::create());
         self.eval = Some(Eval::create());
     }
@@ -48,19 +49,20 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
     }
 
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError> {
-        self.position = Position::from_fen(fen)?;
+        *self.position.as_mut().expect(NOT_INIT) = Position::from_fen(fen)?;
         Ok(())
     }
 
     fn get_moves(&self) -> MoveList {
         self.move_gen.as_ref().expect(NOT_INIT)
-            .gen_all_moves(&self.position)
+            .gen_all_moves(self.position.as_ref().expect(NOT_INIT))
     }
 
     fn make_move(&mut self, mv: Move) -> Result<(), String> {
         if self.move_legal(mv) {
             unsafe {
-                self.position.make_move(mv);
+                self.position.as_mut().expect(NOT_INIT)
+                    .make_move(mv);
             }
             Ok(())
         } else {
@@ -69,9 +71,10 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
     }
 
     fn unmake_move(&mut self) -> Result<(), String> {
-        if self.position.last_move().is_some() {
+        let position = self.position.as_mut().expect(NOT_INIT);
+        if position.last_move().is_some() {
             unsafe {
-                self.position.unmake_move();
+                position.unmake_move();
             }
             Ok(())
         } else {
@@ -104,7 +107,8 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
             count
         }
 
-        inner(&mut self.position.clone(), move_gen, depth)
+        let mut position = self.position.clone().expect(NOT_INIT);
+        inner(&mut position, move_gen, depth)
     }
 }
 
@@ -117,7 +121,7 @@ impl<'client, MG, E> Searchable<'client> for &'client Client<MG, E> where
     fn search(&self) -> Self::Search {
         let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
         let eval = self.eval.as_ref().unwrap();
-        let position = self.position.clone();
+        let position = self.position.clone().expect(NOT_INIT);
 
         Search::new(position, move_gen, eval)
     }

@@ -1,6 +1,9 @@
 use std::convert::TryFrom;
 use std::iter::repeat;
 
+use bytemuck::bytes_of_mut;
+use rand::{SeedableRng, RngCore};
+use rand_chacha::ChaCha8Rng;
 use take_until::TakeUntilExt;
 use bitintr::Pdep;
 
@@ -29,7 +32,12 @@ pub struct Tables {
     pub rook_offsets: SquareMap<usize>,
     pub line_through: SquareMap<SquareMap<Bitboard>>, // The entire line between two squares, empty bb if not on line
     pub ray_to: SquareMap<SquareMap<Bitboard>>, // All the squares between two squares, includes the
-    // destination square, empty bb if not on a line
+                                                // destination square, empty bb if not on a line
+
+    pub zobrist_randoms_pieces: [u64; 12*64],
+    pub zobrist_randoms_to_move: u64,
+    pub zobrist_randoms_castling: [u64; 16],
+    pub zobrist_randoms_en_passant: [u64; 8],
 }
 
 impl Tables {
@@ -59,9 +67,14 @@ impl Tables {
             rook_offsets: SquareMap::new([0; 64]),
             line_through,
             ray_to,
+            zobrist_randoms_pieces: [0; 12*64],
+            zobrist_randoms_to_move: 0,
+            zobrist_randoms_castling: [0; 16],
+            zobrist_randoms_en_passant: [0; 8],
         };
 
         tables.init_slider_attacks();
+        tables.init_zobrist_randoms();
         tables
     }
 
@@ -305,6 +318,16 @@ impl Tables {
         }
 
         table
+    }
+
+    fn init_zobrist_randoms(&mut self) {
+        // TODO: Test different seeds
+        let mut rng = ChaCha8Rng::from_seed([23; 32]);
+
+        rng.fill_bytes(bytes_of_mut(&mut self.zobrist_randoms_pieces));
+        self.zobrist_randoms_to_move = rng.next_u64();
+        rng.fill_bytes(bytes_of_mut(&mut self.zobrist_randoms_castling));
+        rng.fill_bytes(bytes_of_mut(&mut self.zobrist_randoms_en_passant));
     }
 }
 
