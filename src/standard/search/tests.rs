@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicBool;
 
 use move_gen::MoveGen;
 
-use crate::{standard::{Position, eval::MaterialEval, move_gen, tables::Tables, search::Search}, framework::{search::Search as SearchT, value::Value}};
+use crate::{standard::{Position, eval::MaterialEval, move_gen, tables::Tables, search::Search}, framework::{search::Search as SearchT, value::Value, moves::Move, square::Square}};
 
 #[test]
 fn queen_standoff_should_give_advantage_to_player_to_move() {
@@ -44,4 +44,61 @@ fn finds_mate_in_two() {
         .start(&AtomicBool::new(false));
 
     assert_eq!(value, Value::Inf(2));
+}
+
+#[test]
+fn finds_threefold_repetition() {
+    let eval = MaterialEval;
+    let move_gen = MoveGen::new(Tables::get());
+
+    let mut position = Position::from_fen("6kq/6p1/6Q1/8/8/8/1q6/6K1 w - - 0 1").unwrap();
+    unsafe {
+        use Square::*;
+        position.make_move(Move::Regular(G6, E8));
+        position.make_move(Move::Regular(G8, H7));
+        position.make_move(Move::Regular(E8, H5));
+        position.make_move(Move::Regular(H7, G8));
+        position.make_move(Move::Regular(H5, E8));
+        position.make_move(Move::Regular(G8, H7));
+    }
+    let mut value = Value::CentiPawn(-100);
+
+    Search::new(position, &move_gen, &eval)
+        .depth(4)
+        .on_info(|sr| value = sr.value())
+        .start(&AtomicBool::new(false));
+
+    assert_eq!(value, Value::CentiPawn(0));
+}
+
+#[test]
+fn finds_fifty_move_draw() {
+    let eval = MaterialEval;
+    let move_gen = MoveGen::new(Tables::get());
+    
+    let position = Position::from_fen("6kq/8/8/8/5K2/8/8/8 b - - 98 4").unwrap();
+    let mut value = Value::CentiPawn(-100);
+
+    Search::new(position, &move_gen, &eval)
+        .depth(2)
+        .on_info(|sr| value = sr.value())
+        .start(&AtomicBool::new(false));
+
+    assert_eq!(value, Value::CentiPawn(0));
+}
+
+#[test]
+fn no_fifty_move_draw_on_checkmate() {
+    let eval = MaterialEval;
+    let move_gen = MoveGen::new(Tables::get());
+
+    let position = Position::from_fen("7q/5kp1/8/8/8/8/1q6/6K1 w - - 98 2").unwrap();
+    let mut value = Value::CentiPawn(0);
+
+    Search::new(position, &move_gen, &eval)
+        .depth(4)
+        .on_info(|sr| value = sr.value())
+        .start(&AtomicBool::new(false));
+
+    assert_eq!(value, Value::NegInf(1));
 }

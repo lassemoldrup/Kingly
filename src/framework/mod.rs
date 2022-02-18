@@ -48,6 +48,9 @@ pub trait Position {
     fn to_move(&self) -> Color;
     fn castling(&self) -> &CastlingRights;
     fn en_passant_sq(&self) -> Option<Square>;
+    /// Whether the position is a draw by threefold repetition or fifty-move rule,
+    /// i.e. not by stalemate
+    fn is_draw(&self) -> bool;
 }
 
 pub trait MoveGen<P: Position> {

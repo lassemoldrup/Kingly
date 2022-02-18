@@ -42,8 +42,6 @@ impl<C, I, O> Uci<C, I, O>  where
     O: Output + Send + 'static
 {
     pub fn new(client: C, input: I, output: O) -> Self {
-        let client = client;
-
         Self {
             client: Box::leak(Box::new(Mutex::new(client))),
             stop_search: Box::leak(Box::new(AtomicBool::new(true))),

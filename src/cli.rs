@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
 use crusty::framework::{Client, Searchable};
-use crusty::framework::fen::STARTING_FEN;
 use crusty::framework::io::{Input, Output};
 use crusty::framework::moves::Move;
 
@@ -36,7 +35,6 @@ impl<C, I, O> Cli<C, I, O> where
 
         loop {
             if self.uci {
-                self.client.set_position(STARTING_FEN).unwrap();
                 let uci = Uci::new(self.client, self.input, self.output);
                 return uci.start();
             }

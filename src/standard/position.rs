@@ -2,6 +2,8 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Formatter};
 use std::hint::unreachable_unchecked;
 
+use intmap::IntMap;
+
 use crate::framework::{PieceMap, Side};
 use crate::framework::castling::CastlingRights;
 use crate::framework::color::Color;
@@ -27,6 +29,7 @@ pub struct Position {
     ply_clock: u8,
     move_number: u32,
     history: Vec<Unmake>,
+    repetitions: IntMap<u8>,
     zobrist: u64,
     tables: &'static Tables,
 }
@@ -119,6 +122,10 @@ impl Position {
         zobrist ^= castling.key(tables);
         zobrist ^= en_passant_sq.key(tables);
 
+        // Repetition table
+        let mut repetitions = IntMap::new();
+        repetitions.insert(zobrist, 1);
+
         Ok(Position {
             pieces,
             to_move,
@@ -127,6 +134,7 @@ impl Position {
             ply_clock,
             move_number,
             history: Vec::new(),
+            repetitions,
             zobrist,
             tables,
         })
@@ -257,6 +265,11 @@ impl Position {
         }
         self.toggle_zobrist(&Color::White);
 
+        match self.repetitions.get_mut(self.zobrist) {
+            Some(count) => *count += 1,
+            None => { self.repetitions.insert(self.zobrist, 1); },
+        }
+
         self.history.push(unmake);
     }
 
@@ -278,6 +291,19 @@ impl Position {
         debug_assert!(!self.history.is_empty());
         let unmake = self.history.pop()
             .unwrap_or_else(|| unreachable_unchecked());
+        
+        match self.repetitions.get_mut(self.zobrist) {
+            Some(count) => {
+                *count -= 1;
+                if *count == 0 {
+                    self.repetitions.remove(self.zobrist);
+                }
+            },
+            None => {
+                debug_assert!(false);
+                unreachable_unchecked()
+            },
+        }
 
         self.toggle_zobrist(&self.en_passant_sq.clone());
         self.en_passant_sq = unmake.en_passant_sq;
@@ -328,9 +354,11 @@ impl Position {
 
                 self.set_castling(unmake.castling);
             },
-            Move::Promotion(from, to, _) => {
+            Move::Promotion(from, to, kind) => {
+                let promotion_pce = Piece(kind, self.to_move);
+
                 self.set_sq(from, pawn_pce);
-                self.unset_sq(to, pawn_pce);
+                self.unset_sq(to, promotion_pce);
                 if let Some(pce) = unmake.capture {
                     self.set_sq(to, pce);
                 }
@@ -401,16 +429,21 @@ impl crate::framework::Position for Position {
     fn en_passant_sq(&self) -> Option<Square> {
         self.en_passant_sq
     }
+
+    fn is_draw(&self) -> bool {
+        let threefold = match self.repetitions.get(self.zobrist) {
+            Some(&count) => count >= 3,
+            // The current position is always in the table
+            None => unsafe { unreachable_unchecked() },
+        };
+
+        threefold || self.ply_clock >= 100
+    }
 }
 
 impl PartialEq for Position {
     fn eq(&self, other: &Self) -> bool {
-        self.pieces == other.pieces
-        && self.castling == other.castling
-        && self.to_move == other.to_move
-        && self.en_passant_sq == other.en_passant_sq
-        && self.ply_clock == other.ply_clock
-        && self.move_number == other.move_number
+        self.zobrist == other.zobrist
     }
 }
 

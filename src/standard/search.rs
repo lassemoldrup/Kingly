@@ -2,11 +2,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, Duration};
 use std::mem::swap;
 
-use crate::framework::{Eval, MoveGen};
+use crate::framework::{Eval, MoveGen, Position as _};
 use crate::framework::search::SearchResult;
 use crate::framework::value::Value;
-use crate::standard::Position;
 use crate::framework::moves::{PseudoMove, Move};
+use crate::standard::Position;
 
 #[cfg(test)]
 mod tests;
@@ -42,13 +42,21 @@ impl<'client, MG, E> Search<'client, MG, E> where
 
     fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, start_depth: u32, nodes: &mut u64) -> Value {
         let (moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
+        
         if moves.len() == 0 {
             *nodes += 1;
+            // Checkmate
             return if check {
                 Value::NegInf((start_depth - depth + 1) / 2)
+            // Stalemate
             } else {
                 Value::CentiPawn(0)
-            }
+            };
+        }
+        
+        // Draw by threefold repetition or fifty-move rule
+        if self.position.is_draw() {
+            return Value::CentiPawn(0);
         }
 
         if depth == 0 {
@@ -58,6 +66,7 @@ impl<'client, MG, E> Search<'client, MG, E> where
 
         for mv in moves {
             let score;
+            // Safety: Generated moves are guaranteed to be legal
             unsafe {
                 self.position.make_move(mv);
                 score = -Self::alpha_beta(self, -beta, -alpha, depth - 1, start_depth, nodes);
