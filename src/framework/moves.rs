@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
-use std::ops::{Deref, Index};
+use std::ops::{Deref, Index, DerefMut};
 use std::slice::Iter;
 use std::str::FromStr;
 
@@ -134,11 +134,23 @@ impl AsRef<[Move]> for MoveList {
     }
 }
 
+impl AsMut<[Move]> for MoveList {
+    fn as_mut(&mut self) -> &mut [Move] {
+        self.0.as_mut()
+    }
+}
+
 impl Deref for MoveList {
     type Target = [Move];
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
+    }
+}
+
+impl DerefMut for MoveList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
     }
 }
 

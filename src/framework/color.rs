@@ -1,7 +1,9 @@
 use std::mem::transmute;
 use std::ops::Not;
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+use strum_macros::Display;
+
+#[derive(PartialEq, Debug, Display, Copy, Clone)]
 #[repr(i8)]
 pub enum Color {
     White = 1,

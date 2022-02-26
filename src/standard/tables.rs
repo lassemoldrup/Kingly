@@ -3,7 +3,7 @@ use std::iter::repeat;
 
 use bytemuck::bytes_of_mut;
 use rand::{SeedableRng, RngCore};
-use rand_chacha::ChaCha8Rng;
+use rand_chacha::ChaCha20Rng;
 use take_until::TakeUntilExt;
 use bitintr::Pdep;
 
@@ -322,7 +322,7 @@ impl Tables {
 
     fn init_zobrist_randoms(&mut self) {
         // TODO: Test different seeds
-        let mut rng = ChaCha8Rng::from_seed([23; 32]);
+        let mut rng = ChaCha20Rng::from_seed([25; 32]);
 
         rng.fill_bytes(bytes_of_mut(&mut self.zobrist_randoms_pieces));
         self.zobrist_randoms_to_move = rng.next_u64();

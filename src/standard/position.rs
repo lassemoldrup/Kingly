@@ -1,5 +1,5 @@
 use std::convert::TryFrom;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, Display};
 use std::hint::unreachable_unchecked;
 
 use intmap::IntMap;
@@ -27,10 +27,10 @@ pub struct Position {
     castling: CastlingRights,
     en_passant_sq: Option<Square>,
     ply_clock: u8,
-    move_number: u32,
+    pub move_number: u32,
     history: Vec<Unmake>,
     repetitions: IntMap<u8>,
-    zobrist: u64,
+    pub zobrist: u64,
     tables: &'static Tables,
 }
 
@@ -448,9 +448,25 @@ impl PartialEq for Position {
 }
 
 impl Debug for Position {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "{:?}\nto_move: {:?}\ncastling: {:?}\nen_passant_sq: {:?}\nply_clock: {:?}\nmove_number: {:?}",
                self.pieces, self.to_move, self.castling, self.en_passant_sq, self.ply_clock, self.move_number)
+    }
+}
+
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        for r in (0..8).rev() {
+            for c in 0..8 {
+                let sq = Square::try_from(r * 8 + c).unwrap();
+                match self.pieces.get(sq) {
+                    Some(pce) => write!(f, "{} ", pce)?,
+                    None => write!(f, ". ")?,
+                }
+            }
+            writeln!(f)?;
+        }
+        writeln!(f, "To move: {}", self.to_move)
     }
 }
 
