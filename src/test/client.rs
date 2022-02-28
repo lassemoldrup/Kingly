@@ -1,4 +1,4 @@
-use crate::framework::{Client, Searchable};
+use crate::framework::{Client, Searchable, NotSupportedError};
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::search::SearchResult;
@@ -58,12 +58,16 @@ impl Client for ClientStub {
     fn perft(&self, _depth: u32) -> u64 {
         todo!()
     }
+
+    fn set_hash_size(&mut self, _: usize) -> Result<(), NotSupportedError> {
+        Err(NotSupportedError)
+    }
 }
 
-impl<'f> Searchable<'f> for &'f ClientStub {
+impl<'f> Searchable<'f> for &'f mut ClientStub {
     type Search = SearchStub<'f>;
 
-    fn search(&self) -> Self::Search {
+    fn search(&'f mut self) -> Self::Search {
         SearchStub::new(self.search_result.clone())
     }
 }

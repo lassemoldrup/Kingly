@@ -33,6 +33,10 @@ impl<O: Output> Writer<O> {
         writeln!(self.output, "id author Lasse Møldrup")
     }
 
+    pub fn options(&mut self) -> io::Result<()> {
+        writeln!(self.output, "option name Hash type spin default 16 min 1 max 1048576")
+    }
+
     pub fn uci_ok(&mut self) -> io::Result<()> {
         writeln!(self.output, "uciok")
     }

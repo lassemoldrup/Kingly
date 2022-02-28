@@ -1,9 +1,10 @@
+use crate::framework::Position as _;
 use crate::framework::piece::{Piece, PieceKind};
-use crate::framework::Position;
 use crate::framework::value::Value;
-use crate::standard::piece_map::BitboardPieceMap;
 use crate::standard::tables::Tables;
 use crate::standard::MoveGen;
+
+use super::Position;
 
 #[cfg(test)]
 mod tests;
@@ -22,39 +23,37 @@ impl Eval {
     }
 }
 
-impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::Eval<P> for Eval {
+impl crate::framework::Eval<Position> for Eval {
     fn create() -> Self {
         Self::new(Tables::get())
     }
 
-    fn eval(&self, position: &P) -> Value {
+    fn eval(&self, position: &Position) -> Value {
         let material = get_material_score(position);
 
         let mobility = self.move_gen.get_mobility(position, position.to_move()) as i32
             - self.move_gen.get_mobility(position, !position.to_move()) as i32;
 
-        Value::CentiPawn(material + 2 * mobility)
+        Value::CentiPawn(material + 2 * mobility + 7)
     }
 }
 
 /// Only evaluates based on material
 pub struct MaterialEval;
 
-impl<P: Position<PieceMap = BitboardPieceMap>> crate::framework::Eval<P> for MaterialEval {
+impl crate::framework::Eval<Position> for MaterialEval {
     fn create() -> Self {
         Self
     }
 
-    fn eval(&self, position: &P) -> Value {
+    fn eval(&self, position: &Position) -> Value {
         let material = get_material_score(position);
 
         Value::CentiPawn(material)
     }
 }
 
-fn get_material_score<P>(position: &P) -> i32 where
-    P: Position<PieceMap = BitboardPieceMap>
-{
+fn get_material_score(position: &Position) -> i32 {
     use PieceKind::*;
 
     let piece_values = [100, 300, 300, 500, 900];
@@ -64,9 +63,7 @@ fn get_material_score<P>(position: &P) -> i32 where
         .sum()
 }
 
-fn piece_diff<P>(position: &P, kind: PieceKind) -> i32 where
-    P: Position<PieceMap = BitboardPieceMap>
-{
+fn piece_diff(position: &Position, kind: PieceKind) -> i32 {
     let pieces = position.pieces();
     let to_move = position.to_move();
 

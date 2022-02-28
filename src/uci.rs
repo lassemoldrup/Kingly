@@ -2,7 +2,7 @@ use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::mem::swap;
-use std::ops::Deref;
+use std::ops::DerefMut;
 use std::process::exit;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,7 +37,7 @@ pub struct Uci<C: 'static, I, O: 'static> {
 
 impl<C, I, O> Uci<C, I, O>  where
     C: Client + Send + 'static,
-    for<'a> &'a C: Searchable<'a>,
+    for<'a> &'a mut C: Searchable<'a>,
     I: Input,
     O: Output + Send + 'static
 {
@@ -56,6 +56,7 @@ impl<C, I, O> Uci<C, I, O>  where
         let mut writer = self.writer.lock().unwrap();
 
         writer.id()?;
+        writer.options()?;
         writer.uci_ok()?;
         // Unlock the writer mutex
         drop(writer);
@@ -87,8 +88,12 @@ impl<C, I, O> Uci<C, I, O>  where
             Command::IsReady => self.writer.lock().unwrap()
                 .ready_ok()?,
 
-            Command::SetOption(option) =>
-                self.debug(format!("Unsupported option {}", option))?,
+            Command::SetOption(option) => self.client.try_lock()
+                .map_err(|_| "Attempt to set option while searching".to_string())
+                .and_then(|mut client| match option {
+                    UciOption::Hash(hash_size) => client.set_hash_size(hash_size),
+                }.map_err(|_| format!("Unsupported option '{}'", option)))
+                .or_else(|err| self.debug(err))?,
 
             Command::Register { .. } | Command::RegisterLater =>
                 self.debug("Registration not supported")?,
@@ -120,10 +125,12 @@ impl<C, I, O> Uci<C, I, O>  where
                 let client = self.client;
                 let writer = self.writer;
                 self.search_thread = Some(thread::spawn(move || {
-                    let client = client.lock().unwrap();
+                    let mut client = client.lock().unwrap();
+                    // TODO: Is this really necessary?
+                    let mut client_ref = client.deref_mut();
 
                     let start = Instant::now();
-                    let mut search = client.deref().search();
+                    let mut search = client_ref.search();
 
                     for option in options {
                         search = match option {
@@ -139,7 +146,7 @@ impl<C, I, O> Uci<C, I, O>  where
                     let mut best_move = None;
 
                     search.on_info(|info| {
-                        best_move = Some(info.line()[0]);
+                        best_move = Some(info.line[0]);
 
                         let mut info = search_result_to_info(info);
                         let elapsed = start.elapsed().as_millis() as u64;
@@ -168,6 +175,8 @@ impl<C, I, O> Uci<C, I, O>  where
             Command::PonderHit => self.debug("Pondering not supported")?,
 
             Command::Quit => exit(0),
+
+            Command::Empty => (),
         }
         Ok(())
     }
@@ -187,12 +196,14 @@ impl<C, I, O> Uci<C, I, O>  where
 fn search_result_to_info(result: &SearchResult) -> Vec<SearchInfo> {
     let mut info = Vec::with_capacity(6);
 
-    info.push(SearchInfo::Depth(result.depth()));
-    info.push(SearchInfo::Score(result.value()));
-    info.push(SearchInfo::Nodes(result.nodes_searched()));
-    let nps = result.nodes_searched() as u128 * 1_000_000_000 / result.duration().as_nanos();
+    info.push(SearchInfo::Depth(result.depth));
+    info.push(SearchInfo::SelDepth(result.sel_depth));
+    info.push(SearchInfo::Score(result.value));
+    info.push(SearchInfo::Nodes(result.nodes_searched));
+    let nps = result.nodes_searched as u128 * 1_000_000_000 / result.duration.as_nanos();
     info.push(SearchInfo::Nps(nps as u64));
-    info.push(SearchInfo::Pv(result.line().to_vec()));
+    info.push(SearchInfo::HashFull(result.hash_full));
+    info.push(SearchInfo::Pv(result.line.to_vec()));
 
     info
 }
@@ -224,12 +235,13 @@ enum Command {
     Stop,
     PonderHit,
     Quit,
+    Empty,
 }
 
 
 #[derive(Display, Debug)]
 enum UciOption {
-    None,
+    Hash(usize),
 }
 
 #[derive(PartialEq, Debug)]

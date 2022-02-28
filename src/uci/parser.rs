@@ -29,6 +29,10 @@ impl<I: Input> Parser<I> {
             .split_ascii_whitespace()
             .collect();
 
+        if cmds.is_empty() {
+            return Ok(Command::Empty);
+        }
+
         match cmds[0] {
             "debug" => get_arg(&cmds, 1)
                 .and_then(|arg| match arg {
@@ -44,10 +48,11 @@ impl<I: Input> Parser<I> {
                     "name" => cmds[2..].split(|&c| c == "value")
                         .map(|x| x.join(" "))
                         .collect_tuple::<(_, _)>()
-                        .map(|(_, _)| Ok(Command::SetOption(UciOption::None)))
-                        .unwrap_or(Ok(Command::SetOption(UciOption::None))),
+                        .map(parse_uci_option)
+                        .unwrap_or(Err("Invalid argument".into())),
                     _ => Err(format!("Invalid argument '{}'", arg)),
-                }),
+                })
+                .map(|opt| Command::SetOption(opt)),
 
             "register" => get_arg(&cmds, 1)
                 .and_then(|arg| match arg {
@@ -112,6 +117,15 @@ fn get_arg<'a>(cmds: &[&'a str], idx: usize) -> Result<&'a str, String> {
     cmds.get(idx)
         .ok_or_else(|| "Missing argument".to_string())
         .map(|&arg| arg)
+}
+
+fn parse_uci_option((name, value): (String, String)) -> Result<UciOption, String> {
+    match name.as_str() {
+        "Hash" => value.parse()
+            .map(|v| UciOption::Hash(v))
+            .map_err(|_| format!("Illegal value '{}'", value)),
+        _ => Err(format!("Unrecognized option '{}'", name)),
+    }
 }
 
 fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b str]), String> {

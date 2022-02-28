@@ -16,41 +16,27 @@ pub trait Search<'f> {
 
 #[derive(Clone)]
 pub struct SearchResult {
-    value: Value,
-    line: Vec<Move>,
-    depth: u32,
-    nodes_searched: u64,
-    duration: Duration,
+    pub value: Value,
+    pub line: Vec<Move>,
+    pub depth: u32,
+    pub sel_depth: u32,
+    pub nodes_searched: u64,
+    pub duration: Duration,
+    pub hash_full: u32,
 }
 
 impl SearchResult {
-    pub fn new(value: Value, line: Vec<Move>, depth: u32, nodes_searched: u64, duration: Duration) -> Self {
+    pub fn new(value: Value, line: Vec<Move>, depth: u32, sel_depth: u32,
+        nodes_searched: u64, duration: Duration, hash_full: u32) -> Self
+    {
         Self {
             value,
             line,
             depth,
+            sel_depth,
             nodes_searched,
             duration,
+            hash_full
         }
-    }
-
-    pub fn value(&self) -> Value {
-        self.value
-    }
-
-    pub fn line(&self) -> &[Move] {
-        &self.line
-    }
-
-    pub fn depth(&self) -> u32 {
-        self.depth
-    }
-
-    pub fn nodes_searched(&self) -> u64 {
-        self.nodes_searched
-    }
-
-    pub fn duration(&self) -> Duration {
-        self.duration
     }
 }

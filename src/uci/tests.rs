@@ -12,10 +12,12 @@ use crate::uci::{Command, GoOption, Uci};
 
 fn get_uci<I: Input, O: Output + Send + 'static>(inp: I, out: O) -> Uci<ClientStub, I, O> {
     let search_result = SearchResult::new(Value::CentiPawn(10),
-                                          vec![Move::Regular(Square::A1, Square::A2)],
-                                          1,
-                                          100,
-                                          Duration::from_millis(1000));
+                                        vec![Move::Regular(Square::A1, Square::A2)],
+                                        1,
+                                        2,
+                                        100,
+                                        Duration::from_millis(1000),
+                                        0);
     let client = ClientStub::new(search_result);
     Uci::new(client, inp, out)
 }
@@ -73,5 +75,5 @@ fn go_infinite_cmd_correctly_starts_search() {
 
     uci.execute(Command::Go(vec![GoOption::Infinite])).unwrap();
     uci.wait_for_search();
-    assert!(uci.get_output().starts_with("info depth 1 score cp 10 nodes 100 nps 100 pv a1a2"));
+    assert!(uci.get_output().starts_with("info depth 1 seldepth 2 score cp 10 nodes 100 nps 100 hashfull 0 pv a1a2"));
 }

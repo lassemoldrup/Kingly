@@ -23,6 +23,7 @@ pub mod search;
 pub mod util;
 pub mod io;
 
+pub struct NotSupportedError;
 pub trait Client {
     fn init(&mut self);
     fn is_init(&self) -> bool;
@@ -31,11 +32,12 @@ pub trait Client {
     fn make_move(&mut self, mv: Move) -> Result<(), String>;
     fn unmake_move(&mut self) -> Result<(), String>;
     fn perft(&self, depth: u32) -> u64;
+    fn set_hash_size(&mut self, hash_size: usize) -> Result<(), NotSupportedError>;
 }
 
 pub trait Searchable<'f> {
     type Search: Search<'f>;
-    fn search(&self) -> Self::Search;
+    fn search(&'f mut self) -> Self::Search;
 }
 
 pub trait PieceMap {
@@ -57,6 +59,7 @@ pub trait MoveGen<P: Position> {
     fn create() -> Self;
     fn gen_all_moves(&self, position: &P) -> MoveList;
     fn gen_all_moves_and_check(&self, position: &P) -> (MoveList, bool);
+    fn gen_captures(&self, position: &P) -> MoveList;
 }
 
 pub trait Eval<P: Position> {

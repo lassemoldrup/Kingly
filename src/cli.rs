@@ -17,7 +17,7 @@ pub struct Cli<C, I, O> {
 
 impl<C, I, O> Cli<C, I, O> where
     C: Client + Send + Debug + 'static,
-    for<'a> &'a C: Searchable<'a>,
+    for<'a> &'a mut C: Searchable<'a>,
     I: Input,
     O: Output + Send + 'static
 {

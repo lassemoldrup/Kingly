@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 use crate::{standard::Position, framework::{value::Value, moves::Move}};
 
 /// Fixed size hash table for positions. Some implementation details borrowed from the IntMap crate
@@ -5,13 +7,15 @@ pub struct TranspositionTable {
     data: Vec<Option<(u64, Entry)>>,
     mod_mask: usize,
     count: usize,
+    capacity: usize,
 }
 
 impl TranspositionTable {
     const PROBE_DEPTH: usize = 2;
 
     pub fn new() -> Self {
-        Self::with_capacity(1 << 22)
+        let capacity = 16 * (1 << 20) / size_of::<Entry>();
+        Self::with_capacity(capacity)
     }
 
     /// Creates a table with a given `capacity` rounded up to the nearest power of two
@@ -26,6 +30,7 @@ impl TranspositionTable {
             data,
             mod_mask,
             count,
+            capacity,
         }
     }
 
@@ -98,8 +103,17 @@ impl TranspositionTable {
             .map(move |i| (index + i) & mod_mask)
     }
 
+    pub fn clear(&mut self) {
+        self.data.fill(None);
+        self.count = 0;
+    }
+
     pub fn len(&self) -> usize {
         self.count
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 }
 

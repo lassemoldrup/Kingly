@@ -13,7 +13,7 @@ use self::transposition_table::{TranspositionTable, Bound, Entry};
 
 #[cfg(test)]
 mod tests;
-mod transposition_table;
+pub mod transposition_table;
 
 pub struct Search<'client, MG, E> {
     search_moves: Option<Vec<Move>>,
@@ -24,16 +24,16 @@ pub struct Search<'client, MG, E> {
     position: Position,
     move_gen: &'client MG,
     eval: &'client E,
-    transposition_table: TranspositionTable,
+    trans_table: &'client mut TranspositionTable,
 }
 
 impl<'client, MG, E> Search<'client, MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
-    pub fn new(position: Position, move_gen: &'client MG, eval: &'client E) -> Self {
+    pub fn new(position: Position, move_gen: &'client MG, eval: &'client E, trans_table: &'client mut TranspositionTable) -> Self
+    {
         let callbacks = vec![];
-        let transposition_table = TranspositionTable::new();
         Self {
             search_moves: None,
             search_depth: None,
@@ -43,11 +43,11 @@ impl<'client, MG, E> Search<'client, MG, E> where
             position,
             move_gen,
             eval,
-            transposition_table,
+            trans_table,
         }
     }
 
-    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, start_depth: u32, nodes: &mut u64) -> Value {
+    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, start_depth: u32, nodes: &mut u64, sel_depth: &mut u32) -> Value {
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
         
         if moves.len() == 0 {
@@ -66,9 +66,10 @@ impl<'client, MG, E> Search<'client, MG, E> where
             return Value::CentiPawn(0);
         }
 
-        let mut best_move = moves[0];
+        // TODO: Do this better
+        let mut table_move = None;
 
-        if let Some(entry) = self.transposition_table.get(&self.position) {
+        if let Some(entry) = self.trans_table.get(&self.position) {
             if entry.depth >= depth {
                 match entry.bound {
                     Bound::Exact => return entry.score,
@@ -80,27 +81,32 @@ impl<'client, MG, E> Search<'client, MG, E> where
                     },
                 }
             }
-            best_move = entry.best_move;
+            table_move = Some(entry.best_move);
         }
+
+        let mut best_move = match table_move {
+            Some(mv) => mv,
+            None => moves[0],
+        };
 
         if depth == 0 {
-            *nodes += 1;
-            return self.eval.eval(&self.position);
+            return self.quiesce(alpha, beta, start_depth, nodes, sel_depth);
         }
 
-        self.reorder_moves(&mut moves, best_move);
+        self.reorder_moves(&mut moves, table_move);
         for mv in moves {
             let score;
             // Safety: Generated moves are guaranteed to be legal
             unsafe {
                 self.position.make_move(mv);
-                score = -self.alpha_beta(-beta, -alpha, depth - 1, start_depth, nodes);
+                *nodes += 1;
+                score = -self.alpha_beta(-beta, -alpha, depth - 1, start_depth, nodes, sel_depth);
                 self.position.unmake_move();
             }
 
             if score >= beta {
                 let entry = Entry::new(beta, best_move, Bound::Upper, depth);
-                self.transposition_table.insert(&self.position, entry);
+                self.trans_table.insert(&self.position, entry);
                 return beta;
             }
 
@@ -108,18 +114,18 @@ impl<'client, MG, E> Search<'client, MG, E> where
                 alpha = score;
                 best_move = mv;
                 let entry = Entry::new(alpha, best_move, Bound::Lower, depth);
-                self.transposition_table.insert(&self.position, entry);
+                self.trans_table.insert(&self.position, entry);
             }
         }
 
         let entry = Entry::new(alpha, best_move, Bound::Exact, depth);
-        self.transposition_table.insert(&self.position, entry);
+        self.trans_table.insert(&self.position, entry);
         alpha
     }
 
-    fn reorder_moves(&mut self, moves: &mut [Move], best_move: Move) {
+    fn reorder_moves(&mut self, moves: &mut [Move], best_move: Option<Move>) {
         let move_score = |mv: &Move| match mv {
-            _ if *mv == best_move => 0,
+            _ if Some(*mv) == best_move => 0,
             Move::Regular(_, _) => 4,
             Move::Castling(_, _) => 3,
             Move::Promotion(_, _, kind) => match kind {
@@ -130,6 +136,41 @@ impl<'client, MG, E> Search<'client, MG, E> where
         };
 
         moves.sort_by_cached_key(move_score);
+    }
+
+    fn quiesce(&mut self, mut alpha: Value, beta: Value, start_depth: u32, nodes: &mut u64, sel_depth: &mut u32) -> Value {
+        *sel_depth = start_depth.max(*sel_depth);
+        
+        // We assume that we can do at least as well as the static
+        // eval of the current position, i.e. we don't consider zugzwang 
+        let static_eval = self.eval.eval(&self.position);
+        if static_eval >= beta {
+            return beta;
+        } else if static_eval > alpha {
+            alpha = static_eval;
+        }
+
+        let moves = self.move_gen.gen_captures(&self.position);
+        for mv in moves {
+            let score;
+            // Safety: Generated moves are guaranteed to be legal
+            unsafe {
+                self.position.make_move(mv);
+                *nodes += 1;
+                score = -self.quiesce(-beta, -alpha, start_depth + 1, nodes, sel_depth);
+                self.position.unmake_move();
+            }
+
+            if score >= beta {
+                return beta;
+            }
+
+            if score > alpha {
+                alpha = score;
+            }
+        }
+
+        alpha
     }
 
     fn should_stop(&self, stop_search: &AtomicBool, time_searched: Duration, nodes_searched: u64) -> bool {
@@ -188,6 +229,10 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
         let mut moves = search_moves
             .unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).into_vec());
 
+        if moves.len() == 0 {
+            return;
+        }
+
         let max_depth = self.search_depth
             .unwrap_or(u32::MAX);
 
@@ -195,14 +240,17 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
             let depth_start = Instant::now();
 
             let mut nodes = 0;
+            let mut sel_depth = depth;
             let mut max_score = Value::NegInf(0);
-            let mut best_move = moves[0];
+            let table_move = self.trans_table.get(&self.position)
+                .map(|entry| entry.best_move);
 
-            if let Some(entry) = self.transposition_table.get(&self.position) {
-                best_move = entry.best_move;
-            }
+            let mut best_move = match table_move {
+                Some(mv) => mv,
+                None => moves[0],
+            };
 
-            self.reorder_moves(&mut moves, best_move);
+            self.reorder_moves(&mut moves, table_move);
             for &mv in &moves {
                 if self.should_stop(stop_search, search_start.elapsed(), nodes) {
                     return;
@@ -211,7 +259,8 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                 let score;
                 unsafe {
                     self.position.make_move(mv);
-                    score = -self.alpha_beta(Value::NegInf(0), -max_score, depth, depth + 1, &mut nodes);
+                    nodes += 1;
+                    score = -self.alpha_beta(Value::NegInf(0), -max_score, depth, depth + 1, &mut nodes, &mut sel_depth);
                     self.position.unmake_move();
                 }
 
@@ -219,15 +268,15 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                     max_score = score;
                     best_move = mv;
                     let entry = Entry::new(max_score, best_move, Bound::Lower, depth + 1);
-                    self.transposition_table.insert(&self.position, entry);
+                    self.trans_table.insert(&self.position, entry);
                 }
             }
 
             let entry = Entry::new(max_score, best_move, Bound::Exact, depth + 1);
-            self.transposition_table.insert(&self.position, entry);
+            self.trans_table.insert(&self.position, entry);
 
             let mut primary_variation = vec![];
-            while let Some(entry) = self.transposition_table.get(&self.position) {
+            while let Some(entry) = self.trans_table.get(&self.position) {
                 primary_variation.push(entry.best_move);
                 unsafe {
                     self.position.make_move(entry.best_move);
@@ -240,13 +289,16 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
                 }
             }
 
+            let hash_full = (self.trans_table.len() * 1000) / self.trans_table.capacity();
             let duration = depth_start.elapsed();
             let search_result = SearchResult::new(
                 max_score,
                 primary_variation,
                 depth + 1,
+                sel_depth,
                 nodes,
-                duration
+                duration,
+                hash_full as u32,
             );
             self.notify_info(&search_result);
         }

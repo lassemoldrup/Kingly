@@ -1,6 +1,7 @@
 use std::fmt;
+use std::mem::size_of;
 
-use crate::framework::{Eval, MoveGen, Searchable};
+use crate::framework::{Eval, MoveGen, Searchable, NotSupportedError};
 use crate::framework::Client as ClientTrait;
 use crate::framework::fen::FenParseError;
 use crate::framework::moves::Move;
@@ -8,13 +9,15 @@ use crate::framework::moves::MoveList;
 use crate::standard::Position;
 use crate::standard::search::Search;
 
+use super::search::transposition_table::{TranspositionTable, Entry};
+
 const NOT_INIT: &str = "Client not initialized";
 
-pub struct Client<MG, E>
-{
+pub struct Client<MG, E> {
     position: Option<Position>,
     move_gen: Option<MG>,
     eval: Option<E>,
+    trans_table: TranspositionTable,
 }
 
 impl<MG, E> Client<MG, E> where
@@ -22,10 +25,12 @@ impl<MG, E> Client<MG, E> where
     E: Eval<Position>
 {
     pub fn new() -> Self {
+        let trans_table = TranspositionTable::new();
         Self {
             position: None,
             move_gen: None,
             eval: None,
+            trans_table,
         }
     }
 
@@ -110,25 +115,32 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
         let mut position = self.position.clone().expect(NOT_INIT);
         inner(&mut position, move_gen, depth)
     }
-}
 
-impl<'client, MG, E> Searchable<'client> for &'client Client<MG, E> where
+    /// Sets the hash size in MB
+    fn set_hash_size(&mut self, hash_size: usize) -> Result<(), NotSupportedError> {
+        let capacity = hash_size * (1 << 20) / size_of::<Entry>();
+        self.trans_table = TranspositionTable::with_capacity(capacity);
+        Ok(())
+    }
+}
+impl<'client, MG, E> Searchable<'client> for &'client mut Client<MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
     type Search = Search<'client, MG, E>;
 
-    fn search(&self) -> Self::Search {
+    fn search(&'client mut self) -> Self::Search {
         let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
         let eval = self.eval.as_ref().unwrap();
         let position = self.position.clone().expect(NOT_INIT);
+        self.trans_table.clear();
 
-        Search::new(position, move_gen, eval)
+        Search::new(position, move_gen, eval, &mut self.trans_table)
     }
 }
 
 impl<MG, E> fmt::Debug for Client<MG, E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(&self.position, f)
     }
 }
