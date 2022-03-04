@@ -1,53 +1,40 @@
-use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
-use std::ops::Neg;
+use std::fmt::{Display, self};
+use std::ops::{Neg, RangeInclusive};
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum Value {
-    NegInf(u32),
-    CentiPawn(i32),
-    Inf(u32),
-}
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct Value(i16);
 
-impl PartialOrd for Value {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+impl Value {
+    pub fn from_cp(cp: i16) -> Self {
+        Self(cp)
     }
-}
 
-impl Ord for Value {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Self::CentiPawn(v1), Self::CentiPawn(v2)) => v1.cmp(v2),
-            (Self::NegInf(mvs1), Self::NegInf(mvs2))
-            | (Self::Inf(mvs2), Self::Inf(mvs1)) => mvs1.cmp(mvs2),
-            (Self::CentiPawn(_), Self::Inf(_))
-            | (Self::NegInf(_), _) => Ordering::Less,
-            (Self::CentiPawn(_), Self::NegInf(_))
-            | (Self::Inf(_), _) => Ordering::Greater,
-        }
+    pub fn from_neg_inf(moves: u16) -> Self {
+        Self(i16::MIN + 1 + moves as i16)
+    }
+
+    pub fn from_inf(moves: u16) -> Self {
+        Self(i16::MAX - moves as i16)
     }
 }
 
 impl Neg for Value {
-    type Output = Value;
+    type Output = Self;
 
     fn neg(self) -> Self::Output {
-        match self {
-            Self::NegInf(moves) => Self::Inf(moves),
-            Self::CentiPawn(val) => Self::CentiPawn(-val),
-            Self::Inf(moves) => Self::NegInf(moves),
-        }
+        Self(-self.0)
     }
 }
 
+const NEG_INF: RangeInclusive<i16> = (i16::MIN + 1)..=(i16::MIN + 1 + 100);
+const INF: RangeInclusive<i16> = (i16::MAX - 100)..=i16::MAX;
+
 impl Display for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // TODO
-            Self::NegInf(moves) => write!(f, "mate -{}", moves),
-            Self::CentiPawn(val) => write!(f, "cp {}", val),
-            Self::Inf(moves) => write!(f, "mate {}", moves),
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            v if NEG_INF.contains(&v) => write!(f, "mate -{}", v - i16::MIN - 1),
+            v if INF.contains(&v) => write!(f, "mate {}", i16::MAX - v),
+            v => write!(f, "cp {}", v),
         }
     }
 }

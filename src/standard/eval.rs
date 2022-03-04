@@ -31,10 +31,10 @@ impl crate::framework::Eval<Position> for Eval {
     fn eval(&self, position: &Position) -> Value {
         let material = get_material_score(position);
 
-        let mobility = self.move_gen.get_mobility(position, position.to_move()) as i32
-            - self.move_gen.get_mobility(position, !position.to_move()) as i32;
+        let mobility = self.move_gen.get_mobility(position, position.to_move()) as i16
+            - self.move_gen.get_mobility(position, !position.to_move()) as i16;
 
-        Value::CentiPawn(material + 2 * mobility + 7)
+        Value::from_cp(material + 2 * mobility + 7)
     }
 }
 
@@ -49,11 +49,11 @@ impl crate::framework::Eval<Position> for MaterialEval {
     fn eval(&self, position: &Position) -> Value {
         let material = get_material_score(position);
 
-        Value::CentiPawn(material)
+        Value::from_cp(material)
     }
 }
 
-fn get_material_score(position: &Position) -> i32 {
+fn get_material_score(position: &Position) -> i16 {
     use PieceKind::*;
 
     let piece_values = [100, 300, 300, 500, 900];
@@ -63,10 +63,10 @@ fn get_material_score(position: &Position) -> i32 {
         .sum()
 }
 
-fn piece_diff(position: &Position, kind: PieceKind) -> i32 {
+fn piece_diff(position: &Position, kind: PieceKind) -> i16 {
     let pieces = position.pieces();
     let to_move = position.to_move();
 
-    pieces.get_bb(Piece(kind, to_move)).len() as i32
-        - pieces.get_bb(Piece(kind, !to_move)).len() as i32
+    pieces.get_bb(Piece(kind, to_move)).len() as i16
+        - pieces.get_bb(Piece(kind, !to_move)).len() as i16
 }

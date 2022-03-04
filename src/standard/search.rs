@@ -54,16 +54,16 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             *nodes += 1;
             // Checkmate
             return if check {
-                Value::NegInf((start_depth - depth + 1) / 2)
+                Value::from_neg_inf(((start_depth - depth + 1) / 2) as u16)
             // Stalemate
             } else {
-                Value::CentiPawn(0)
+                Value::from_cp(0)
             };
         }
         
         // Draw by threefold repetition or fifty-move rule
         if self.position.is_draw() {
-            return Value::CentiPawn(0);
+            return Value::from_cp(0);
         }
 
         // TODO: Do this better
@@ -241,7 +241,7 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
 
             let mut nodes = 0;
             let mut sel_depth = depth;
-            let mut max_score = Value::NegInf(0);
+            let mut max_score = Value::from_neg_inf(0);
             let table_move = self.trans_table.get(&self.position)
                 .map(|entry| entry.best_move);
 
@@ -260,7 +260,7 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
                 unsafe {
                     self.position.make_move(mv);
                     nodes += 1;
-                    score = -self.alpha_beta(Value::NegInf(0), -max_score, depth, depth + 1, &mut nodes, &mut sel_depth);
+                    score = -self.alpha_beta(Value::from_neg_inf(0), -max_score, depth, depth + 1, &mut nodes, &mut sel_depth);
                     self.position.unmake_move();
                 }
 
