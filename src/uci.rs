@@ -192,7 +192,7 @@ impl<C, I, O> Uci<C, I, O>  where
 }
 
 fn search_result_to_info(result: &SearchResult) -> Vec<SearchInfo> {
-    let mut info = Vec::with_capacity(6);
+    let mut info = Vec::with_capacity(7);
 
     info.push(SearchInfo::Depth(result.depth));
     info.push(SearchInfo::SelDepth(result.sel_depth));
@@ -214,6 +214,7 @@ impl<C, I, O: Output + Clone> Uci<C, I, O> {
 }
 
 
+#[allow(dead_code)]
 #[derive(Debug)]
 enum Command {
     Debug(bool),

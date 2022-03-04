@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use crate::{standard::Position, framework::{value::Value, moves::Move}};
+use crate::{standard::Position, framework::{value::Value, moves::Move, log::LOG}};
 
 /// Fixed size hash table for positions. Some implementation details borrowed from the IntMap crate
 pub struct TranspositionTable {
@@ -18,19 +18,25 @@ impl TranspositionTable {
         Self::with_capacity(capacity)
     }
 
-    /// Creates a table with a given `capacity` rounded up to the nearest power of two
+    /// Creates a table with a given `capacity` rounded down to the nearest power of two
     pub fn with_capacity(capacity: usize) -> Self {
-        let capacity = capacity.next_power_of_two();
+        let actual_capacity = if capacity.is_power_of_two() {
+            capacity
+        } else {
+            capacity.next_power_of_two() >> 1
+        };
 
-        let data = vec![None; capacity];
-        let mod_mask = capacity - 1;
+        LOG.append(&format!("Allocating trans. table with capacity {} (actual {})\n", capacity, actual_capacity));
+
+        let data = vec![None; actual_capacity];
+        let mod_mask = actual_capacity - 1;
         let count = 0;
 
         Self {
             data,
             mod_mask,
             count,
-            capacity,
+            capacity: actual_capacity,
         }
     }
 

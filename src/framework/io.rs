@@ -1,5 +1,7 @@
-use std::fmt::Arguments;
+use std::fmt::{Arguments, self};
 use std::io::{self, BufRead, Empty, Sink, Stdin, Stdout, Write};
+
+use super::log::LOG;
 
 pub trait Input {
     fn read_line(&mut self) -> io::Result<String>;
@@ -84,5 +86,55 @@ impl<O: Output> Output for &mut O {
 
     fn flush(&mut self) -> io::Result<()> {
         (*self).flush()
+    }
+}
+
+
+pub struct LoggingOutput<O> {
+    output: O,
+}
+
+impl<O: Output> LoggingOutput<O> {
+    pub fn new(output: O) -> Self {
+        Self {
+            output,
+        }
+    }
+}
+
+impl<O: Output> Output for LoggingOutput<O> {
+    fn write_fmt(&mut self, fmt: fmt::Arguments) -> io::Result<()> {
+        let mut line = String::from("Engine: ");
+        line.write_fmt(fmt)?;
+        LOG.append(&line);
+
+        self.output.write_fmt(fmt)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.output.flush()
+    }
+}
+
+
+pub struct LoggingInput<I> {
+    input: I,
+}
+
+impl<I: Input> LoggingInput<I> {
+    pub fn new(input: I) -> Self {
+        Self {
+            input,
+        }
+    }
+}
+
+impl<I: Input> Input for LoggingInput<I> {
+    fn read_line(&mut self) -> io::Result<String> {
+        self.input.read_line()
+            .map(|line| {
+                LOG.append(&(String::from("GUI: ") + &line));
+                line
+            })
     }
 }

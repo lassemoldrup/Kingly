@@ -22,6 +22,7 @@ pub mod value;
 pub mod search;
 pub mod util;
 pub mod io;
+pub mod log;
 
 pub struct NotSupportedError;
 pub trait Client {
