@@ -25,6 +25,8 @@ pub mod io;
 
 pub struct NotSupportedError;
 pub trait Client {
+    type Search<'client, 'f>: Search<'f> where Self: 'client;
+
     fn init(&mut self);
     fn is_init(&self) -> bool;
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError>;
@@ -32,12 +34,9 @@ pub trait Client {
     fn make_move(&mut self, mv: Move) -> Result<(), String>;
     fn unmake_move(&mut self) -> Result<(), String>;
     fn perft(&self, depth: u32) -> u64;
+    fn search<'client, 'f>(&'client mut self) -> Self::Search<'client, 'f>;
+    fn clear_trans_table(&mut self);
     fn set_hash_size(&mut self, hash_size: usize) -> Result<(), NotSupportedError>;
-}
-
-pub trait Searchable<'f> {
-    type Search: Search<'f>;
-    fn search(&'f mut self) -> Self::Search;
 }
 
 pub trait PieceMap {

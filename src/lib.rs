@@ -1,3 +1,5 @@
+#![feature(generic_associated_types)]
+
 #[macro_use]
 extern crate lazy_static;
 

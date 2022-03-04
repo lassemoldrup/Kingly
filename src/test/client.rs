@@ -1,4 +1,4 @@
-use crate::framework::{Client, Searchable, NotSupportedError};
+use crate::framework::{Client, NotSupportedError};
 use crate::framework::fen::{FenParseError, STARTING_FEN};
 use crate::framework::moves::{Move, MoveList};
 use crate::framework::search::SearchResult;
@@ -24,6 +24,8 @@ impl ClientStub {
 }
 
 impl Client for ClientStub {
+    type Search<'client, 'f> = SearchStub<'f>;
+
     fn init(&mut self) {
         self.is_init = true;
     }
@@ -59,15 +61,13 @@ impl Client for ClientStub {
         todo!()
     }
 
+    fn search<'client, 'f>(&'client mut self) -> Self::Search<'client, 'f> {
+        SearchStub::new(self.search_result.clone())
+    }
+
+    fn clear_trans_table(&mut self) { }
+
     fn set_hash_size(&mut self, _: usize) -> Result<(), NotSupportedError> {
         Err(NotSupportedError)
-    }
-}
-
-impl<'f> Searchable<'f> for &'f mut ClientStub {
-    type Search = SearchStub<'f>;
-
-    fn search(&'f mut self) -> Self::Search {
-        SearchStub::new(self.search_result.clone())
     }
 }

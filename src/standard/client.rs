@@ -1,7 +1,7 @@
 use std::fmt;
 use std::mem::size_of;
 
-use crate::framework::{Eval, MoveGen, Searchable, NotSupportedError};
+use crate::framework::{Eval, MoveGen, NotSupportedError};
 use crate::framework::Client as ClientTrait;
 use crate::framework::fen::FenParseError;
 use crate::framework::moves::Move;
@@ -43,6 +43,8 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
+    type Search<'client, 'f> where MG: 'client, E: 'client = Search<'client, 'f, MG, E>;
+
     fn init(&mut self) {
         self.position = Some(Position::new());
         self.move_gen = Some(MoveGen::create());
@@ -116,6 +118,18 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
         inner(&mut position, move_gen, depth)
     }
 
+    fn search<'client, 'f>(&'client mut self) -> Self::Search<'client, 'f> {
+        let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
+        let eval = self.eval.as_ref().unwrap();
+        let position = self.position.clone().unwrap();
+
+        Search::new(position, move_gen, eval, &mut self.trans_table)
+    }
+
+    fn clear_trans_table(&mut self) {
+        self.trans_table.clear();
+    }
+
     /// Sets the hash size in MB
     fn set_hash_size(&mut self, hash_size: usize) -> Result<(), NotSupportedError> {
         let capacity = hash_size * (1 << 20) / size_of::<Entry>();
@@ -123,21 +137,25 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
         Ok(())
     }
 }
-impl<'client, MG, E> Searchable<'client> for &'client mut Client<MG, E> where
-    MG: MoveGen<Position>,
-    E: Eval<Position>
-{
-    type Search = Search<'client, MG, E>;
 
-    fn search(&'client mut self) -> Self::Search {
-        let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
-        let eval = self.eval.as_ref().unwrap();
-        let position = self.position.clone().expect(NOT_INIT);
-        self.trans_table.clear();
+// impl<'client, MG, E> Searchable for &'client mut Client<MG, E> where
+//     MG: MoveGen<Position>,
+//     E: Eval<Position>
+// {
+//     type Search<'f> = Search<'client, 'f, MG, E>;
 
-        Search::new(position, move_gen, eval, &mut self.trans_table)
-    }
-}
+//     fn search<'f>(&mut self) -> Self::Search<'f> {
+//         let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
+//         let eval = self.eval.as_ref().unwrap();
+//         let position = self.position.clone().unwrap();
+
+//         Search::new(position, move_gen, eval, &mut self.trans_table)
+//     }
+
+//     fn clear_trans_table(&mut self) {
+//         self.trans_table.clear();
+//     }
+// }
 
 impl<MG, E> fmt::Debug for Client<MG, E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {

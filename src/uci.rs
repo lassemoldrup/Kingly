@@ -2,7 +2,6 @@ use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::mem::swap;
-use std::ops::DerefMut;
 use std::process::exit;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,7 +11,7 @@ use std::time::{Instant, Duration};
 use itertools::Itertools;
 use strum_macros::Display;
 
-use crusty::framework::{Client, Searchable};
+use crusty::framework::Client;
 use crusty::framework::io::{Input, Output};
 use crusty::framework::moves::{Move, PseudoMove};
 use crusty::framework::search::{Search, SearchResult};
@@ -37,7 +36,6 @@ pub struct Uci<C: 'static, I, O: 'static> {
 
 impl<C, I, O> Uci<C, I, O>  where
     C: Client + Send + 'static,
-    for<'a> &'a mut C: Searchable<'a>,
     I: Input,
     O: Output + Send + 'static
 {
@@ -126,11 +124,9 @@ impl<C, I, O> Uci<C, I, O>  where
                 let writer = self.writer;
                 self.search_thread = Some(thread::spawn(move || {
                     let mut client = client.lock().unwrap();
-                    // TODO: Is this really necessary?
-                    let mut client_ref = client.deref_mut();
 
                     let start = Instant::now();
-                    let mut search = client_ref.search();
+                    let mut search = client.search();
 
                     for option in options {
                         search = match option {
@@ -157,11 +153,13 @@ impl<C, I, O> Uci<C, I, O>  where
                             .unwrap();
                     })
                         .start(stop_search);
-
+                    
                     stop_search.store(true, Ordering::Release);
                     writer.lock().unwrap()
                         .best_move(best_move.unwrap())
                         .unwrap();
+
+                    client.clear_trans_table();
                 }));
             },
 

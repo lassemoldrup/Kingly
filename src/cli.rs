@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
-use crusty::framework::{Client, Searchable};
+use crusty::framework::Client;
 use crusty::framework::io::{Input, Output};
 use crusty::framework::moves::Move;
 
@@ -17,7 +17,6 @@ pub struct Cli<C, I, O> {
 
 impl<C, I, O> Cli<C, I, O> where
     C: Client + Send + Debug + 'static,
-    for<'a> &'a mut C: Searchable<'a>,
     I: Input,
     O: Output + Send + 'static
 {

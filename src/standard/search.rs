@@ -15,19 +15,19 @@ use self::transposition_table::{TranspositionTable, Bound, Entry};
 mod tests;
 pub mod transposition_table;
 
-pub struct Search<'client, MG, E> {
+pub struct Search<'client, 'f, MG, E> {
     search_moves: Option<Vec<Move>>,
     search_depth: Option<u32>,
     search_nodes: Option<u64>,
     search_time: Option<Duration>,
-    callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'client>>,
+    callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'f>>,
     position: Position,
     move_gen: &'client MG,
     eval: &'client E,
     trans_table: &'client mut TranspositionTable,
 }
 
-impl<'client, MG, E> Search<'client, MG, E> where
+impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
@@ -186,7 +186,7 @@ impl<'client, MG, E> Search<'client, MG, E> where
     }
 }
 
-impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'client, MG, E> where
+impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'client, 'f, MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
@@ -215,7 +215,7 @@ impl<'client, MG, E>  crate::framework::search::Search<'client> for Search<'clie
         self
     }
 
-    fn on_info<F: FnMut(&SearchResult) + 'client>(mut self, callback: F) -> Self
+    fn on_info<F: FnMut(&SearchResult) + 'f>(mut self, callback: F) -> Self
     {
         self.callbacks.push(Box::new(callback));
         self

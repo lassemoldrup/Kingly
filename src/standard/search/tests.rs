@@ -6,7 +6,7 @@ use crate::{standard::{Position, eval::MaterialEval, move_gen, tables::Tables, s
 
 use super::transposition_table::TranspositionTable;
 
-fn get_search(position: Position) -> Search<'static, MoveGen, MaterialEval> {
+fn get_search(position: Position) -> Search<'static, 'static, MoveGen, MaterialEval> {
     let move_gen = Box::leak(Box::new(MoveGen::new(Tables::get())));
     let eval = Box::leak(Box::new(MaterialEval));
     let trans_table = Box::leak(Box::new(TranspositionTable::with_capacity(0)));
