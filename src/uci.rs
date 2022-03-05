@@ -252,7 +252,7 @@ enum GoOption {
     WInc(u32),
     BInc(u32),
     MovesToGo(u32),
-    Depth(u32),
+    Depth(u8),
     Nodes(u64),
     Mate(u32),
     MoveTime(Duration),
@@ -262,8 +262,8 @@ enum GoOption {
 #[allow(dead_code)]
 #[derive(Debug)]
 enum SearchInfo {
-    Depth(u32),
-    SelDepth(u32),
+    Depth(u8),
+    SelDepth(u8),
     Time(u64),
     Nodes(u64),
     Pv(Vec<Move>),

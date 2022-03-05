@@ -17,7 +17,7 @@ pub mod transposition_table;
 
 pub struct Search<'client, 'f, MG, E> {
     search_moves: Option<Vec<Move>>,
-    search_depth: Option<u32>,
+    search_depth: Option<u8>,
     search_nodes: Option<u64>,
     search_time: Option<Duration>,
     callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'f>>,
@@ -47,7 +47,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         }
     }
 
-    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u32, start_depth: u32, nodes: &mut u64, sel_depth: &mut u32) -> Value {
+    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u8, start_depth: u8, nodes: &mut u64, sel_depth: &mut u8) -> Value {
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
         
         if moves.len() == 0 {
@@ -138,7 +138,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         moves.sort_by_cached_key(move_score);
     }
 
-    fn quiesce(&mut self, mut alpha: Value, beta: Value, start_depth: u32, nodes: &mut u64, sel_depth: &mut u32) -> Value {
+    fn quiesce(&mut self, mut alpha: Value, beta: Value, start_depth: u8, nodes: &mut u64, sel_depth: &mut u8) -> Value {
         *sel_depth = start_depth.max(*sel_depth);
         
         // We assume that we can do at least as well as the static
@@ -200,7 +200,7 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
         self
     }
 
-    fn depth(mut self, depth: u32) -> Self {
+    fn depth(mut self, depth: u8) -> Self {
         self.search_depth = Some(depth);
         self
     }
@@ -234,7 +234,7 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
         }
 
         let max_depth = self.search_depth
-            .unwrap_or(u32::MAX);
+            .unwrap_or(u8::MAX);
 
         for depth in 0..max_depth {
             let depth_start = Instant::now();

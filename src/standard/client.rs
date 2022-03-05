@@ -138,25 +138,6 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
     }
 }
 
-// impl<'client, MG, E> Searchable for &'client mut Client<MG, E> where
-//     MG: MoveGen<Position>,
-//     E: Eval<Position>
-// {
-//     type Search<'f> = Search<'client, 'f, MG, E>;
-
-//     fn search<'f>(&mut self) -> Self::Search<'f> {
-//         let move_gen = self.move_gen.as_ref().expect(NOT_INIT);
-//         let eval = self.eval.as_ref().unwrap();
-//         let position = self.position.clone().unwrap();
-
-//         Search::new(position, move_gen, eval, &mut self.trans_table)
-//     }
-
-//     fn clear_trans_table(&mut self) {
-//         self.trans_table.clear();
-//     }
-// }
-
 impl<MG, E> fmt::Debug for Client<MG, E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(&self.position, f)

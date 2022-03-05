@@ -26,7 +26,7 @@ impl<'a> Search<'a> for SearchStub<'a> {
         self
     }
 
-    fn depth(self, _depth: u32) -> Self {
+    fn depth(self, _depth: u8) -> Self {
         todo!()
     }
 
