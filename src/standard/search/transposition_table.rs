@@ -14,17 +14,15 @@ impl TranspositionTable {
     const PROBE_DEPTH: usize = 2;
 
     pub fn new() -> Self {
-        let capacity = 16 * (1 << 20) / size_of::<Entry>();
-        Self::with_capacity(capacity)
+        Self::with_capacity(16)
     }
 
-    /// Creates a table with a given `capacity` rounded down to the nearest power of two
+    /// Creates a table with a given `capacity` in MB rounded down to the nearest power of two
     pub fn with_capacity(capacity: usize) -> Self {
-        let actual_capacity = if capacity.is_power_of_two() {
-            capacity
-        } else {
-            capacity.next_power_of_two() >> 1
-        };
+        let mut actual_capacity = capacity * (1 << 20) / size_of::<Option<(u64, Entry)>>();
+        if !actual_capacity.is_power_of_two() {
+            actual_capacity = actual_capacity.next_power_of_two() >> 1;
+        }
 
         LOG.append(&format!("Allocating trans. table with capacity {} (actual {})\n", capacity, actual_capacity));
 

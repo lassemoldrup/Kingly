@@ -1,5 +1,4 @@
 use std::fmt;
-use std::mem::size_of;
 
 use crate::framework::{Eval, MoveGen, NotSupportedError};
 use crate::framework::Client as ClientTrait;
@@ -9,7 +8,7 @@ use crate::framework::moves::MoveList;
 use crate::standard::Position;
 use crate::standard::search::Search;
 
-use super::search::transposition_table::{TranspositionTable, Entry};
+use super::search::transposition_table::TranspositionTable;
 
 const NOT_INIT: &str = "Client not initialized";
 
@@ -132,8 +131,7 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
 
     /// Sets the hash size in MB
     fn set_hash_size(&mut self, hash_size: usize) -> Result<(), NotSupportedError> {
-        let capacity = hash_size * (1 << 20) / size_of::<Entry>();
-        self.trans_table = TranspositionTable::with_capacity(capacity);
+        self.trans_table = TranspositionTable::with_capacity(hash_size);
         Ok(())
     }
 }
