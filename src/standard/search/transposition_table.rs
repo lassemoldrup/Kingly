@@ -55,7 +55,7 @@ impl TranspositionTable {
                 self.data.get_unchecked_mut(i)
             };
             match entry_opt {
-                Some((k, e)) =>  {
+                Some((k, e)) => {
                     if *k == key {
                         *e = entry;
                         return;
@@ -119,11 +119,11 @@ impl TranspositionTable {
         self.count
     }
 
-    //
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 }
+
 
 #[derive(Clone)]
 pub struct Entry {

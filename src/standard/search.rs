@@ -15,6 +15,15 @@ use self::transposition_table::{TranspositionTable, Bound, Entry};
 mod tests;
 pub mod transposition_table;
 
+struct SearchParams<'a> {
+    nodes: u64,
+    sel_depth: u8,
+    start_depth: u8,
+    stop_search: &'a AtomicBool,
+    search_start: Instant,
+}
+
+
 pub struct Search<'client, 'f, MG, E> {
     search_moves: Option<Vec<Move>>,
     search_depth: Option<u8>,
@@ -47,13 +56,17 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         }
     }
 
-    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth: u8, start_depth: u8, nodes: &mut u64, sel_depth: &mut u8) -> Value {
+    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth_left: u8, params: &mut SearchParams) -> Value {
+        if self.should_stop(&params) {
+            return Value::from_inf(0);
+        }
+
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
         
         if moves.len() == 0 {
             // Checkmate
             return if check {
-                Value::from_neg_inf(((start_depth - depth + 1) / 2) as u16)
+                Value::from_neg_inf(((params.start_depth - depth_left + 1) / 2) as u16)
             // Stalemate
             } else {
                 Value::from_cp(0)
@@ -69,7 +82,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         let mut table_move = None;
 
         if let Some(entry) = self.trans_table.get(&self.position) {
-            if entry.depth >= depth {
+            if entry.depth >= depth_left {
                 match entry.bound {
                     Bound::Exact => return entry.score,
                     Bound::Lower => if entry.score <= alpha {
@@ -88,8 +101,8 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             None => moves[0],
         };
 
-        if depth == 0 {
-            return self.quiesce(alpha, beta, start_depth, nodes, sel_depth);
+        if depth_left == 0 {
+            return self.quiesce(alpha, beta, params.start_depth, &mut params.nodes, &mut params.sel_depth);
         }
 
         self.reorder_moves(&mut moves, table_move);
@@ -98,13 +111,13 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             // Safety: Generated moves are guaranteed to be legal
             unsafe {
                 self.position.make_move(mv);
-                *nodes += 1;
-                score = -self.alpha_beta(-beta, -alpha, depth - 1, start_depth, nodes, sel_depth);
+                params.nodes += 1;
+                score = -self.alpha_beta(-beta, -alpha, depth_left - 1, params);
                 self.position.unmake_move();
             }
 
             if score >= beta {
-                let entry = Entry::new(beta, best_move, Bound::Upper, depth);
+                let entry = Entry::new(beta, best_move, Bound::Upper, depth_left);
                 self.trans_table.insert(&self.position, entry);
                 return beta;
             }
@@ -112,12 +125,12 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             if score > alpha {
                 alpha = score;
                 best_move = mv;
-                let entry = Entry::new(alpha, best_move, Bound::Lower, depth);
+                let entry = Entry::new(alpha, best_move, Bound::Lower, depth_left);
                 self.trans_table.insert(&self.position, entry);
             }
         }
 
-        let entry = Entry::new(alpha, best_move, Bound::Exact, depth);
+        let entry = Entry::new(alpha, best_move, Bound::Exact, depth_left);
         self.trans_table.insert(&self.position, entry);
         alpha
     }
@@ -172,10 +185,11 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         alpha
     }
 
-    fn should_stop(&self, stop_search: &AtomicBool, time_searched: Duration, nodes_searched: u64) -> bool {
-        stop_search.load(Ordering::Acquire)
+    fn should_stop(&self, params: &SearchParams) -> bool {
+        let time_searched = params.search_start.elapsed();
+        params.stop_search.load(Ordering::Acquire)
             || self.search_time.map_or(false, |time| time_searched >= time)
-            || self.search_nodes.map_or(false, |nodes| nodes_searched >= nodes)
+            || self.search_nodes.map_or(false, |nodes| params.nodes >= nodes)
     }
 
     fn notify_info(&mut self, search_result: &SearchResult) {
@@ -238,8 +252,14 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
         for depth in 0..max_depth {
             let depth_start = Instant::now();
 
-            let mut nodes = 0;
-            let mut sel_depth = depth;
+            let mut params = SearchParams {
+                nodes: 0,
+                sel_depth: depth,
+                start_depth: depth + 1,
+                stop_search,
+                search_start,
+            };
+
             let mut max_score = Value::from_neg_inf(0);
             let table_move = self.trans_table.get(&self.position)
                 .map(|entry| entry.best_move);
@@ -251,15 +271,15 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
 
             self.reorder_moves(&mut moves, table_move);
             for &mv in &moves {
-                if self.should_stop(stop_search, search_start.elapsed(), nodes) {
+                if self.should_stop(&params) {
                     return;
                 }
 
                 let score;
                 unsafe {
                     self.position.make_move(mv);
-                    nodes += 1;
-                    score = -self.alpha_beta(Value::from_neg_inf(0), -max_score, depth, depth + 1, &mut nodes, &mut sel_depth);
+                    params.nodes += 1;
+                    score = -self.alpha_beta(Value::from_neg_inf(0), -max_score, depth, &mut params);
                     self.position.unmake_move();
                 }
 
@@ -294,8 +314,8 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
                 max_score,
                 primary_variation,
                 depth + 1,
-                sel_depth,
-                nodes,
+                params.sel_depth,
+                params.nodes,
                 duration,
                 hash_full as u32,
             );
