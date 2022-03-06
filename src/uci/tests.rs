@@ -12,7 +12,7 @@ use crate::uci::{Command, GoOption, Uci};
 
 fn get_uci<I: Input, O: Output + Send + 'static>(inp: I, out: O) -> Uci<ClientStub, I, O> {
     let search_result = SearchResult::new(Value::from_cp(10),
-                                        vec![Move::Regular(Square::A1, Square::A2)],
+                                        vec![Move::new_regular(Square::A1, Square::A2)],
                                         1,
                                         2,
                                         100,

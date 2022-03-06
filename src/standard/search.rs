@@ -6,7 +6,7 @@ use crate::framework::piece::PieceKind;
 use crate::framework::{Eval, MoveGen, Position as _};
 use crate::framework::search::SearchResult;
 use crate::framework::value::Value;
-use crate::framework::moves::{PseudoMove, Move};
+use crate::framework::moves::{PseudoMove, Move, MoveKind};
 use crate::standard::Position;
 
 use self::transposition_table::{TranspositionTable, Bound, Entry};
@@ -51,7 +51,6 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
         
         if moves.len() == 0 {
-            *nodes += 1;
             // Checkmate
             return if check {
                 Value::from_neg_inf(((start_depth - depth + 1) / 2) as u16)
@@ -124,15 +123,15 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
     }
 
     fn reorder_moves(&mut self, moves: &mut [Move], best_move: Option<Move>) {
-        let move_score = |mv: &Move| match mv {
+        let move_score = |mv: &Move| match mv.kind() {
             _ if Some(*mv) == best_move => 0,
-            Move::Regular(_, _) => 4,
-            Move::Castling(_, _) => 3,
-            Move::Promotion(_, _, kind) => match kind {
+            MoveKind::Regular => 4,
+            MoveKind::Castling => 3,
+            MoveKind::Promotion => match mv.promotion() {
                 PieceKind::Queen => 2,
                 _ => 5,
             },
-            Move::EnPassant(_, _) => 1,
+            MoveKind::EnPassant => 1,
         };
 
         moves.sort_by_cached_key(move_score);

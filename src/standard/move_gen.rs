@@ -58,7 +58,7 @@ impl MoveGen {
                     continue;
                 }
 
-                moves.push(Move::Regular(from, to));
+                moves.push(Move::new_regular(from, to));
             }
         }
 
@@ -72,10 +72,10 @@ impl MoveGen {
                     continue;
                 }
 
-                moves.push(Move::Promotion(from, to, PieceKind::Queen));
-                moves.push(Move::Promotion(from, to, PieceKind::Knight));
-                moves.push(Move::Promotion(from, to, PieceKind::Rook));
-                moves.push(Move::Promotion(from, to, PieceKind::Bishop));
+                moves.push(Move::new_promotion(from, to, PieceKind::Queen));
+                moves.push(Move::new_promotion(from, to, PieceKind::Knight));
+                moves.push(Move::new_promotion(from, to, PieceKind::Rook));
+                moves.push(Move::new_promotion(from, to, PieceKind::Bishop));
             }
         }
 
@@ -101,7 +101,7 @@ impl MoveGen {
                     continue;
                 }
 
-                moves.push(Move::Regular(from, to));
+                moves.push(Move::new_regular(from, to));
             }
         }
 
@@ -138,7 +138,7 @@ impl MoveGen {
                 return;
             }
 
-            moves.push(Move::EnPassant(from, to));
+            moves.push(Move::new_en_passant(from, to));
         }
 
         if let Some(sq) = position.en_passant_sq() {
@@ -265,7 +265,7 @@ impl MoveGen {
             let legal_atks = self.gen_attacks_from_sq(occ, pce, from) & legal_sqs & pin_ray;
 
             for to in legal_atks {
-                moves.push(Move::Regular(from, to));
+                moves.push(Move::new_regular(from, to));
             }
         }
     }
@@ -289,7 +289,7 @@ impl MoveGen {
             if ((castling_sqs & danger_sqs) | (no_occ_sqs & occ)).is_empty() {
                 let king_sq = get_king_sq(position.to_move());
                 let castling_sq = get_castling_sq(position.to_move(), side);
-                moves.push(Move::Castling(king_sq, castling_sq));
+                moves.push(Move::new_castling(king_sq, castling_sq));
             }
         }
 

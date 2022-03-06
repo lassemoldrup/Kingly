@@ -42,7 +42,7 @@ impl Client for ClientStub {
 
     fn get_moves(&self) -> MoveList {
         let mut moves = MoveList::new();
-        moves.push(Move::Regular(Square::A1, Square::A2));
+        moves.push(Move::new_regular(Square::A1, Square::A2));
         moves
     }
 

@@ -55,12 +55,12 @@ fn finds_threefold_repetition() {
     let mut position = Position::from_fen("6kq/6p1/6Q1/8/8/8/1q6/6K1 w - - 0 1").unwrap();
     unsafe {
         use Square::*;
-        position.make_move(Move::Regular(G6, E8));
-        position.make_move(Move::Regular(G8, H7));
-        position.make_move(Move::Regular(E8, H5));
-        position.make_move(Move::Regular(H7, G8));
-        position.make_move(Move::Regular(H5, E8));
-        position.make_move(Move::Regular(G8, H7));
+        position.make_move(Move::new_regular(G6, E8));
+        position.make_move(Move::new_regular(G8, H7));
+        position.make_move(Move::new_regular(E8, H5));
+        position.make_move(Move::new_regular(H7, G8));
+        position.make_move(Move::new_regular(H5, E8));
+        position.make_move(Move::new_regular(G8, H7));
     }
     let mut value = Value::from_cp(-100);
 

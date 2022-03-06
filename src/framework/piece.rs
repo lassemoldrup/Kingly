@@ -5,12 +5,12 @@ use crate::framework::color::Color;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum PieceKind {
-    Pawn,
-    Knight,
-    Bishop,
-    Rook,
-    Queen,
-    King,
+    Pawn = 4,
+    Knight = 0,
+    Bishop = 1,
+    Rook = 2,
+    Queen = 3,
+    King = 5,
 }
 
 impl TryFrom<char> for PieceKind {

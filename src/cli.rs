@@ -136,7 +136,7 @@ impl<C, I, O> Cli<C, I, O> where
             Command::Perft(depth) => {
                 self.init_client()?;
 
-                writeln!(self.output, "Running Perft with depth {}...", depth)?;
+                writeln!(self.output, "Running Perft with depth {}..", depth)?;
                 let start = Instant::now();
                 let nodes = self.client.perft(depth);
                 let elapsed = start.elapsed();
@@ -146,7 +146,7 @@ impl<C, I, O> Cli<C, I, O> where
             Command::Divide(depth) => {
                 self.init_client()?;
 
-                writeln!(self.output, "Running Divide with depth {}...", depth)?;
+                writeln!(self.output, "Running Divide with depth {}..", depth)?;
 
                 let mut total = 0;
                 for mv in self.client.get_moves() {

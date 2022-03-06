@@ -89,10 +89,10 @@ fn regular_move_made_correctly() {
     let mut position = Position::new();
 
     unsafe {
-        position.make_move(Move::Regular(Square::E2, Square::E4));
-        position.make_move(Move::Regular(Square::D7, Square::D5));
-        position.make_move(Move::Regular(Square::E4, Square::D5));
-        position.make_move(Move::Regular(Square::D8, Square::D5));
+        position.make_move(Move::new_regular(Square::E2, Square::E4));
+        position.make_move(Move::new_regular(Square::D7, Square::D5));
+        position.make_move(Move::new_regular(Square::E4, Square::D5));
+        position.make_move(Move::new_regular(Square::D8, Square::D5));
     }
 
     position_matches_fen(position, "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3");
@@ -104,8 +104,8 @@ fn castling_move_made_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::Castling(Square::E8, Square::G8));
-        position.make_move(Move::Castling(Square::E1, Square::C1));
+        position.make_move(Move::new_castling(Square::E8, Square::G8));
+        position.make_move(Move::new_castling(Square::E1, Square::C1));
     }
 
     position_matches_fen(position, "rnbq1rk1/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/2KR1BNR b - - 7 5");
@@ -117,10 +117,10 @@ fn promotion_moves_made_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::Promotion(Square::G7, Square::H8, PieceKind::Queen));
-        position.make_move(Move::Promotion(Square::B2, Square::C1, PieceKind::Knight));
-        position.make_move(Move::Promotion(Square::H7, Square::G8, PieceKind::Rook));
-        position.make_move(Move::Promotion(Square::C2, Square::D1, PieceKind::Bishop));
+        position.make_move(Move::new_promotion(Square::G7, Square::H8, PieceKind::Queen));
+        position.make_move(Move::new_promotion(Square::B2, Square::C1, PieceKind::Knight));
+        position.make_move(Move::new_promotion(Square::H7, Square::G8, PieceKind::Rook));
+        position.make_move(Move::new_promotion(Square::C2, Square::D1, PieceKind::Bishop));
     }
 
     position_matches_fen(position, "rnbqkbRQ/2pppp2/8/8/8/8/P2PPP2/RNnbKBNR w KQq - 0 11");
@@ -132,7 +132,7 @@ fn en_passant_moves_made_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::EnPassant(Square::E5, Square::D6));
+        position.make_move(Move::new_en_passant(Square::E5, Square::D6));
     }
 
     position_matches_fen(position, "rnbqkbnr/ppp1pp1p/3P2p1/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3");
@@ -143,10 +143,10 @@ fn regular_moves_unmade_correctly() {
     let mut position = Position::new();
 
     unsafe {
-        position.make_move(Move::Regular(Square::E2, Square::E4));
-        position.make_move(Move::Regular(Square::D7, Square::D5));
-        position.make_move(Move::Regular(Square::E4, Square::D5));
-        position.make_move(Move::Regular(Square::D8, Square::D5));
+        position.make_move(Move::new_regular(Square::E2, Square::E4));
+        position.make_move(Move::new_regular(Square::D7, Square::D5));
+        position.make_move(Move::new_regular(Square::E4, Square::D5));
+        position.make_move(Move::new_regular(Square::D8, Square::D5));
         position.unmake_move();
         position.unmake_move();
         position.unmake_move();
@@ -162,8 +162,8 @@ fn castling_moves_unmade_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::Castling(Square::E8, Square::G8));
-        position.make_move(Move::Castling(Square::E1, Square::C1));
+        position.make_move(Move::new_castling(Square::E8, Square::G8));
+        position.make_move(Move::new_castling(Square::E1, Square::C1));
         position.unmake_move();
         position.unmake_move();
     }
@@ -177,10 +177,10 @@ fn promotion_moves_unmade_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::Promotion(Square::G7, Square::H8, PieceKind::Queen));
-        position.make_move(Move::Promotion(Square::B2, Square::C1, PieceKind::Knight));
-        position.make_move(Move::Promotion(Square::H7, Square::G8, PieceKind::Rook));
-        position.make_move(Move::Promotion(Square::C2, Square::D1, PieceKind::Bishop));
+        position.make_move(Move::new_promotion(Square::G7, Square::H8, PieceKind::Queen));
+        position.make_move(Move::new_promotion(Square::B2, Square::C1, PieceKind::Knight));
+        position.make_move(Move::new_promotion(Square::H7, Square::G8, PieceKind::Rook));
+        position.make_move(Move::new_promotion(Square::C2, Square::D1, PieceKind::Bishop));
         position.unmake_move();
         position.unmake_move();
         position.unmake_move();
@@ -196,7 +196,7 @@ fn en_passant_moves_unmade_correctly() {
         .unwrap();
 
     unsafe {
-        position.make_move(Move::EnPassant(Square::E5, Square::D6));
+        position.make_move(Move::new_en_passant(Square::E5, Square::D6));
         position.unmake_move();
     }
 

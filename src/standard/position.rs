@@ -9,7 +9,7 @@ use crate::framework::castling::CastlingRights;
 use crate::framework::color::Color;
 use crate::framework::direction::Direction;
 use crate::framework::fen::{FenParseError, STARTING_FEN};
-use crate::framework::moves::Move;
+use crate::framework::moves::{Move, MoveKind};
 use crate::framework::piece::{Piece, PieceKind};
 use crate::framework::square::Square;
 use crate::framework::util::{get_castling_rook_sq, get_rook_sq};
@@ -159,8 +159,11 @@ impl Position {
 
         self.toggle_zobrist(&self.en_passant_sq.clone());
         self.en_passant_sq = None;
-        match m {
-            Move::Regular(from, to) => {
+
+        let from = m.from();
+        let to = m.to();
+        match m.kind() {
+            MoveKind::Regular => {
                 debug_assert!(self.pieces.get(from).is_some());
                 let pce = self.pieces.get(from)
                     .unwrap_or_else(|| unreachable_unchecked());
@@ -208,7 +211,7 @@ impl Position {
                     }
                 }
             }
-            Move::Castling(from, to) => {
+            MoveKind::Castling => {
                 let side = match to {
                     Square::G1 | Square::G8 => Side::KingSide,
                     Square::C1 | Square::C8 => Side::QueenSide,
@@ -226,10 +229,10 @@ impl Position {
 
                 self.ply_clock += 1;
             },
-            Move::Promotion(from, to, kind) => {
+            MoveKind::Promotion => {
                 unmake.capture = self.pieces.get(to);
 
-                let promotion_pce = Piece(kind, self.to_move);
+                let promotion_pce = Piece(m.promotion(), self.to_move);
 
                 if let Some(dest_pce) = unmake.capture {
                     self.unset_sq(to, dest_pce);
@@ -241,7 +244,7 @@ impl Position {
 
                 self.ply_clock = 0;
             },
-            Move::EnPassant(from, to) => {
+            MoveKind::EnPassant => {
                 let down = match self.to_move {
                     Color::White => Direction::South,
                     Color::Black => Direction::North,
@@ -324,8 +327,10 @@ impl Position {
         let rook_pce = Piece(PieceKind::Rook, self.to_move);
         let king_pce = Piece(PieceKind::King, self.to_move);
 
-        match unmake.mv {
-            Move::Regular(from, to) => {
+        let from = unmake.mv.from();
+        let to = unmake.mv.to();
+        match unmake.mv.kind() {
+            MoveKind::Regular => {
                 debug_assert!(self.pieces.get(to).is_some());
                 let pce = self.pieces.get(to)
                     .unwrap_or_else(|| unreachable_unchecked());
@@ -338,7 +343,7 @@ impl Position {
 
                 self.set_castling(unmake.castling);
             },
-            Move::Castling(from, to) => {
+            MoveKind::Castling => {
                 let side = match to {
                     Square::G1 | Square::G8 => Side::KingSide,
                     Square::C1 | Square::C8 => Side::QueenSide,
@@ -354,8 +359,8 @@ impl Position {
 
                 self.set_castling(unmake.castling);
             },
-            Move::Promotion(from, to, kind) => {
-                let promotion_pce = Piece(kind, self.to_move);
+            MoveKind::Promotion => {
+                let promotion_pce = Piece(unmake.mv.promotion(), self.to_move);
 
                 self.set_sq(from, pawn_pce);
                 self.unset_sq(to, promotion_pce);
@@ -365,7 +370,7 @@ impl Position {
 
                 self.set_castling(unmake.castling);
             },
-            Move::EnPassant(from, to) => {
+            MoveKind::EnPassant => {
                 let down = match self.to_move {
                     Color::White => Direction::South,
                     Color::Black => Direction::North,
