@@ -131,7 +131,7 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
 
     /// Sets the hash size in MB
     fn set_hash_size(&mut self, hash_size: usize) -> Result<(), NotSupportedError> {
-        self.trans_table = TranspositionTable::with_capacity(hash_size);
+        self.trans_table = TranspositionTable::with_hash_size(hash_size);
         Ok(())
     }
 }

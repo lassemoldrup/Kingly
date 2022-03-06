@@ -9,7 +9,7 @@ use super::transposition_table::TranspositionTable;
 fn get_search(position: Position) -> Search<'static, 'static, MoveGen, MaterialEval> {
     let move_gen = Box::leak(Box::new(MoveGen::new(Tables::get())));
     let eval = Box::leak(Box::new(MaterialEval));
-    let trans_table = Box::leak(Box::new(TranspositionTable::with_capacity(1)));
+    let trans_table = Box::leak(Box::new(TranspositionTable::with_hash_size(1)));
 
     Search::new(position, move_gen, eval, trans_table)
 }

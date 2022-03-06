@@ -13,16 +13,19 @@ pub struct TranspositionTable {
 impl TranspositionTable {
     const PROBE_DEPTH: usize = 2;
 
+    /// Creates a table with 16 MB of space
     pub fn new() -> Self {
-        Self::with_capacity(16)
+        Self::with_hash_size(16)
     }
 
-    /// Creates a table with a given `capacity` in MB rounded down to the nearest power of two
-    pub fn with_capacity(capacity: usize) -> Self {
-        let mut actual_capacity = capacity * (1 << 20) / size_of::<Option<(u64, Entry)>>();
-        if !actual_capacity.is_power_of_two() {
-            actual_capacity = actual_capacity.next_power_of_two() >> 1;
-        }
+    /// Creates a table with a given `hash_size` in MB rounded down to the nearest power of two
+    pub fn with_hash_size(hash_size: usize) -> Self {
+        let capacity = hash_size * (1 << 20) / size_of::<Option<(u64, Entry)>>();
+        let actual_capacity = if capacity.is_power_of_two() {
+            capacity
+        } else {
+            capacity.next_power_of_two() >> 1
+        };
 
         LOG.append(&format!("Allocating trans. table with capacity {} (actual {})\n", capacity, actual_capacity));
 
@@ -116,6 +119,7 @@ impl TranspositionTable {
         self.count
     }
 
+    //
     pub fn capacity(&self) -> usize {
         self.capacity
     }
