@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::fmt::{Debug, Formatter, Display};
 use std::hint::unreachable_unchecked;
+use std::mem;
 
 use intmap::IntMap;
 
@@ -138,6 +139,14 @@ impl Position {
             zobrist,
             tables,
         })
+    }
+
+    /// Sets the `fen` of the `Position` without changing the repetition history
+    pub fn set_fen(&mut self, fen: &str) -> Result<(), FenParseError> {
+        let mut new_pos = Self::from_fen(fen)?;
+        mem::swap(&mut self.repetitions, &mut new_pos.repetitions);
+        *self = new_pos;
+        Ok(())
     }
 
     /// Makes move `m`

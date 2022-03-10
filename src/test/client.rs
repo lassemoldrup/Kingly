@@ -34,6 +34,11 @@ impl Client for ClientStub {
         self.is_init
     }
 
+    fn new_game(&mut self) {
+        self.last_fen = STARTING_FEN.to_string();
+        self.moves_made.clear();
+    }
+
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError> {
         self.last_fen = fen.to_string();
         self.moves_made.clear();

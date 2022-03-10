@@ -96,7 +96,10 @@ impl<C, I, O> Uci<C, I, O>  where
             Command::Register { .. } | Command::RegisterLater =>
                 self.debug("Registration not supported")?,
 
-            Command::UciNewGame => {},
+            Command::UciNewGame => match self.client.try_lock() {
+                Ok(mut client) => client.new_game(),
+                Err(_) => self.debug("Attempt to set option while searching")?,
+            },
 
             Command::Position { fen, moves } => self.client.try_lock()
                 .map_err(|_| "Attempt to change position while searching".to_string())

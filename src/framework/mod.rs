@@ -30,6 +30,7 @@ pub trait Client {
 
     fn init(&mut self);
     fn is_init(&self) -> bool;
+    fn new_game(&mut self);
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError>;
     fn get_moves(&self) -> MoveList;
     fn make_move(&mut self, mv: Move) -> Result<(), String>;

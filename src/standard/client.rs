@@ -54,9 +54,19 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
         self.move_gen.is_some()
     }
 
+    fn new_game(&mut self) {
+        let position = self.position.as_mut()
+            .expect(NOT_INIT);
+        
+        *position = Position::new();
+
+        self.clear_trans_table();
+    }
+
     fn set_position(&mut self, fen: &str) -> Result<(), FenParseError> {
-        *self.position.as_mut().expect(NOT_INIT) = Position::from_fen(fen)?;
-        Ok(())
+        self.position.as_mut()
+            .expect(NOT_INIT)
+            .set_fen(fen)
     }
 
     fn get_moves(&self) -> MoveList {
