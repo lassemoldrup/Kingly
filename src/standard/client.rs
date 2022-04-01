@@ -42,7 +42,7 @@ impl<MG, E> crate::framework::Client for Client<MG, E> where
     MG: MoveGen<Position>,
     E: Eval<Position>
 {
-    type Search<'client, 'f> where MG: 'client, E: 'client = Search<'client, 'f, MG, E>;
+    type Search<'client, 'f> = Search<'client, 'f, MG, E> where MG: 'client, E: 'client;
 
     fn init(&mut self) {
         self.position = Some(Position::new());
