@@ -125,7 +125,7 @@ impl TranspositionTable {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Entry {
     pub score: Value,
     pub best_move: Move,

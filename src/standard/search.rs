@@ -56,7 +56,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         }
     }
 
-    fn alpha_beta(&mut self, mut alpha: Value, beta: Value, depth_left: u8, params: &mut SearchParams) -> Value {
+    fn search(&mut self, mut alpha: Value, mut beta: Value, depth_left: u8, params: &mut SearchParams) -> Value {
         if self.should_stop(&params) {
             return Value::from_inf(0);
         }
@@ -78,6 +78,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             return Value::from_cp(0);
         }
 
+        let orig_alpha = alpha;
         // TODO: Do this better
         let mut table_move = None;
 
@@ -85,14 +86,15 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             if entry.depth >= depth_left {
                 match entry.bound {
                     Bound::Exact => return entry.score,
-                    Bound::Lower => if entry.score <= alpha {
-                        return alpha;
-                    }
-                    Bound::Upper => if entry.score >= beta {
-                        return beta;
-                    },
+                    Bound::Lower => alpha = alpha.max(entry.score),
+                    Bound::Upper => beta = beta.min(entry.score),
+                }
+
+                if alpha >= beta {
+                    return entry.score;
                 }
             }
+
             table_move = Some(entry.best_move);
         }
 
@@ -100,6 +102,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             Some(mv) => mv,
             None => moves[0],
         };
+        let mut best_score = Value::from_neg_inf(0);
 
         if depth_left == 0 {
             return self.quiesce(alpha, beta, params.start_depth, &mut params.nodes, &mut params.sel_depth);
@@ -112,27 +115,33 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             unsafe {
                 self.position.make_move(mv);
                 params.nodes += 1;
-                score = -self.alpha_beta(-beta, -alpha, depth_left - 1, params);
+                score = -self.search(-beta, -alpha, depth_left - 1, params);
                 self.position.unmake_move();
             }
 
-            if score >= beta {
-                let entry = Entry::new(beta, best_move, Bound::Upper, depth_left);
-                self.trans_table.insert(&self.position, entry);
-                return beta;
+            if score > best_score {
+                best_score = score;
+                best_move = mv;
+                if score > alpha {
+                    alpha = best_score;
+                }
             }
 
-            if score > alpha {
-                alpha = score;
-                best_move = mv;
+            if alpha >= beta {
                 let entry = Entry::new(alpha, best_move, Bound::Lower, depth_left);
                 self.trans_table.insert(&self.position, entry);
+                return alpha;
             }
         }
 
-        let entry = Entry::new(alpha, best_move, Bound::Exact, depth_left);
+        let bound = if best_score < orig_alpha {
+            Bound::Upper
+        } else {
+            Bound::Exact
+        };
+        let entry = Entry::new(best_score, best_move, bound, depth_left);
         self.trans_table.insert(&self.position, entry);
-        alpha
+        best_score
     }
 
     fn reorder_moves(&mut self, moves: &mut [Move], best_move: Option<Move>) {
@@ -157,7 +166,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         // eval of the current position, i.e. we don't consider zugzwang 
         let static_eval = self.eval.eval(&self.position);
         if static_eval >= beta {
-            return beta;
+            return static_eval;
         } else if static_eval > alpha {
             alpha = static_eval;
         }
@@ -174,7 +183,7 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
             }
 
             if score >= beta {
-                return beta;
+                return score;
             }
 
             if score > alpha {
@@ -183,6 +192,32 @@ impl<'client, 'f, MG, E> Search<'client, 'f, MG, E> where
         }
 
         alpha
+    }
+
+    fn aspire(&mut self, mut alpha: Value, mut beta: Value, depth: u8, params: &mut SearchParams) -> Value {
+        if let Some(entry) = self.trans_table.get(&self.position) {
+            //let mut iterations = 0;
+            let entry = *entry;
+            for exp in 0.. {
+                let delta = Value::from_cp(5) * (1 << exp);
+                alpha = alpha.min(entry.score - delta);
+                beta = beta.max(entry.score + delta);
+
+                let score = self.search(alpha, beta, depth, params);
+                if score <= alpha {
+                    alpha = score;
+                } else if score >= beta {
+                    beta = score;
+                } else {
+                    //dbg!(iterations);
+                    return score;
+                }
+
+                //iterations += 1;
+            }
+        }
+        
+        self.search(alpha, beta, depth, params)
     }
 
     fn should_stop(&self, params: &SearchParams) -> bool {
@@ -279,14 +314,14 @@ impl<'client, 'f, MG, E>  crate::framework::search::Search<'f> for Search<'clien
                 unsafe {
                     self.position.make_move(mv);
                     params.nodes += 1;
-                    score = -self.alpha_beta(Value::from_neg_inf(0), -max_score, depth, &mut params);
+                    score = -self.search(Value::from_neg_inf(0), -max_score, depth, &mut params);
                     self.position.unmake_move();
                 }
 
                 if score > max_score {
                     max_score = score;
                     best_move = mv;
-                    let entry = Entry::new(max_score, best_move, Bound::Lower, depth + 1);
+                    let entry = Entry::new(max_score, best_move, Bound::Upper, depth + 1);
                     self.trans_table.insert(&self.position, entry);
                 }
             }

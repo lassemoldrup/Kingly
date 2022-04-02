@@ -1,5 +1,5 @@
 use std::fmt::{Display, self};
-use std::ops::{Neg, RangeInclusive};
+use std::ops::{Neg, RangeInclusive, Add, Mul, Sub};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Value(i16);
@@ -23,6 +23,30 @@ impl Neg for Value {
 
     fn neg(self) -> Self::Output {
         Self(-self.0)
+    }
+}
+
+impl Add for Value {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0.saturating_add(rhs.0).max(i16::MIN + 1))
+    }
+}
+
+impl Sub for Value {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0.saturating_sub(rhs.0).max(i16::MIN + 1))
+    }
+}
+
+impl Mul<i16> for Value {
+    type Output = Self;
+
+    fn mul(self, rhs: i16) -> Self::Output {
+        Self(self.0.saturating_mul(rhs))
     }
 }
 
