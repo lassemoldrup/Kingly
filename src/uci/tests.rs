@@ -1,23 +1,20 @@
 use std::io::{empty, sink};
 use std::time::Duration;
 
-use crusty::framework::io::{Input, Output};
-use crusty::framework::moves::{Move, PseudoMove};
-use crusty::framework::search::SearchResult;
-use crusty::framework::square::Square;
-use crusty::framework::value::Value;
-use crusty::test::client::ClientStub;
+use crusty::types::{PseudoMove, Square};
 
 use crate::uci::{Command, GoOption, Uci};
 
 fn get_uci<I: Input, O: Output + Send + 'static>(inp: I, out: O) -> Uci<ClientStub, I, O> {
-    let search_result = SearchResult::new(Value::from_cp(10),
-                                        vec![Move::new_regular(Square::A1, Square::A2)],
-                                        1,
-                                        2,
-                                        100,
-                                        Duration::from_millis(1000),
-                                        0);
+    let search_result = SearchResult::new(
+        Value::from_cp(10),
+        vec![Move::new_regular(Square::A1, Square::A2)],
+        1,
+        2,
+        100,
+        Duration::from_millis(1000),
+        0,
+    );
     let client = ClientStub::new(search_result);
     Uci::new(client, inp, out)
 }
@@ -54,7 +51,8 @@ fn position_cmd_updates_position_correctly() {
     uci.execute(Command::Position {
         fen: position.to_string(),
         moves: moves.clone(),
-    }).unwrap();
+    })
+    .unwrap();
 
     assert_eq!(uci.client.lock().unwrap().last_fen, position);
     assert_eq!(moves, uci.client.lock().unwrap().moves_made);
@@ -63,7 +61,8 @@ fn position_cmd_updates_position_correctly() {
     uci.execute(Command::Position {
         fen: position.to_string(),
         moves: vec![],
-    }).unwrap();
+    })
+    .unwrap();
 
     assert_eq!(uci.client.lock().unwrap().last_fen, position);
     assert_eq!(uci.client.lock().unwrap().moves_made, vec![]);
@@ -75,5 +74,7 @@ fn go_infinite_cmd_correctly_starts_search() {
 
     uci.execute(Command::Go(vec![GoOption::Infinite])).unwrap();
     uci.wait_for_search();
-    assert!(uci.get_output().starts_with("info depth 1 seldepth 2 score cp 10 nodes 100 nps 100 hashfull 0 pv a1a2"));
+    assert!(uci
+        .get_output()
+        .starts_with("info depth 1 seldepth 2 score cp 10 nodes 100 nps 100 hashfull 0 pv a1a2"));
 }
