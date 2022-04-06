@@ -15,3 +15,4 @@ These tasks will need to be completed before version 0.1.0 is ready.
 - General search improvements, e.g. aspirations windows
 - Proper benchmarking
 - Proper logging
+- Better eval
