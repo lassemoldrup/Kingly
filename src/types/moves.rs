@@ -1,4 +1,4 @@
-use std::fmt::{Formatter, Display};
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::{fmt, mem};
 
@@ -25,7 +25,7 @@ impl Move {
 
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
-        
+
         Self(encoding)
     }
 
@@ -35,7 +35,7 @@ impl Move {
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
         encoding |= 1 << 12;
-        
+
         Self(encoding)
     }
 
@@ -46,7 +46,7 @@ impl Move {
         encoding |= (to as u16) << 6;
         encoding |= 2 << 12;
         encoding |= (kind as u16) << 14;
-        
+
         Self(encoding)
     }
 
@@ -56,32 +56,24 @@ impl Move {
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
         encoding |= 3 << 12;
-        
+
         Self(encoding)
     }
 
     pub fn from(&self) -> Square {
-        unsafe {
-            Square::from_unchecked((self.0 & 0b111111) as u8)
-        }
+        unsafe { Square::from_unchecked((self.0 & 0b111111) as u8) }
     }
 
     pub fn to(&self) -> Square {
-        unsafe {
-            Square::from_unchecked(((self.0 >> 6) & 0b111111) as u8)
-        }
+        unsafe { Square::from_unchecked(((self.0 >> 6) & 0b111111) as u8) }
     }
 
     pub fn kind(&self) -> MoveKind {
-        unsafe {
-            mem::transmute(((self.0 >> 12) & 0b11) as u8)
-        }
+        unsafe { mem::transmute(((self.0 >> 12) & 0b11) as u8) }
     }
 
     pub fn promotion(&self) -> PieceKind {
-        unsafe{
-            mem::transmute(((self.0 >> 14) & 0b11) as u8)
-        }
+        unsafe { mem::transmute(((self.0 >> 14) & 0b11) as u8) }
     }
 
     pub fn try_from(value: &str, legal_moves: &[Move]) -> Result<Self, String> {
@@ -92,7 +84,8 @@ impl Move {
         let from = Square::try_from(&value[..2])?;
         let to = Square::try_from(&value[2..4])?;
 
-        legal_moves.iter()
+        legal_moves
+            .iter()
             .find(|mv| mv.from() == from && mv.to() == to)
             .ok_or(format!("Illegal move '{}'", value))
             .map(|mv| *mv)
@@ -102,14 +95,13 @@ impl Move {
 impl Display for Move {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self.kind() {
-            MoveKind::Regular |
-            MoveKind::Castling |
-            MoveKind::EnPassant => write!(f, "{}{}", self.from(), self.to()),
+            MoveKind::Regular | MoveKind::Castling | MoveKind::EnPassant => {
+                write!(f, "{}{}", self.from(), self.to())
+            }
             MoveKind::Promotion => write!(f, "{}{}{}", self.from(), self.to(), self.promotion()),
         }
     }
 }
-
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct PseudoMove {
@@ -128,10 +120,16 @@ impl PseudoMove {
     }
 
     pub fn into_move(self, legal_moves: &[Move]) -> Result<Move, String> {
-        legal_moves.iter().copied()
-            .find(|&mv| mv.from() == self.from && mv.to() == self.to && match mv.kind() {
-                MoveKind::Promotion => Some(mv.promotion()) == self.promotion,
-                _ => true,
+        legal_moves
+            .iter()
+            .copied()
+            .find(|&mv| {
+                mv.from() == self.from
+                    && mv.to() == self.to
+                    && match mv.kind() {
+                        MoveKind::Promotion => Some(mv.promotion()) == self.promotion,
+                        _ => true,
+                    }
             })
             .ok_or_else(|| format!("Illegal move '{}'", self))
     }
@@ -144,8 +142,8 @@ impl From<Move> for PseudoMove {
             to: mv.to(),
             promotion: match mv.kind() {
                 MoveKind::Promotion => Some(mv.promotion()),
-                _ => None
-            }
+                _ => None,
+            },
         }
     }
 }

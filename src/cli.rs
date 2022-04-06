@@ -1,10 +1,10 @@
 use std::str::FromStr;
 use std::time::Instant;
 
-use crusty::client::Client;
 use crusty::eval::StandardEval;
 use crusty::types::PseudoMove;
 
+use crate::client::Client;
 use crate::uci::Uci;
 
 use super::io::{Input, Output};
@@ -19,7 +19,7 @@ pub struct Cli<I, O> {
 impl<I, O> Cli<I, O>
 where
     I: Input,
-    O: Output,
+    O: Output + Send + 'static,
 {
     pub fn new(client: Client<StandardEval>, input: I, output: O) -> Self {
         Self {
@@ -154,16 +154,25 @@ where
 
                 writeln!(self.output, "\nTotal: {}", total)?;
             }
-            Command::Fen(fen) => match self.client.set_position(&fen) {
-                Ok(_) => {}
-                Err(err) => writeln!(self.output, "{}", err)?,
-            },
+            Command::Fen(fen) => {
+                self.init_client()?;
+
+                match self.client.position(&fen, &[]) {
+                    Ok(_) => {}
+                    Err(err) => writeln!(self.output, "{}", err)?,
+                }
+            }
             Command::Move(moves) => {
                 self.init_client()?;
 
+                let legal_moves = self.client.get_moves();
+
                 for mv in moves {
-                    if self.client.make_move(mv).is_err() {
-                        writeln!(self.output, "Illegal move '{}'", mv)?;
+                    if let Err(err) = mv
+                        .into_move(&legal_moves)
+                        .and_then(|mv| self.client.make_move(mv))
+                    {
+                        writeln!(self.output, "{}", err)?;
                         break;
                     }
                 }

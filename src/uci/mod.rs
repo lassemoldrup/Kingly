@@ -1,25 +1,24 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::io;
 use std::num::ParseIntError;
 use std::str::FromStr;
 use std::time::Duration;
+use std::{io, process};
 
 use crusty::fen::STARTING_FEN;
 use crusty::search::SearchResult;
 use itertools::Itertools;
 use strum_macros::Display;
 
-use crusty::client::Client;
 use crusty::eval::StandardEval;
 use crusty::types::{Move, PseudoMove, Value};
 
+use crate::client::{Client, GoInfo};
 use crate::io::{Input, Output};
-
-use self::writer::Writer;
 
 #[cfg(test)]
 mod tests;
 mod writer;
+pub use writer::Writer;
 
 pub struct Uci<I, O> {
     client: Client<StandardEval>,
@@ -31,7 +30,7 @@ pub struct Uci<I, O> {
 impl<I, O> Uci<I, O>
 where
     I: Input,
-    O: Output,
+    O: Output + Send + 'static,
 {
     pub fn new(client: Client<StandardEval>, input: I, output: O) -> Self {
         let writer = Writer::new(output);
@@ -143,21 +142,32 @@ where
         }
     }
 
+    fn set_option(&mut self, opt: UciOption) -> Result<(), String> {
+        match opt {
+            UciOption::Hash(hash_size) => self.client.set_option_hash(hash_size),
+        }
+    }
+
     fn execute(&mut self, cmd: Command) -> io::Result<()> {
         match cmd {
-            Command::Debug(_) => todo!(),
-            Command::IsReady => todo!(),
-            Command::SetOption(_) => todo!(),
-            Command::Register { name, code } => todo!(),
-            Command::RegisterLater => todo!(),
-            Command::UciNewGame => todo!(),
-            Command::Position { fen, moves } => todo!(),
-            Command::Go(_) => todo!(),
-            Command::Stop => todo!(),
-            Command::PonderHit => todo!(),
-            Command::Quit => todo!(),
-            Command::Empty => todo!(),
+            Command::Debug(debug) => Ok(self.debug = debug),
+            Command::IsReady => Ok(self.writer.ready_ok()?),
+            Command::SetOption(opt) => self.set_option(opt),
+            Command::UciNewGame => self.client.uci_new_game(),
+            Command::Position { fen, moves } => self.client.position(&fen, &moves),
+            Command::Go(opts) => {
+                let writer = self.writer.clone();
+                // TODO: Don't unwrap
+                self.client.go(opts, move |info| match info {
+                    GoInfo::NewDepth(res) => writer.info(&map_search_result(&res)).unwrap(),
+                    GoInfo::BestMove(mv) => writer.best_move(mv).unwrap(),
+                })
+            }
+            Command::Stop => self.client.stop(),
+            Command::Quit => process::exit(0),
+            _ => Ok(self.debug(&format!("Unsupported command '{:?}'", cmd))?),
         }
+        .or_else(|err| self.debug(&err))
     }
 
     fn debug(&self, msg: &str) -> io::Result<()> {
@@ -168,17 +178,17 @@ where
     }
 }
 
-fn search_result_to_info(result: &SearchResult) -> Vec<SearchInfo> {
+fn map_search_result(result: &SearchResult) -> Vec<GoInfoPair> {
     let mut info = Vec::with_capacity(7);
 
-    info.push(SearchInfo::Depth(result.depth));
-    info.push(SearchInfo::SelDepth(result.sel_depth));
-    info.push(SearchInfo::Score(result.value));
-    info.push(SearchInfo::Nodes(result.nodes_searched));
-    let nps = result.nodes_searched as u128 * 1_000_000_000 / result.duration.as_nanos();
-    info.push(SearchInfo::Nps(nps as u64));
-    info.push(SearchInfo::HashFull(result.hash_full));
-    info.push(SearchInfo::Pv(result.line.to_vec()));
+    info.push(GoInfoPair::Depth(result.depth));
+    info.push(GoInfoPair::SelDepth(result.sel_depth));
+    info.push(GoInfoPair::Score(result.value));
+    info.push(GoInfoPair::Nodes(result.nodes_searched));
+    info.push(GoInfoPair::Nps(result.nps));
+    info.push(GoInfoPair::HashFull(result.hash_full));
+    info.push(GoInfoPair::Pv(result.line.to_vec()));
+    info.push(GoInfoPair::Time(result.total_duration.as_millis() as u64));
 
     info
 }
@@ -280,7 +290,6 @@ enum Command {
     Stop,
     PonderHit,
     Quit,
-    Empty,
 }
 
 #[derive(Display, Debug)]
@@ -289,7 +298,7 @@ enum UciOption {
 }
 
 #[derive(PartialEq, Debug)]
-enum GoOption {
+pub enum GoOption {
     SearchMoves(Vec<PseudoMove>),
     Ponder,
     WTime(u32),
@@ -306,7 +315,7 @@ enum GoOption {
 
 #[allow(dead_code)]
 #[derive(Debug)]
-enum SearchInfo {
+enum GoInfoPair {
     Depth(u8),
     SelDepth(u8),
     Time(u64),
@@ -321,21 +330,21 @@ enum SearchInfo {
     CurrLine { cpu_number: u32, line: Vec<Move> },
 }
 
-impl Display for SearchInfo {
+impl Display for GoInfoPair {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SearchInfo::Depth(depth) => write!(f, "depth {}", depth),
-            SearchInfo::SelDepth(depth) => write!(f, "seldepth {}", depth),
-            SearchInfo::Time(time) => write!(f, "time {}", time),
-            SearchInfo::Nodes(nodes) => write!(f, "nodes {}", nodes),
-            SearchInfo::Pv(pv) => write!(f, "pv {}", pv.iter().join(" ")),
-            SearchInfo::Score(score) => write!(f, "score {}", score),
-            SearchInfo::CurrMove(mv) => write!(f, "currmove {}", mv),
-            SearchInfo::CurrMoveNumber(mv_number) => write!(f, "currmovenumber {}", mv_number),
-            SearchInfo::HashFull(hash) => write!(f, "hashfull {}", hash),
-            SearchInfo::Nps(nps) => write!(f, "nps {}", nps),
-            SearchInfo::String(string) => write!(f, "string {}", string),
-            SearchInfo::CurrLine { cpu_number, line } => {
+            GoInfoPair::Depth(depth) => write!(f, "depth {}", depth),
+            GoInfoPair::SelDepth(depth) => write!(f, "seldepth {}", depth),
+            GoInfoPair::Time(time) => write!(f, "time {}", time),
+            GoInfoPair::Nodes(nodes) => write!(f, "nodes {}", nodes),
+            GoInfoPair::Pv(pv) => write!(f, "pv {}", pv.iter().join(" ")),
+            GoInfoPair::Score(score) => write!(f, "score {}", score),
+            GoInfoPair::CurrMove(mv) => write!(f, "currmove {}", mv),
+            GoInfoPair::CurrMoveNumber(mv_number) => write!(f, "currmovenumber {}", mv_number),
+            GoInfoPair::HashFull(hash) => write!(f, "hashfull {}", hash),
+            GoInfoPair::Nps(nps) => write!(f, "nps {}", nps),
+            GoInfoPair::String(string) => write!(f, "string {}", string),
+            GoInfoPair::CurrLine { cpu_number, line } => {
                 write!(f, "currline {} {}", cpu_number, line.iter().join(" "))
             }
         }

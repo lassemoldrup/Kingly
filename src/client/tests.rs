@@ -1,10 +1,9 @@
 use std::fs::File;
 use std::path::PathBuf;
 
+use crusty::eval::StandardEval;
 use serde::Deserialize;
 use serde_json::from_reader;
-
-use crate::eval::StandardEval;
 
 use super::Client;
 
@@ -32,7 +31,7 @@ fn test_perft() {
 
     println!("Testing Perft..");
     for (i, test) in tests.iter().enumerate() {
-        client.set_position(&test.fen).unwrap();
+        client.position(&test.fen, &[]).unwrap();
         println!("Running test position {}..", i + 1);
         assert_eq!(client.perft(test.depth), test.nodes);
     }

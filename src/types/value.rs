@@ -1,5 +1,5 @@
-use std::fmt::{Display, self};
-use std::ops::{Neg, RangeInclusive, Add, Mul, Sub};
+use std::fmt::{self, Display};
+use std::ops::{Add, Mul, Neg, RangeInclusive, Sub};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Value(i16);

@@ -1,6 +1,8 @@
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 
+use itertools::iproduct;
+
 use super::Color;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -42,7 +44,6 @@ impl Display for PieceKind {
     }
 }
 
-
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub struct Piece(pub PieceKind, pub Color);
 
@@ -53,6 +54,22 @@ impl Piece {
 
     pub fn color(self) -> Color {
         self.1
+    }
+
+    /// Iterates over all possibles value of `Piece`
+    pub fn iter() -> impl Iterator<Item = Self> {
+        iproduct!(
+            [Color::White, Color::Black],
+            [
+                PieceKind::Pawn,
+                PieceKind::Knight,
+                PieceKind::Bishop,
+                PieceKind::Rook,
+                PieceKind::Queen,
+                PieceKind::King
+            ]
+        )
+        .map(|(color, kind)| Self(kind, color))
     }
 }
 
@@ -77,7 +94,7 @@ impl Display for Piece {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.color() {
             Color::White => write!(f, "{}", format!("{}", self.kind()).to_ascii_uppercase()),
-            Color::Black => write!(f, "{}", self.kind())
+            Color::Black => write!(f, "{}", self.kind()),
         }
     }
 }

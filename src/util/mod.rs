@@ -1,4 +1,4 @@
-use crate::types::{Color, Square, Side};
+use crate::types::{Color, Side, Square};
 
 pub fn get_king_sq(color: Color) -> Square {
     match color {

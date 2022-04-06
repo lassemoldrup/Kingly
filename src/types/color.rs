@@ -14,8 +14,6 @@ impl Not for Color {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        unsafe {
-            transmute(-(self as i8))
-        }
+        unsafe { transmute(-(self as i8)) }
     }
 }

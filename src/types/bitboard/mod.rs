@@ -12,7 +12,7 @@ mod iter;
 #[macro_export]
 macro_rules! bb {
     ( $( $sq:expr ),* ) => {{
-        Bitboard::new() $(.add_sq($sq) )*
+        $crate::types::Bitboard::new() $(.add_sq($sq) )*
     }};
 }
 

@@ -1,7 +1,7 @@
 use std::ops::BitXor;
 
-use crate::types::{Square, Color, Piece, CastlingRights, Bitboard};
 use crate::tables::Tables;
+use crate::types::{Bitboard, CastlingRights, Color, Piece, Square};
 
 #[cfg(test)]
 mod tests;
@@ -16,7 +16,8 @@ impl ZobristKey for (Piece, Square) {
         let pce_index = match self.0.color() {
             Color::White => 0,
             Color::Black => 1,
-        } * 6 + self.0.kind() as usize;
+        } * 6
+            + self.0.kind() as usize;
         let index = pce_index * 64 + self.1 as usize;
 
         tables.zobrist_randoms_pieces[index]
@@ -26,7 +27,8 @@ impl ZobristKey for (Piece, Square) {
 /// Zobrist keys for piece at each square in bitboard
 impl ZobristKey for (Piece, Bitboard) {
     fn key(&self, tables: &Tables) -> u64 {
-        self.1.into_iter()
+        self.1
+            .into_iter()
             .map(|sq| (self.0, sq).key(tables))
             .fold(0, BitXor::bitxor)
     }

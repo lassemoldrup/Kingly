@@ -10,6 +10,7 @@ use crate::util::{get_castling_sq, get_king_sq};
 #[cfg(test)]
 mod tests;
 
+#[derive(Clone, Copy)]
 pub struct MoveGen {
     tables: &'static Tables,
 }

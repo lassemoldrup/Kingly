@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 
 pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-
 #[derive(Debug)]
 pub struct FenParseError {
     message: String,

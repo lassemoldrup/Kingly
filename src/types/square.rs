@@ -83,9 +83,7 @@ impl Add<SquareVec> for Square {
         let file = self.file() as i8 + rhs.1;
 
         if matches!(rank, 0..=7) && matches!(file, 0..=7) {
-            unsafe {
-                Some(Square::from_unchecked((8 * rank + file) as u8))
-            }
+            unsafe { Some(Square::from_unchecked((8 * rank + file) as u8)) }
         } else {
             None
         }
@@ -98,16 +96,13 @@ impl Display for Square {
     }
 }
 
-
 pub struct SquareIter {
     next_idx: u8,
 }
 
 impl SquareIter {
     fn new() -> Self {
-        Self {
-            next_idx: 0,
-        }
+        Self { next_idx: 0 }
     }
 }
 

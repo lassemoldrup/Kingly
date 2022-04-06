@@ -1,5 +1,5 @@
-use std::io::{self, Stdin, Empty, BufRead, Stdout, Write, Sink};
 use std::fmt::Arguments;
+use std::io::{self, BufRead, Empty, Sink, Stdin, Stdout, Write};
 
 pub trait Input {
     fn read_line(&mut self) -> io::Result<String>;
@@ -21,7 +21,7 @@ impl Input for String {
                 std::mem::swap(&mut res, self);
                 res.push('\n');
                 Ok(res)
-            },
+            }
             Some((line, rest)) => {
                 let mut res = line.to_string();
                 res.push('\n');
@@ -39,7 +39,6 @@ impl Input for Empty {
         Ok(buf)
     }
 }
-
 
 pub trait Output {
     fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()>;

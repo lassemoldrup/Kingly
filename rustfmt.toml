@@ -1,0 +1,4 @@
+ignore = [
+    # Ignored because of the very long Square enum
+    "src/types/square.rs"
+]

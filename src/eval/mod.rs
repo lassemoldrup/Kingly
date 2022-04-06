@@ -6,6 +6,8 @@ mod material;
 pub use material::MaterialEval;
 mod standard;
 pub use standard::StandardEval;
+#[cfg(test)]
+mod tests;
 
 /// NegaMax evaluation of the position
 pub trait Eval {

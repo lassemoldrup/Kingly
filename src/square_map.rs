@@ -44,8 +44,7 @@ impl<T> IndexMut<Square> for SquareMap<T> {
 
 impl<T: PartialEq> PartialEq for SquareMap<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.iter().zip(other.0.iter())
-            .all(|(x, y)| *x == *y)
+        self.0.iter().zip(other.0.iter()).all(|(x, y)| *x == *y)
     }
 }
 
@@ -63,19 +62,18 @@ impl<T: Debug> Debug for SquareMap<T> {
     }
 }
 
-
 pub struct Iter<'a, T> {
-    inner_iter: Map<Enumerate<std::slice::Iter<'a, T>>, fn((usize, &'a T)) -> (Square, &'a T)>
+    inner_iter: Map<Enumerate<std::slice::Iter<'a, T>>, fn((usize, &'a T)) -> (Square, &'a T)>,
 }
 
 impl<'a, T> Iter<'a, T> {
     fn new(square_map: &'a SquareMap<T>) -> Self {
         Self {
-            inner_iter: square_map.0.iter()
+            inner_iter: square_map
+                .0
+                .iter()
                 .enumerate()
-                .map(|(idx, item)| unsafe {
-                    (Square::from_unchecked(idx as u8), item)
-                }),
+                .map(|(idx, item)| unsafe { (Square::from_unchecked(idx as u8), item) }),
         }
     }
 }
@@ -88,21 +86,21 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<'a, T> FusedIterator for Iter<'a, T> { }
-
+impl<'a, T> FusedIterator for Iter<'a, T> {}
 
 pub struct IterMut<'a, T> {
-    inner_iter: Map<Enumerate<std::slice::IterMut<'a, T>>, fn((usize, &'a mut T)) -> (Square, &'a mut T)>
+    inner_iter:
+        Map<Enumerate<std::slice::IterMut<'a, T>>, fn((usize, &'a mut T)) -> (Square, &'a mut T)>,
 }
 
 impl<'a, T> IterMut<'a, T> {
     fn new(square_map: &'a mut SquareMap<T>) -> Self {
         Self {
-            inner_iter: square_map.0.iter_mut()
+            inner_iter: square_map
+                .0
+                .iter_mut()
                 .enumerate()
-                .map(|(idx, item)| unsafe {
-                    (Square::from_unchecked(idx as u8), item)
-                }),
+                .map(|(idx, item)| unsafe { (Square::from_unchecked(idx as u8), item) }),
         }
     }
 }
@@ -115,4 +113,4 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     }
 }
 
-impl<'a, T> FusedIterator for IterMut<'a, T> { }
+impl<'a, T> FusedIterator for IterMut<'a, T> {}

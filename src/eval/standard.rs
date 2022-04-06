@@ -5,6 +5,7 @@ use crate::types::Value;
 
 use super::*;
 
+#[derive(Clone, Copy)]
 pub struct StandardEval {
     move_gen: MoveGen,
 }

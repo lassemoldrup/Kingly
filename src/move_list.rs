@@ -1,5 +1,5 @@
+use std::ops::{Deref, DerefMut, Index};
 use std::slice::{Iter, SliceIndex};
-use std::ops::{Index, Deref, DerefMut};
 
 use arrayvec::{ArrayVec, IntoIter};
 
@@ -63,7 +63,10 @@ impl<'a> IntoIterator for &'a MoveList {
     }
 }
 
-impl<I> Index<I> for MoveList where I: SliceIndex<[Move]> {
+impl<I> Index<I> for MoveList
+where
+    I: SliceIndex<[Move]>,
+{
     type Output = <I as SliceIndex<[Move]>>::Output;
 
     fn index(&self, index: I) -> &Self::Output {

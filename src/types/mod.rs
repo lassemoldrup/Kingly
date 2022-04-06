@@ -13,4 +13,4 @@ pub use value::Value;
 mod castling;
 pub use castling::CastlingRights;
 mod misc;
-pub use misc::{Direction, SquareVec, Side};
+pub use misc::{Direction, Side, SquareVec};

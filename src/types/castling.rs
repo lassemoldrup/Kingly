@@ -5,10 +5,12 @@ pub struct CastlingRights(usize);
 
 impl CastlingRights {
     pub fn new(w_king: bool, w_queen: bool, b_king: bool, b_queen: bool) -> Self {
-        CastlingRights(w_king as usize 
-            | (w_queen as usize) << 1
-            | (b_king as usize) << 2
-            | (b_queen as usize) << 3)
+        CastlingRights(
+            w_king as usize
+                | (w_queen as usize) << 1
+                | (b_king as usize) << 2
+                | (b_queen as usize) << 3,
+        )
     }
 
     pub fn get(&self, color: Color, side: Side) -> bool {

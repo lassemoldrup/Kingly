@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub mod client;
 pub mod eval;
 pub mod fen;
 pub mod move_gen;

@@ -29,16 +29,16 @@ pub struct Search<'client, 'f, E> {
     search_time: Option<Duration>,
     callbacks: Vec<Box<dyn FnMut(&SearchResult) + 'f>>,
     position: Position,
-    move_gen: &'client MoveGen,
-    eval: &'client E,
+    move_gen: MoveGen,
+    eval: E,
     trans_table: &'client mut TranspositionTable,
 }
 
 impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
     pub fn new(
         position: Position,
-        move_gen: &'client MoveGen,
-        eval: &'client E,
+        move_gen: MoveGen,
+        eval: E,
         trans_table: &'client mut TranspositionTable,
     ) -> Self {
         let callbacks = vec![];
@@ -365,17 +365,19 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
                 }
             }
 
-            let hash_full = (self.trans_table.len() * 1000) / self.trans_table.capacity();
-            let duration = depth_start.elapsed();
-            let search_result = SearchResult::new(
-                max_score,
-                primary_variation,
-                depth + 1,
-                params.sel_depth,
-                params.nodes,
-                duration,
-                hash_full as u32,
-            );
+            let hash_full = ((self.trans_table.len() * 1000) / self.trans_table.capacity()) as u32;
+            let nps =
+                (params.nodes as u128 * 1_000_000_000 / depth_start.elapsed().as_nanos()) as u64;
+            let search_result = SearchResult {
+                value: max_score,
+                line: primary_variation,
+                depth: depth + 1,
+                sel_depth: params.sel_depth,
+                nodes_searched: params.nodes,
+                nps,
+                total_duration: search_start.elapsed(),
+                hash_full,
+            };
             self.notify_info(&search_result);
         }
     }
@@ -388,28 +390,7 @@ pub struct SearchResult {
     pub depth: u8,
     pub sel_depth: u8,
     pub nodes_searched: u64,
-    pub duration: Duration,
+    pub nps: u64,
+    pub total_duration: Duration,
     pub hash_full: u32,
-}
-
-impl SearchResult {
-    pub fn new(
-        value: Value,
-        line: Vec<Move>,
-        depth: u8,
-        sel_depth: u8,
-        nodes_searched: u64,
-        duration: Duration,
-        hash_full: u32,
-    ) -> Self {
-        Self {
-            value,
-            line,
-            depth,
-            sel_depth,
-            nodes_searched,
-            duration,
-            hash_full,
-        }
-    }
 }

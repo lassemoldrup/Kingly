@@ -2,8 +2,8 @@ use std::iter::FusedIterator;
 
 use bitintr::Blsr;
 
-use crate::types::Square;
 use super::Bitboard;
+use crate::types::Square;
 
 pub struct BitboardIter(Bitboard);
 
@@ -20,13 +20,11 @@ impl Iterator for BitboardIter {
         if self.0.is_empty() {
             None
         } else {
-            let sq = unsafe {
-                self.0.first_sq_unchecked()
-            };
+            let sq = unsafe { self.0.first_sq_unchecked() };
             self.0 = Bitboard((self.0).0.blsr());
             Some(sq)
         }
     }
 }
 
-impl FusedIterator for BitboardIter { }
+impl FusedIterator for BitboardIter {}
