@@ -111,12 +111,8 @@ impl Position {
         let tables = Tables::get();
         let mut zobrist = 0;
 
-        use PieceKind::*;
-        for kind in [Pawn, Knight, Bishop, Rook, Queen, King] {
-            for color in [Color::White, Color::Black] {
-                let pce = Piece(kind, color);
-                zobrist ^= (pce, pieces.get_bb(pce)).key(tables);
-            }
+        for pce in Piece::iter() {
+            zobrist ^= (pce, pieces.get_bb(pce)).key(tables);
         }
         zobrist ^= to_move.key(tables);
         zobrist ^= castling.key(tables);
@@ -294,8 +290,6 @@ impl Position {
             self.remove_castling_rights(opp, 0b01);
         } else if to == get_rook_sq(opp, Side::QueenSide) {
             self.remove_castling_rights(opp, 0b10);
-        } else {
-            return;
         }
     }
 

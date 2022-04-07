@@ -79,8 +79,7 @@ impl TryFrom<char> for Piece {
     fn try_from(value: char) -> Result<Self, Self::Error> {
         let kind = PieceKind::try_from(value)?;
 
-        let color;
-        color = if value.is_ascii_uppercase() {
+        let color = if value.is_ascii_uppercase() {
             Color::White
         } else {
             Color::Black

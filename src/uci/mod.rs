@@ -80,10 +80,10 @@ where
                         .map(|x| x.join(" "))
                         .collect_tuple::<(_, _)>()
                         .map(parse_uci_option)
-                        .unwrap_or(Err("Invalid argument".into())),
+                        .unwrap_or_else(|| Err("Invalid argument".into())),
                     _ => Err(format!("Invalid argument '{}'", arg)),
                 })
-                .map(|opt| Command::SetOption(opt)),
+                .map(Command::SetOption),
 
             "register" => get_arg(&cmds, 1).and_then(|arg| match arg {
                 "later" => Ok(Command::RegisterLater),
@@ -159,7 +159,7 @@ where
                 let writer = self.writer.clone();
                 // TODO: Don't unwrap
                 self.client.go(opts, move |info| match info {
-                    GoInfo::NewDepth(res) => writer.info(&map_search_result(&res)).unwrap(),
+                    GoInfo::NewDepth(res) => writer.info(&map_search_result(res)).unwrap(),
                     GoInfo::BestMove(mv) => writer.best_move(mv).unwrap(),
                 })
             }
@@ -179,16 +179,16 @@ where
 }
 
 fn map_search_result(result: &SearchResult) -> Vec<GoInfoPair> {
-    let mut info = Vec::with_capacity(7);
-
-    info.push(GoInfoPair::Depth(result.depth));
-    info.push(GoInfoPair::SelDepth(result.sel_depth));
-    info.push(GoInfoPair::Score(result.value));
-    info.push(GoInfoPair::Nodes(result.nodes_searched));
-    info.push(GoInfoPair::Nps(result.nps));
-    info.push(GoInfoPair::HashFull(result.hash_full));
-    info.push(GoInfoPair::Pv(result.line.to_vec()));
-    info.push(GoInfoPair::Time(result.total_duration.as_millis() as u64));
+    let info = vec![
+        GoInfoPair::Depth(result.depth),
+        GoInfoPair::SelDepth(result.sel_depth),
+        GoInfoPair::Score(result.value),
+        GoInfoPair::Nodes(result.nodes_searched),
+        GoInfoPair::Nps(result.nps),
+        GoInfoPair::HashFull(result.hash_full),
+        GoInfoPair::Pv(result.line.to_vec()),
+        GoInfoPair::Time(result.total_duration.as_millis() as u64),
+    ];
 
     info
 }
@@ -203,7 +203,7 @@ fn parse_uci_option((name, value): (String, String)) -> Result<UciOption, String
     match name.as_str() {
         "Hash" => value
             .parse()
-            .map(|v| UciOption::Hash(v))
+            .map(UciOption::Hash)
             .map_err(|_| format!("Illegal value '{}'", value)),
         _ => Err(format!("Unrecognized option '{}'", name)),
     }

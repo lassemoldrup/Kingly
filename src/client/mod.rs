@@ -165,7 +165,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
 
         let move_gen = self.move_gen.unwrap();
         for &mv in moves {
-            let legal_moves = move_gen.gen_all_moves(&position);
+            let legal_moves = move_gen.gen_all_moves(position);
             let mv = mv.into_move(&legal_moves)?;
             // Safety: Move `mv` was generated, so is legal
             unsafe {

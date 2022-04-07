@@ -93,13 +93,13 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
         depth_left: u8,
         params: &mut SearchParams,
     ) -> Value {
-        if self.should_stop(&params) {
+        if self.should_stop(params) {
             return Value::from_inf(0);
         }
 
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
 
-        if moves.len() == 0 {
+        if moves.is_empty() {
             // Checkmate
             return if check {
                 Value::from_neg_inf(((params.start_depth - depth_left + 1) / 2) as u16)
@@ -298,7 +298,7 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
         let mut moves =
             search_moves.unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).into_vec());
 
-        if moves.len() == 0 {
+        if moves.is_empty() {
             return;
         }
 

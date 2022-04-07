@@ -2,6 +2,7 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Formatter};
 use std::iter::{Enumerate, FusedIterator, Map};
 use std::ops::{Index, IndexMut};
+use std::slice;
 
 use crate::types::Square;
 
@@ -63,7 +64,7 @@ impl<T: Debug> Debug for SquareMap<T> {
 }
 
 pub struct Iter<'a, T> {
-    inner_iter: Map<Enumerate<std::slice::Iter<'a, T>>, fn((usize, &'a T)) -> (Square, &'a T)>,
+    inner_iter: Map<Enumerate<slice::Iter<'a, T>>, fn((usize, &'a T)) -> (Square, &'a T)>,
 }
 
 impl<'a, T> Iter<'a, T> {
@@ -90,7 +91,7 @@ impl<'a, T> FusedIterator for Iter<'a, T> {}
 
 pub struct IterMut<'a, T> {
     inner_iter:
-        Map<Enumerate<std::slice::IterMut<'a, T>>, fn((usize, &'a mut T)) -> (Square, &'a mut T)>,
+        Map<Enumerate<slice::IterMut<'a, T>>, fn((usize, &'a mut T)) -> (Square, &'a mut T)>,
 }
 
 impl<'a, T> IterMut<'a, T> {

@@ -99,3 +99,9 @@ impl DerefMut for MoveList {
         self.as_mut()
     }
 }
+
+impl Default for MoveList {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -110,7 +110,7 @@ where
                 .copied()
                 .map(<PseudoMove as FromStr>::from_str)
                 .collect::<Result<_, _>>()
-                .map(|moves| Command::Move(moves)),
+                .map(Command::Move),
             "debug" => Ok(Command::Debug),
             _ => Err("Invalid command".to_string()),
         }
