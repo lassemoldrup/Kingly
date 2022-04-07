@@ -188,7 +188,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
             return Err(String::from("Already searching"));
         }
 
-        self.stop_search.store(false, Ordering::Release);
+        self.stop_search.store(false, Ordering::Relaxed);
 
         let move_gen = self.move_gen.expect(NOT_INIT);
         let eval = self.eval.clone().unwrap();
@@ -238,7 +238,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
             return Err(String::from("Attempt to stop while not searching"));
         }
 
-        self.stop_search.store(true, Ordering::Release);
+        self.stop_search.store(true, Ordering::Relaxed);
 
         let mut search_handle = None;
         mem::swap(&mut search_handle, &mut self.search_handle);

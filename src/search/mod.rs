@@ -277,7 +277,7 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
 
     fn should_stop(&self, params: &SearchParams) -> bool {
         let time_searched = params.search_start.elapsed();
-        params.stop_search.load(Ordering::Acquire)
+        params.stop_search.load(Ordering::Relaxed)
             || self.search_time.map_or(false, |time| time_searched >= time)
             || self
                 .search_nodes

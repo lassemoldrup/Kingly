@@ -1,6 +1,8 @@
 use std::fmt::Arguments;
 use std::io::{self, BufRead, Empty, Sink, Stdin, Stdout, Write};
 
+use log::{debug, Level, RecordBuilder};
+
 pub trait Input {
     fn read_line(&mut self) -> io::Result<String>;
 }
@@ -83,5 +85,29 @@ impl<O: Output> Output for &mut O {
 
     fn flush(&mut self) -> io::Result<()> {
         (*self).flush()
+    }
+}
+
+pub struct Logging<T>(pub T);
+
+impl<T: Input> Input for Logging<T> {
+    fn read_line(&mut self) -> io::Result<String> {
+        self.0.read_line().map(|s| {
+            debug!("{}", s);
+            s
+        })
+    }
+}
+
+impl<T: Output> Output for Logging<T> {
+    fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()> {
+        let log_record = RecordBuilder::new().level(Level::Debug).args(fmt).build();
+        log::logger().log(&log_record);
+        self.0.write_fmt(fmt)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        log::logger().flush();
+        self.0.flush()
     }
 }

@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use log::debug;
+
 use crate::position::Position;
 use crate::types::{Move, Value};
 
@@ -28,11 +30,16 @@ impl TranspositionTable {
             capacity.next_power_of_two() >> 1
         };
 
-        //LOG.append(&format!("Allocating trans. table with capacity {} (actual {})\n", capacity, actual_capacity));
+        debug!(
+            "Allocating trans. table with capacity {} (actual {})",
+            capacity, actual_capacity
+        );
 
         let data = vec![None; actual_capacity];
         let mod_mask = actual_capacity - 1;
         let count = 0;
+
+        debug!("Done allocating trans. table");
 
         Self {
             data,
