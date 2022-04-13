@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::{io, process};
 
 use crusty::fen::STARTING_FEN;
-use crusty::search::SearchResult;
+use crusty::search::SearchInfo;
 use itertools::Itertools;
 use strum_macros::Display;
 
@@ -178,15 +178,15 @@ where
     }
 }
 
-fn map_search_result(result: &SearchResult) -> Vec<GoInfoPair> {
+fn map_search_result(result: &SearchInfo) -> Vec<GoInfoPair> {
     let info = vec![
         GoInfoPair::Depth(result.depth),
         GoInfoPair::SelDepth(result.sel_depth),
-        GoInfoPair::Score(result.value),
+        GoInfoPair::Score(result.score),
         GoInfoPair::Nodes(result.nodes_searched),
         GoInfoPair::Nps(result.nps),
         GoInfoPair::HashFull(result.hash_full),
-        GoInfoPair::Pv(result.line.to_vec()),
+        GoInfoPair::Pv(result.pv.to_vec()),
         GoInfoPair::Time(result.total_duration.as_millis() as u64),
     ];
 

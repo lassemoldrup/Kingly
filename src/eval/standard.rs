@@ -28,6 +28,6 @@ impl Eval for StandardEval {
         let mobility = self.move_gen.get_mobility(position, position.to_move) as i16
             - self.move_gen.get_mobility(position, !position.to_move) as i16;
 
-        Value::from_cp(material + 2 * mobility + 7)
+        Value::centi_pawn(material + 2 * mobility + 7)
     }
 }

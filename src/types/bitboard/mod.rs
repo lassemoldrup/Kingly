@@ -11,12 +11,12 @@ mod iter;
 
 #[macro_export]
 macro_rules! bb {
-    ( $( $sq:expr ),* ) => {{
+    ( $( $sq:expr ),* ) => {
         $crate::types::Bitboard::new() $(.add_sq($sq) )*
-    }};
+    };
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Default)]
 pub struct Bitboard(u64);
 
 impl Bitboard {

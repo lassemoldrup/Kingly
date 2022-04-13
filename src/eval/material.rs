@@ -14,6 +14,6 @@ impl Eval for MaterialEval {
     fn eval(&self, position: &Position) -> Value {
         let material = get_material_score(position);
 
-        Value::from_cp(material)
+        Value::centi_pawn(material)
     }
 }

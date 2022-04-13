@@ -4,6 +4,50 @@ use std::{fmt, mem};
 
 use crate::types::{PieceKind, Square};
 
+#[macro_export]
+macro_rules! mv {
+    ( $from:tt -> $to:tt ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_regular($from, $to)
+    }};
+    ( O-O w ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_castling(E1, G1)
+    }};
+    ( O-O-O w ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_castling(E1, C1)
+    }};
+    ( O-O b ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_castling(E8, G8)
+    }};
+    ( O-O-O b ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_castling(E8, C8)
+    }};
+    ( $from:tt -> $to:tt n ) => {
+        mv!($from -> $to $crate::types::PieceKind::Knight)
+    };
+    ( $from:tt -> $to:tt b ) => {
+        mv!($from -> $to $crate::types::PieceKind::Bishop)
+    };
+    ( $from:tt -> $to:tt r ) => {
+        mv!($from -> $to $crate::types::PieceKind::Rook)
+    };
+    ( $from:tt -> $to:tt q ) => {
+        mv!($from -> $to $crate::types::PieceKind::Queen)
+    };
+    ( $from:tt -> $to:tt ep ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_en_passant($from, $to)
+    }};
+    ( $from:tt -> $to:tt $kind:expr ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_promotion($from, $to, $kind)
+    }};
+}
+
 pub enum MoveKind {
     Regular,
     Castling,
@@ -15,7 +59,7 @@ pub enum MoveKind {
 /// 0-5: from sq
 /// 6-11: to sq
 /// 12-13: kind (0: regular, 1: castling, 2: promotion, 3: en passant)
-/// 14-15: promotion (0: knight, 1: bishop, 2: rook, 4: queen)
+/// 14-15: promotion (0: knight, 1: bishop, 2: rook, 3: queen)
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Move(u16);
 

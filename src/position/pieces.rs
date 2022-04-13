@@ -5,7 +5,7 @@ use crate::bb;
 use crate::square_map::SquareMap;
 use crate::types::{Bitboard, Color, Piece, PieceKind, Square};
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
 pub struct Pieces {
     white_pieces: PieceBoards,
     black_pieces: PieceBoards,
@@ -15,12 +15,7 @@ pub struct Pieces {
 
 impl Pieces {
     pub fn new() -> Self {
-        Self {
-            white_pieces: PieceBoards::new(),
-            black_pieces: PieceBoards::new(),
-            map: SquareMap::default(),
-            occupied: bb!(),
-        }
+        Self::default()
     }
 
     pub fn get(&self, sq: Square) -> Option<Piece> {
@@ -87,7 +82,7 @@ impl Display for Pieces {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
 struct PieceBoards {
     pawn: Bitboard,
     knight: Bitboard,
@@ -99,18 +94,6 @@ struct PieceBoards {
 }
 
 impl PieceBoards {
-    fn new() -> Self {
-        PieceBoards {
-            pawn: bb!(),
-            knight: bb!(),
-            bishop: bb!(),
-            rook: bb!(),
-            queen: bb!(),
-            king: bb!(),
-            occupied: bb!(),
-        }
-    }
-
     fn get(&self, kind: PieceKind) -> Bitboard {
         match kind {
             PieceKind::Pawn => self.pawn,

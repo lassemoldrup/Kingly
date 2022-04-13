@@ -63,6 +63,12 @@ impl<'a> IntoIterator for &'a MoveList {
     }
 }
 
+impl FromIterator<Move> for MoveList {
+    fn from_iter<I: IntoIterator<Item = Move>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 impl<I> Index<I> for MoveList
 where
     I: SliceIndex<[Move]>,

@@ -438,6 +438,12 @@ impl Position {
     }
 }
 
+impl Default for Position {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PartialEq for Position {
     fn eq(&self, other: &Self) -> bool {
         self.zobrist == other.zobrist

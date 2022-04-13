@@ -1,7 +1,7 @@
 use std::fmt::Arguments;
 use std::io::{self, BufRead, Empty, Sink, Stdin, Stdout, Write};
 
-use log::{debug, Level, RecordBuilder};
+use log::trace;
 
 pub trait Input {
     fn read_line(&mut self) -> io::Result<String>;
@@ -93,7 +93,7 @@ pub struct Logging<T>(pub T);
 impl<T: Input> Input for Logging<T> {
     fn read_line(&mut self) -> io::Result<String> {
         self.0.read_line().map(|s| {
-            debug!("{}", s);
+            trace!("GUI: {}", s);
             s
         })
     }
@@ -101,8 +101,10 @@ impl<T: Input> Input for Logging<T> {
 
 impl<T: Output> Output for Logging<T> {
     fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()> {
-        let log_record = RecordBuilder::new().level(Level::Debug).args(fmt).build();
-        log::logger().log(&log_record);
+        let mut s = String::new();
+        s.write_fmt(fmt)?;
+        trace!("Engine: {}", s);
+
         self.0.write_fmt(fmt)
     }
 

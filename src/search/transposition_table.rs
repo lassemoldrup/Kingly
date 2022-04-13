@@ -1,6 +1,7 @@
+use std::fmt::{self, Debug, Formatter};
 use std::mem::size_of;
 
-use log::debug;
+use log::info;
 
 use crate::position::Position;
 use crate::types::{Move, Value};
@@ -30,7 +31,7 @@ impl TranspositionTable {
             capacity.next_power_of_two() >> 1
         };
 
-        debug!(
+        info!(
             "Allocating trans. table with capacity {} (actual {})",
             capacity, actual_capacity
         );
@@ -39,7 +40,7 @@ impl TranspositionTable {
         let mod_mask = actual_capacity - 1;
         let count = 0;
 
-        debug!("Done allocating trans. table");
+        info!("Done allocating trans. table");
 
         Self {
             data,
@@ -131,6 +132,12 @@ impl TranspositionTable {
     }
 }
 
+impl Default for TranspositionTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Entry {
     pub score: Value,
@@ -141,9 +148,9 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn new(score: Value, best_move: Move, kind: Bound, depth: u8) -> Self {
+    pub fn new(score: Value, best_move: Move, bound: Bound, depth: u8) -> Self {
         let entry_score = depth
-            + match kind {
+            + match bound {
                 Bound::Exact => 1,
                 Bound::Lower | Bound::Upper => 0,
             };
@@ -151,14 +158,25 @@ impl Entry {
         Self {
             score,
             best_move,
-            bound: kind,
+            bound,
             depth,
             entry_score,
         }
     }
 }
 
-#[derive(Clone, Copy)]
+impl Debug for Entry {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("Entry")
+            .field("score", &self.score)
+            .field("best_move", &self.best_move)
+            .field("bound", &self.bound)
+            .field("depth", &self.depth)
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum Bound {
     Exact,
     Lower,

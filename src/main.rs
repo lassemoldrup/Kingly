@@ -1,10 +1,11 @@
-use std::fs::File;
+use std::env;
 
 use cli::Cli;
 use client::Client;
 use io::Logging;
+use itertools::Itertools;
 use log::LevelFilter;
-use simplelog::{Config, WriteLogger};
+use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 
 mod cli;
 mod client;
@@ -12,12 +13,15 @@ mod io;
 mod uci;
 
 fn main() -> std::io::Result<()> {
-    WriteLogger::init(
-        LevelFilter::Debug,
-        Config::default(),
-        File::create("./log.txt").unwrap(),
-    )
-    .unwrap();
+    if env::args().contains(&String::from("--trace")) {
+        TermLogger::init(
+            LevelFilter::Trace,
+            Config::default(),
+            TerminalMode::Stderr,
+            ColorChoice::Auto,
+        )
+        .unwrap();
+    }
 
     let client = Client::new();
     Cli::new(

@@ -5,15 +5,15 @@ use std::ops::{Add, Mul, Neg, RangeInclusive, Sub};
 pub struct Value(i16);
 
 impl Value {
-    pub fn from_cp(cp: i16) -> Self {
+    pub const fn centi_pawn(cp: i16) -> Self {
         Self(cp)
     }
 
-    pub fn from_neg_inf(moves: u16) -> Self {
+    pub const fn mate_in_neg(moves: u16) -> Self {
         Self(i16::MIN + 1 + moves as i16)
     }
 
-    pub fn from_inf(moves: u16) -> Self {
+    pub const fn mate_in(moves: u16) -> Self {
         Self(i16::MAX - moves as i16)
     }
 }

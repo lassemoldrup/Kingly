@@ -7,7 +7,7 @@ use crusty::eval::Eval;
 use crusty::move_gen::MoveGen;
 use crusty::move_list::MoveList;
 use crusty::position::Position;
-use crusty::search::{Search, SearchResult, TranspositionTable};
+use crusty::search::{Search, SearchInfo, TranspositionTable};
 use crusty::tables::Tables;
 use crusty::types::{Move, PseudoMove};
 use parking_lot::Mutex;
@@ -214,7 +214,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
             let mut best_move = None;
             search
                 .on_info(|res| {
-                    best_move = res.line.first().copied();
+                    best_move = res.pv.first().copied();
                     on_info(GoInfo::NewDepth(res));
                 })
                 .start(&stop_search);
@@ -259,6 +259,6 @@ impl<E> fmt::Debug for Client<E> {
 }
 
 pub enum GoInfo<'a> {
-    NewDepth(&'a SearchResult),
+    NewDepth(&'a SearchInfo),
     BestMove(Move),
 }
