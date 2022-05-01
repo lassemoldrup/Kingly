@@ -59,7 +59,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
         self.move_gen
             .as_ref()
             .expect(NOT_INIT)
-            .gen_all_moves(self.position.as_ref().expect(NOT_INIT))
+            .gen_all_moves(self.position.as_ref().unwrap())
     }
 
     pub fn make_move(&mut self, mv: Move) -> Result<(), String> {
@@ -114,7 +114,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
             count
         }
 
-        let mut position = self.position.clone().expect(NOT_INIT);
+        let mut position = self.position.clone().unwrap();
         inner(&mut position, move_gen, depth)
     }
 
