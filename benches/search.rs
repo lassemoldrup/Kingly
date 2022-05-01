@@ -1,9 +1,9 @@
 use std::sync::atomic::AtomicBool;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use crusty::eval::{Eval, StandardEval};
-use crusty::search::TranspositionTable;
-use crusty::{move_gen::MoveGen, position::Position, search::Search, tables::Tables};
+use kingly_lib::eval::{Eval, StandardEval};
+use kingly_lib::search::TranspositionTable;
+use kingly_lib::{move_gen::MoveGen, position::Position, search::Search, tables::Tables};
 
 fn bench_pos(c: &mut Criterion, id: &str, position: Position, depth: u8) {
     let move_gen = MoveGen::new(Tables::get());

@@ -1,8 +1,8 @@
 use std::io;
 use std::sync::Arc;
 
-use crusty::types::Move;
 use itertools::Itertools;
+use kingly_lib::types::Move;
 use parking_lot::Mutex;
 
 use crate::io::Output;
@@ -28,7 +28,7 @@ impl<O: Output> Writer<O> {
 
     pub fn id(&self) -> io::Result<()> {
         let mut output = self.output.lock();
-        writeln!(output, "id name Crusty")?;
+        writeln!(output, "id name kingly_lib")?;
         writeln!(output, "id author Lasse Møldrup")
     }
 

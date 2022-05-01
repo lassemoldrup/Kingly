@@ -1,5 +1,5 @@
-# Crusty
-Cursty is a (WIP) UCI compliant chess engine written in Rust.
+# Kingly
+Kingly is a (WIP) UCI compliant chess engine written in Rust.
 
 ## How to use
 Install Rust through [rustup](https://rustup.rs/) and run with cargo:

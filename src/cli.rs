@@ -1,8 +1,8 @@
 use std::str::FromStr;
 use std::time::Instant;
 
-use crusty::eval::StandardEval;
-use crusty::types::PseudoMove;
+use kingly_lib::eval::StandardEval;
+use kingly_lib::types::PseudoMove;
 
 use crate::client::Client;
 use crate::uci::Uci;
@@ -52,7 +52,11 @@ where
     }
 
     fn print_welcome(&mut self) -> std::io::Result<()> {
-        writeln!(self.output, "Crusty ver. {}\n", env!("CARGO_PKG_VERSION"))?;
+        writeln!(
+            self.output,
+            "kingly_lib ver. {}\n",
+            env!("CARGO_PKG_VERSION")
+        )?;
         writeln!(self.output, "Commands:")?;
         writeln!(self.output, "uci\t\t\tStarts UCI mode")?;
         writeln!(

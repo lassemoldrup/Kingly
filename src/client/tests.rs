@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::path::PathBuf;
 
-use crusty::eval::StandardEval;
+use kingly_lib::eval::StandardEval;
 use serde::Deserialize;
 use serde_json::from_reader;
 

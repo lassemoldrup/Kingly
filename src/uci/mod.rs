@@ -4,13 +4,13 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{io, process};
 
-use crusty::fen::STARTING_FEN;
-use crusty::search::SearchInfo;
 use itertools::Itertools;
+use kingly_lib::fen::STARTING_FEN;
+use kingly_lib::search::SearchInfo;
 use strum_macros::Display;
 
-use crusty::eval::StandardEval;
-use crusty::types::{Move, PseudoMove, Value};
+use kingly_lib::eval::StandardEval;
+use kingly_lib::types::{Move, PseudoMove, Value};
 
 use crate::client::{Client, GoInfo};
 use crate::io::{Input, Output};

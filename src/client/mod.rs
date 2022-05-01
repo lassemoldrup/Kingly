@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::{fmt, mem, thread};
 
-use crusty::eval::Eval;
-use crusty::move_gen::MoveGen;
-use crusty::move_list::MoveList;
-use crusty::position::Position;
-use crusty::search::{Search, SearchInfo, TranspositionTable};
-use crusty::tables::Tables;
-use crusty::types::{Move, PseudoMove};
+use kingly_lib::eval::Eval;
+use kingly_lib::move_gen::MoveGen;
+use kingly_lib::move_list::MoveList;
+use kingly_lib::position::Position;
+use kingly_lib::search::{Search, SearchInfo, TranspositionTable};
+use kingly_lib::tables::Tables;
+use kingly_lib::types::{Move, PseudoMove};
 use parking_lot::Mutex;
 
 use crate::uci::GoOption;
