@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 use std::mem::size_of;
 
-use log::info;
+use tracing::info;
 
 use crate::position::Position;
 use crate::types::{Move, Value};

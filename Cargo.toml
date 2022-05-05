@@ -5,15 +5,14 @@ edition = "2021"
 
 [workspace]
 members = [".", "lib", "tools"]
-default-members = [".", "lib"]
+default-members = [".", "lib", "tools"]
 
 [dependencies]
-kingly_lib = { path = "lib" }
+kingly-lib = { path = "lib" }
 itertools = "0.10.1"
 strum_macros = "0.23.1"
 parking_lot = "0.12.0"
-log = "0.4.16"
-simplelog = "0.11.2"
+tracing = "0.1.34"
 
 [dev-dependencies]
 serde = { version = "1.0.123", features = ["derive"] }

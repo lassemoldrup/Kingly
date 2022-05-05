@@ -2,6 +2,8 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::{fmt, mem};
 
+use valuable::Valuable;
+
 use crate::types::{PieceKind, Square};
 
 #[macro_export]
@@ -60,7 +62,7 @@ pub enum MoveKind {
 /// 6-11: to sq
 /// 12-13: kind (0: regular, 1: castling, 2: promotion, 3: en passant)
 /// 14-15: promotion (0: knight, 1: bishop, 2: rook, 3: queen)
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, Valuable)]
 pub struct Move(u16);
 
 impl Move {

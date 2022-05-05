@@ -1,7 +1,11 @@
 [package]
-name = "kingly_lib"
+name = "kingly-lib"
 version = "0.1.0"
 edition = "2021"
+
+[features]
+#default = ["trace"]
+trace = []
 
 [dependencies]
 arrayvec = "0.7.2"
@@ -15,4 +19,5 @@ rand_chacha = "0.3.1"
 bytemuck = { version = "1.7.3", features = ["min_const_generics"] }
 intmap = "0.7.1"
 parking_lot = "0.12.0"
-log = "0.4.16"
+tracing = { version = "0.1.34", features = ["valuable"] }
+valuable = { version = "0.1.0", features = ["derive"] }

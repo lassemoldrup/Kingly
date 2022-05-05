@@ -1,7 +1,9 @@
 use std::fmt::{self, Display};
 use std::ops::{Add, Mul, Neg, RangeInclusive, Sub};
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+use valuable::Valuable;
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Valuable)]
 pub struct Value(i16);
 
 impl Value {

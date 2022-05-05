@@ -1,7 +1,7 @@
 use std::fmt::Arguments;
 use std::io::{self, BufRead, Empty, Sink, Stdin, Stdout, Write};
 
-use log::trace;
+use tracing::trace;
 
 pub trait Input {
     fn read_line(&mut self) -> io::Result<String>;
@@ -109,7 +109,6 @@ impl<T: Output> Output for Logging<T> {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        log::logger().flush();
         self.0.flush()
     }
 }
