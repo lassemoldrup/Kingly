@@ -9,6 +9,7 @@ use kingly_lib::move_gen::MoveGen;
 use kingly_lib::position::Position;
 use kingly_lib::search::{Search, TranspositionTable};
 use kingly_lib::tables::Tables;
+use kingly_lib::types::{self, Move};
 use tracing::field::{Field, Visit};
 use tracing::span::Attributes;
 use tracing::subscriber::set_global_default;
@@ -16,9 +17,52 @@ use tracing::{Event, Id, Level, Metadata, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{prelude::*, registry, Layer};
-use valuable::Value;
 
-struct Tree;
+enum ReturnKind {
+    Best(Move),
+    Beta(Move),
+    TTExact,
+    TTBound,
+    Quiesce,
+    Checkmate,
+    Stalemate,
+}
+
+enum AspirationResult {
+    FailHigh,
+    FailBeta,
+    FailLow,
+    FailAlpha,
+    InBounds,
+}
+
+enum NodeData {
+    Search {
+        alpha: types::Value,
+        beta: types::Value,
+        mv: Move,
+        score: types::Value,
+        kind: ReturnKind,
+    },
+    Aspiration {
+        alpha: types::Value,
+        beta: types::Value,
+        mv: Move,
+    },
+    ApirationIteration {
+        low: types::Value,
+        high: types::Value,
+        score: types::Value,
+        result: AspirationResult,
+    },
+}
+
+struct Node {
+    data: NodeData,
+    size: usize,
+}
+
+struct Tree(Vec<Node>);
 
 impl Tree {}
 
@@ -27,7 +71,7 @@ impl Visit for Tree {
         dbg!(field, value);
     }
 
-    fn record_value(&mut self, field: &Field, value: Value) {
+    fn record_value(&mut self, field: &Field, value: valuable::Value) {
         dbg!(field, value);
     }
 }
@@ -46,18 +90,8 @@ where
         //dbg!(attrs.values());
     }
 
-    fn on_event(&self, event: &Event, ctx: Context<'_, S>) {
-        if let Some(span) = ctx.current_span().metadata() {
-            match span.name() {
-                "search" => {
-                    event.record(&mut Tree);
-                }
-                "aspiration" => {}
-                _ => {}
-            }
-        } else {
-            panic!()
-        }
+    fn on_event(&self, event: &Event, _ctx: Context<'_, S>) {
+        todo!()
     }
 }
 

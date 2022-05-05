@@ -203,6 +203,15 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
                 return None;
             }
 
+            #[cfg(feature = "trace")]
+            let _span = trace_span!(
+                "search",
+                %alpha,
+                %beta,
+                mv = %self.position.last_move().unwrap()
+            )
+            .entered();
+
             self.position.make_move(mv);
             let score = -search(self, -beta, -alpha, depth - 1, params);
             self.position.unmake_move();
@@ -238,16 +247,6 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
         depth: u8,
         params: &mut SearchParams,
     ) -> Value {
-        #[cfg(feature = "trace")]
-        let span = trace_span!(
-            "search",
-            alpha = alpha.as_value(),
-            beta = beta.as_value(),
-            depth,
-            mv = self.position.last_move().unwrap().as_value()
-        )
-        .entered();
-
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
 
         if moves.is_empty() {
@@ -327,16 +326,6 @@ impl<'client, 'f, E: Eval> Search<'client, 'f, E> {
         params: &mut SearchParams,
     ) -> Value {
         if let Some(&entry) = self.trans_table.get(&self.position) {
-            #[cfg(feature = "trace")]
-            let span = trace_span!(
-                "aspiration",
-                %alpha,
-                %beta,
-                depth,
-                mv = %self.position.last_move().unwrap()
-            )
-            .entered();
-
             const START_DELTA: Value = Value::centi_pawn(12);
             let mut low = alpha.max(entry.score - START_DELTA);
             let mut high = beta.min(entry.score + START_DELTA);
