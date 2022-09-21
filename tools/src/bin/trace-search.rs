@@ -1,10 +1,13 @@
 //#![feature(is_some_with)]
 
 use std::cell::RefCell;
+use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::{env, process};
 
+use eframe::egui::{CentralPanel, Context, ScrollArea, Ui};
+use eframe::{App, Frame, NativeOptions};
 use kingly_lib::eval::StandardEval;
 use kingly_lib::move_gen::MoveGen;
 use kingly_lib::position::Position;
@@ -34,6 +37,7 @@ enum NodeData {
         kind: ReturnKind,
         result: AspirationResult,
     },
+    PartialRoot,
     Partial {
         mv: Move,
         alpha: Value,
@@ -49,7 +53,39 @@ enum NodeData {
         score: Value,
         kind: ReturnKind,
     },
-    Root(Value),
+    Root {
+        mv: Move,
+        score: Value,
+    },
+}
+
+impl Display for NodeData {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            NodeData::Search {
+                mv,
+                alpha,
+                beta,
+                score,
+                kind,
+            } => write!(f, "{mv} [{alpha}; {beta}] -> {score} ({kind})"),
+            NodeData::Aspiration {
+                mv,
+                alpha,
+                beta,
+                prev,
+            } => write!(f, "{mv} [{alpha}; {beta}] (asp. {prev})"),
+            NodeData::AspIteration {
+                low,
+                high,
+                score,
+                kind,
+                result,
+            } => write!(f, "{result} [{low}; {high}] -> {score} ({kind})"),
+            NodeData::Root { mv, score } => write!(f, "Result: {mv} -> {score}"),
+            _ => panic!("Attempt to display partial node"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,19 +111,18 @@ impl Node {
 /// The root of the tree holds no data and will point to some amount of `Aspiration` nodes.
 /// Each `Aspiration` node will have `AspirationIteration`s as children.
 /// Each of these will have a number of `Search` nodes as children.
+#[derive(Debug)]
 struct Tree {
     tree: Vec<Node>,
-    curr_depth: u8,
     ancestors: Vec<usize>,
 }
 
 impl Tree {
     fn new() -> Self {
-        let root = Node::new(NodeData::Root(Value::centi_pawn(0)));
+        let root = Node::new(NodeData::PartialRoot);
 
         Self {
             tree: vec![root],
-            curr_depth: 0,
             ancestors: vec![0],
         }
     }
@@ -106,6 +141,13 @@ impl Tree {
             self.tree[sibling_index].next_sibling = index;
         }
     }
+
+    fn children(&self, index: usize) -> Children {
+        Children {
+            tree: &self.tree,
+            next_child: self.tree[index].first_child,
+        }
+    }
 }
 
 impl Observer for Tree {
@@ -116,13 +158,10 @@ impl Observer for Tree {
     fn move_made(&mut self, mv: Move, alpha: Value, beta: Value) {
         let data = NodeData::Partial { alpha, beta, mv };
         self.push_node(data);
-
-        self.curr_depth += 1;
         self.ancestors.push(self.tree.len() - 1);
     }
 
     fn move_unmade(&mut self, _: Move) {
-        self.curr_depth -= 1;
         self.ancestors.pop();
     }
 
@@ -134,12 +173,11 @@ impl Observer for Tree {
                     mv,
                     alpha,
                     beta,
-                    score,
+                    score: -score,
                     kind,
                 };
             }
             NodeData::PartialAspIteration1 { low, high } => {
-                assert_eq!(self.curr_depth, 1);
                 node.data = NodeData::PartialAspIteration2 {
                     low,
                     high,
@@ -147,20 +185,21 @@ impl Observer for Tree {
                     kind,
                 };
             }
-            NodeData::Root(_) => {
-                assert_eq!(self.curr_depth, 0);
-                node.data = NodeData::Root(score);
+            NodeData::PartialRoot => {
+                let mv = match kind {
+                    ReturnKind::Best(mv) | ReturnKind::Beta(mv) => mv,
+                    _ => panic!("The root move will always be Best or Beta"),
+                };
+                node.data = NodeData::Root { mv, score };
             }
             _ => panic!(
-                "Expected partial, partial asp. or root node, found: {:?}",
+                "Expected partial, partial asp. or partial root node, found: {:?}",
                 node
             ),
         }
     }
 
     fn aspiration_start(&mut self, prev: Value) {
-        assert_eq!(self.curr_depth, 1);
-
         let node = self.tree.last_mut().unwrap();
 
         match node.data {
@@ -177,8 +216,6 @@ impl Observer for Tree {
     }
 
     fn aspiration_iter_start(&mut self, low: Value, high: Value) {
-        assert_eq!(self.curr_depth, 1);
-
         let data = NodeData::PartialAspIteration1 { low, high };
         self.push_node(data);
 
@@ -186,8 +223,6 @@ impl Observer for Tree {
     }
 
     fn aspiration_iter_end(&mut self, result: AspirationResult) {
-        assert_eq!(self.curr_depth, 1);
-
         let node = &mut self.tree[self.ancestors.pop().unwrap()];
 
         match node.data {
@@ -205,7 +240,81 @@ impl Observer for Tree {
                     kind,
                 };
             }
-            _ => panic!("Expected partial asp node, found: {:?}", node),
+            _ => panic!("Expected partial asp. node, found: {:?}", node),
+        }
+    }
+}
+
+struct TreeApp {
+    tree: Tree,
+    expanded: Vec<bool>,
+}
+
+impl TreeApp {
+    fn new(tree: Tree) -> Self {
+        let len = tree.tree.len();
+        Self {
+            tree,
+            expanded: vec![false; len],
+        }
+    }
+
+    fn button_label(expanded: &[bool], index: usize) -> &'static str {
+        if expanded[index] {
+            "-"
+        } else {
+            "+"
+        }
+    }
+
+    fn display_node(tree: &Tree, expanded: &mut [bool], ui: &mut Ui, index: usize) {
+        for (index, data) in tree.children(index) {
+            let label = Self::button_label(expanded, index);
+
+            ui.horizontal(|ui| {
+                ui.label(&format!("{}", data));
+
+                if ui.button(label).clicked() {
+                    expanded[index] = !expanded[index];
+                }
+            });
+
+            if expanded[index] {
+                ui.indent(index, |ui| Self::display_node(tree, expanded, ui, index));
+            }
+        }
+    }
+}
+
+impl App for TreeApp {
+    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        CentralPanel::default().show(ctx, |ui| {
+            ScrollArea::both()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.label(&format!("{}", self.tree.tree[0].data));
+                    Self::display_node(&self.tree, &mut self.expanded, ui, 0);
+                })
+        });
+    }
+}
+
+struct Children<'a> {
+    tree: &'a [Node],
+    next_child: usize,
+}
+
+impl<'a> Iterator for Children<'a> {
+    type Item = (usize, NodeData);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_child == 0 {
+            None
+        } else {
+            let node = self.tree[self.next_child];
+            let res = (self.next_child, node.data);
+            self.next_child = node.next_sibling;
+            Some(res)
         }
     }
 }
@@ -231,14 +340,13 @@ fn main() {
         .register(Rc::downgrade(&tree))
         .start(&AtomicBool::new(false));
 
-    let first = (*tree).borrow().tree[3];
-    println!("{:?}", first);
+    let tree = Rc::try_unwrap(tree).unwrap().into_inner();
+    let app = TreeApp::new(tree);
 
-    let mut next = first.first_child;
-    while next != 0 {
-        let node = (*tree).borrow().tree[next];
-        next = node.next_sibling;
-
-        println!("{:?}", node.data);
-    }
+    let options = NativeOptions::default();
+    eframe::run_native(
+        "Kingly: trace search",
+        options,
+        Box::new(|_cc| Box::new(app)),
+    );
 }

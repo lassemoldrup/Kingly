@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::fmt::{self, Display, Formatter};
 use std::rc::Weak;
 
 use crate::types::{Move, Value};
@@ -18,6 +19,21 @@ pub enum ReturnKind {
     RuleDraw,
 }
 
+impl Display for ReturnKind {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ReturnKind::Best(mv) => write!(f, "Best: {mv}"),
+            ReturnKind::Beta(mv) => write!(f, "Beta: {mv}"),
+            ReturnKind::TTExact => write!(f, "T.T. Exact"),
+            ReturnKind::TTBound => write!(f, "T.T. Bound"),
+            ReturnKind::Quiesce => write!(f, "Quiscence"),
+            ReturnKind::Checkmate => write!(f, "C. Mate"),
+            ReturnKind::Stalemate => write!(f, "S. Mate"),
+            ReturnKind::RuleDraw => write!(f, "Draw"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum AspirationResult {
     FailHigh,
@@ -25,6 +41,18 @@ pub enum AspirationResult {
     FailLow,
     FailAlpha,
     InBounds,
+}
+
+impl Display for AspirationResult {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            AspirationResult::FailHigh => write!(f, "High"),
+            AspirationResult::FailBeta => write!(f, "Beta"),
+            AspirationResult::FailLow => write!(f, "Low"),
+            AspirationResult::FailAlpha => write!(f, "Alpha"),
+            AspirationResult::InBounds => write!(f, "In"),
+        }
+    }
 }
 
 pub trait Observer {

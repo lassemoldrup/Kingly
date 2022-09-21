@@ -40,9 +40,10 @@ struct Limits {
     time: Option<Duration>,
 }
 
+type Callback<'f> = dyn FnMut(&SearchInfo) + 'f;
 pub struct Search<'c, 'f, E> {
     limits: Limits,
-    callbacks: Vec<Box<dyn FnMut(&SearchInfo) + 'f>>,
+    callbacks: Vec<Box<Callback<'f>>>,
     position: Position,
     move_gen: MoveGen,
     eval: E,
@@ -212,7 +213,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             }
 
             #[cfg(feature = "trace_search")]
-            self.notify_move_made(mv, -beta, -alpha);
+            self.notify_move_made(mv, alpha, beta);
 
             self.position.make_move(mv);
             let score = -search(self, -beta, -alpha, depth - 1, params);
@@ -225,6 +226,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
                 let entry = Entry::new(score, mv, Bound::Lower, depth);
                 self.trans_table.insert(&self.position, entry);
 
+                // TODO: Should we notify score or -score?
                 #[cfg(feature = "trace_search")]
                 self.notify_score_found(score, trace::ReturnKind::Beta(mv));
 

@@ -16,7 +16,7 @@ macro_rules! bb {
     };
 }
 
-#[derive(Copy, Clone, PartialEq, Default)]
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct Bitboard(u64);
 
 impl Bitboard {

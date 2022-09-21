@@ -52,11 +52,7 @@ where
     }
 
     fn print_welcome(&mut self) -> std::io::Result<()> {
-        writeln!(
-            self.output,
-            "kingly_lib ver. {}\n",
-            env!("CARGO_PKG_VERSION")
-        )?;
+        writeln!(self.output, "Kingly ver. {}\n", env!("CARGO_PKG_VERSION"))?;
         writeln!(self.output, "Commands:")?;
         writeln!(self.output, "uci\t\t\tStarts UCI mode")?;
         writeln!(
