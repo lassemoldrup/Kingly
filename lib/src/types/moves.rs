@@ -1,8 +1,6 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use std::{fmt, mem};
-
-use valuable::Valuable;
 
 use crate::types::{PieceKind, Square};
 
@@ -62,7 +60,7 @@ pub enum MoveKind {
 /// 6-11: to sq
 /// 12-13: kind (0: regular, 1: castling, 2: promotion, 3: en passant)
 /// 14-15: promotion (0: knight, 1: bishop, 2: rook, 3: queen)
-#[derive(Copy, Clone, PartialEq, Debug, Valuable)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct Move(u16);
 
 impl Move {
@@ -145,6 +143,16 @@ impl Display for Move {
                 write!(f, "{}{}", self.from(), self.to())
             }
             MoveKind::Promotion => write!(f, "{}{}{}", self.from(), self.to(), self.promotion()),
+        }
+    }
+}
+
+impl Debug for Move {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self.kind() {
+            MoveKind::Castling => write!(f, "c{}", self),
+            MoveKind::EnPassant => write!(f, "ep{}", self),
+            _ => write!(f, "{}", self),
         }
     }
 }

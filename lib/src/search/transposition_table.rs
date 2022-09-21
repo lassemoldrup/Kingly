@@ -1,12 +1,12 @@
 use std::fmt::{self, Debug, Formatter};
 use std::mem::size_of;
 
-use tracing::info;
+use log::info;
 
 use crate::position::Position;
 use crate::types::{Move, Value};
 
-/// Fixed size hash table for positions. Some implementation details borrowed from the IntMap crate
+/// Fixed size hash table for positions. Some implementation details borrowed from the intmap crate
 pub struct TranspositionTable {
     data: Vec<Option<(u64, Entry)>>,
     mod_mask: usize,

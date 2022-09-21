@@ -47,7 +47,7 @@ impl<O: Output> Writer<O> {
         writeln!(self.output.lock(), "readyok")
     }
 
-    pub(in crate::uci) fn info(&self, info: &[GoInfoPair]) -> io::Result<()> {
+    pub(super) fn info(&self, info: &[GoInfoPair]) -> io::Result<()> {
         writeln!(self.output.lock(), "info {}", info.iter().join(" "))
     }
 
