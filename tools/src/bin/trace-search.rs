@@ -173,7 +173,7 @@ impl Observer for Tree {
                     mv,
                     alpha,
                     beta,
-                    score: -score,
+                    score,
                     kind,
                 };
             }
