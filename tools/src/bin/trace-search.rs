@@ -274,7 +274,7 @@ impl TreeApp {
             ui.horizontal(|ui| {
                 ui.label(&format!("{}", data));
 
-                if ui.button(label).clicked() {
+                if tree.tree[index].first_child != 0 && ui.button(label).clicked() {
                     expanded[index] = !expanded[index];
                 }
             });
