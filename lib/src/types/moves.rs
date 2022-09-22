@@ -8,7 +8,11 @@ use crate::types::{PieceKind, Square};
 macro_rules! mv {
     ( $from:tt -> $to:tt ) => {{
         use $crate::types::Square::*;
-        $crate::types::Move::new_regular($from, $to)
+        $crate::types::Move::new_regular($from, $to, false)
+    }};
+    ( $from:tt x $to:tt ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_regular($from, $to, true)
     }};
     ( O-O w ) => {{
         use $crate::types::Square::*;
@@ -38,13 +42,29 @@ macro_rules! mv {
     ( $from:tt -> $to:tt q ) => {
         mv!($from -> $to $crate::types::PieceKind::Queen)
     };
-    ( $from:tt -> $to:tt ep ) => {{
+    ( $from:tt x $to:tt n ) => {
+        mv!($from x $to $crate::types::PieceKind::Knight)
+    };
+    ( $from:tt x $to:tt b ) => {
+        mv!($from x $to $crate::types::PieceKind::Bishop)
+    };
+    ( $from:tt x $to:tt r ) => {
+        mv!($from x $to $crate::types::PieceKind::Rook)
+    };
+    ( $from:tt x $to:tt q ) => {
+        mv!($from x $to $crate::types::PieceKind::Queen)
+    };
+    ( $from:tt ep $to:tt ) => {{
         use $crate::types::Square::*;
         $crate::types::Move::new_en_passant($from, $to)
     }};
     ( $from:tt -> $to:tt $kind:expr ) => {{
         use $crate::types::Square::*;
-        $crate::types::Move::new_promotion($from, $to, $kind)
+        $crate::types::Move::new_promotion($from, $to, $kind, false)
+    }};
+    ( $from:tt x $to:tt $kind:expr ) => {{
+        use $crate::types::Square::*;
+        $crate::types::Move::new_promotion($from, $to, $kind, true)
     }};
 }
 
@@ -55,51 +75,52 @@ pub enum MoveKind {
     EnPassant,
 }
 
-/// A chess move. Bit layout:
+/// A chess move. Bit layout: ki|p|c|....to|..from
 /// 0-5: from sq
 /// 6-11: to sq
-/// 12-13: kind (0: regular, 1: castling, 2: promotion, 3: en passant)
-/// 14-15: promotion (0: knight, 1: bishop, 2: rook, 3: queen)
+/// 12: capture
+/// 13: promotion
+/// 14-15: kind (0: regular, 1: castling, 2: promotion (unused) 3: en passant) OR
+/// 14-15: promotion (0: knight, 1: bishop, 2: Rook, 3: Queen)
 #[derive(Copy, Clone, PartialEq)]
 pub struct Move(u16);
 
 impl Move {
-    pub fn new_regular(from: Square, to: Square) -> Self {
+    pub fn new_regular(from: Square, to: Square, capture: bool) -> Self {
         let mut encoding = 0;
 
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
+        encoding |= (capture as u16) << 12;
 
         Self(encoding)
     }
 
     pub fn new_castling(from: Square, to: Square) -> Self {
-        let mut encoding = 0;
+        let mut encoding = 1 << 14;
 
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
-        encoding |= 1 << 12;
 
         Self(encoding)
     }
 
-    pub fn new_promotion(from: Square, to: Square, kind: PieceKind) -> Self {
-        let mut encoding = 0;
+    pub fn new_promotion(from: Square, to: Square, kind: PieceKind, capture: bool) -> Self {
+        let mut encoding = 1 << 13;
 
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
-        encoding |= 2 << 12;
+        encoding |= (capture as u16) << 12;
         encoding |= (kind as u16) << 14;
 
         Self(encoding)
     }
 
     pub fn new_en_passant(from: Square, to: Square) -> Self {
-        let mut encoding = 0;
+        let mut encoding = (1 << 12) | (3 << 14);
 
         encoding |= from as u16;
         encoding |= (to as u16) << 6;
-        encoding |= 3 << 12;
 
         Self(encoding)
     }
@@ -112,8 +133,17 @@ impl Move {
         unsafe { Square::from_unchecked(((self.0 >> 6) & 0b111111) as u8) }
     }
 
+    pub fn capture(&self) -> bool {
+        // TODO: Is this fast?
+        (self.0 >> 12) & 0b1 != 0
+    }
+
     pub fn kind(&self) -> MoveKind {
-        unsafe { mem::transmute(((self.0 >> 12) & 0b11) as u8) }
+        if (self.0 >> 13) & 0b1 != 0 {
+            MoveKind::Promotion
+        } else {
+            unsafe { mem::transmute(((self.0 >> 14) & 0b11) as u8) }
+        }
     }
 
     pub fn promotion(&self) -> PieceKind {

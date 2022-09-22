@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::cmp::Reverse;
 use std::mem;
 use std::rc::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -155,11 +156,16 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         best_score
     }
 
-    fn reorder_moves(&self, moves: &mut [Move], best_move: Option<Move>) {
+    fn score_move(mv: &Move) -> i32 {
+        todo!()
+    }
+
+    fn reorder_moves(&self, mut moves: &mut [Move], best_move: Option<Move>) {
         // TODO: Do something better
         if moves.is_empty() {
             return;
         }
+
         if let Some(mv) = best_move {
             let mv_pos = moves.iter().position(|&m| m == mv);
             let mv_pos = match mv_pos {
@@ -176,7 +182,10 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             let first = moves[0];
             moves[0] = mv;
             moves[mv_pos] = first;
+            moves = &mut moves[1..];
         }
+
+        moves.sort_unstable_by_key(Self::score_move);
     }
 
     fn should_stop(&self, params: &SearchParams) -> bool {
@@ -341,6 +350,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         }
 
         self.reorder_moves(&mut moves, table_move);
+
         // Safety: `moves` are generated
         unsafe {
             self.search_moves(&moves, alpha, beta, depth, params, Self::search)
@@ -497,6 +507,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
 
             let best_move = self.trans_table.get(&self.position).map(|e| e.best_move);
             self.reorder_moves(&mut root_moves, best_move);
+
             // Safety: `root_moves` is either generated or checked in `self.root_moves()`
             let best = unsafe {
                 self.search_moves(
