@@ -214,7 +214,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             }
 
             #[cfg(feature = "trace_search")]
-            self.notify_move_made(mv, -beta, low);
+            self.notify_move_made(mv, -beta, -low);
 
             self.position.make_move(mv);
             let score = -search(self, -beta, -low, depth - 1, params);
