@@ -1,11 +1,11 @@
 use bitintr::Pext;
 
-use crate::bb;
 use crate::move_list::MoveList;
 use crate::position::Position;
 use crate::tables::Tables;
 use crate::types::{Bitboard, Color, Direction, Move, Piece, PieceKind, Side, Square};
 use crate::util::{get_castling_sq, get_king_sq};
+use crate::{bb, mv};
 
 #[cfg(test)]
 mod tests;
@@ -35,7 +35,7 @@ impl MoveGen {
         }
     }
 
-    fn gen_pawn_moves<const CAPTURES: bool>(
+    fn gen_pawn_moves<const ONLY_CAPTURES: bool>(
         &self,
         position: &Position,
         blocking_sqs: Bitboard,
@@ -85,20 +85,20 @@ impl MoveGen {
         }
 
         macro_rules! add_regulars {
-            ( $bb:expr => $dir:expr ) => {
+            ( $bb:expr => $dir:expr, $capture:expr ) => {
                 add_moves!($bb => $dir, |from, to| {
-                    moves.push(Move::new_regular(from, to));
+                    moves.push(Move::new_regular(from, to, $capture));
                 });
             };
         }
 
         macro_rules! add_promos {
-            ( $bb:expr => $dir:expr ) => {
+            ( $bb:expr => $dir:expr, $capture:expr ) => {
                 add_moves!($bb => $dir, |from, to| {
-                    moves.push(Move::new_promotion(from, to, PieceKind::Queen));
-                    moves.push(Move::new_promotion(from, to, PieceKind::Knight));
-                    moves.push(Move::new_promotion(from, to, PieceKind::Rook));
-                    moves.push(Move::new_promotion(from, to, PieceKind::Bishop));
+                    moves.push(Move::new_promotion(from, to, PieceKind::Queen, $capture));
+                    moves.push(Move::new_promotion(from, to, PieceKind::Knight, $capture));
+                    moves.push(Move::new_promotion(from, to, PieceKind::Rook, $capture));
+                    moves.push(Move::new_promotion(from, to, PieceKind::Bishop, $capture));
                 });
             };
         }
@@ -125,12 +125,12 @@ impl MoveGen {
                     return;
                 }
 
-                moves.push(Move::new_en_passant(from, $to));
+                moves.push(mv!(from ep $to));
             };
         }
 
         // Forward
-        if !CAPTURES {
+        if !ONLY_CAPTURES {
             let occ = position.pieces.get_occ();
             let fwd = (pawns >> up) - occ;
             let legal_fwd = fwd & blocking_sqs;
@@ -138,8 +138,8 @@ impl MoveGen {
             let fwd_promo = legal_fwd & last_rank;
             let fwd2 = ((fwd >> up) & fourth_rank & blocking_sqs) - occ;
 
-            add_regulars!(fwd_no_promo => up);
-            add_promos!(fwd_promo => up);
+            add_regulars!(fwd_no_promo => up, false);
+            add_promos!(fwd_promo => up, false);
             for to in fwd2 {
                 let from = unsafe { to.shift(-up).shift(-up) };
 
@@ -147,7 +147,7 @@ impl MoveGen {
                     continue;
                 }
 
-                moves.push(Move::new_regular(from, to));
+                moves.push(mv!(from -> to));
             }
         }
 
@@ -162,10 +162,10 @@ impl MoveGen {
         let left_atk_promo = left_atk & last_rank;
         let right_atk_promo = right_atk & last_rank;
 
-        add_regulars!(left_atk_no_promo => up_left);
-        add_regulars!(right_atk_no_promo => up_right);
-        add_promos!(left_atk_promo => up_left);
-        add_promos!(right_atk_promo => up_right);
+        add_regulars!(left_atk_no_promo => up_left, true);
+        add_regulars!(right_atk_no_promo => up_right, true);
+        add_promos!(left_atk_promo => up_left, true);
+        add_promos!(right_atk_promo => up_right, true);
 
         // En passant
         if let Some(sq) = position.en_passant_sq {
@@ -256,7 +256,7 @@ impl MoveGen {
     }
 
     /// Generates all non-pawn moves for the given `PieceKind` `kind`, except castling moves
-    fn gen_non_pawn_moves<const CAPTURES: bool>(
+    fn gen_non_pawn_moves<const ONLY_CAPTURES: bool>(
         &self,
         position: &Position,
         kind: PieceKind,
@@ -271,18 +271,6 @@ impl MoveGen {
         let occ = position.pieces.get_occ();
         let king_sq = position.pieces.get_king_sq(position.to_move);
 
-        let mut legal_sqs = if CAPTURES {
-            let opp_occ = position.pieces.get_occ_for(!position.to_move);
-            opp_occ & blocking_sqs
-        } else {
-            let own_occ = position.pieces.get_occ_for(position.to_move);
-            !own_occ & blocking_sqs
-        };
-
-        if pce.kind() == PieceKind::King {
-            legal_sqs -= danger_sqs;
-        }
-
         for from in pieces {
             // TODO: Check if this king check gets compiled away
             let pin_ray = if pce.kind() != PieceKind::King && pin_rays.contains(from) {
@@ -291,26 +279,31 @@ impl MoveGen {
                 !bb!()
             };
 
-            let legal_atks = self.gen_attacks_from_sq(occ, pce, from) & legal_sqs & pin_ray;
+            let opp_occ = position.pieces.get_occ_for(!position.to_move);
+            let mut legal_atks = self.gen_attacks_from_sq(occ, pce, from) & pin_ray & blocking_sqs;
+            if pce.kind() == PieceKind::King {
+                legal_atks -= danger_sqs;
+            }
 
-            for to in legal_atks {
-                moves.push(Move::new_regular(from, to));
+            for to in legal_atks & opp_occ {
+                moves.push(mv!(from x to));
+            }
+
+            if !ONLY_CAPTURES {
+                let own_occ = position.pieces.get_occ_for(position.to_move);
+                for to in legal_atks & !own_occ & !opp_occ {
+                    moves.push(mv!(from -> to));
+                }
             }
         }
     }
 
     fn gen_castling_moves(&self, position: &Position, danger_sqs: Bitboard, moves: &mut MoveList) {
-        fn gen_castling_move(
-            position: &Position,
-            side: Side,
-            danger_sqs: Bitboard,
-            moves: &mut MoveList,
-        ) {
+        let mut gen_castling_move = |side| {
             if !position.castling.get(position.to_move, side) {
                 return;
             }
 
-            use Square::*;
             let (castling_sqs, no_occ_sqs) = match (position.to_move, side) {
                 (Color::White, Side::KingSide) => (bb!(E1, F1, G1), bb!(F1, G1)),
                 (Color::Black, Side::KingSide) => (bb!(E8, F8, G8), bb!(F8, G8)),
@@ -325,10 +318,10 @@ impl MoveGen {
                 let castling_sq = get_castling_sq(position.to_move, side);
                 moves.push(Move::new_castling(king_sq, castling_sq));
             }
-        }
+        };
 
-        gen_castling_move(position, Side::KingSide, danger_sqs, moves);
-        gen_castling_move(position, Side::QueenSide, danger_sqs, moves);
+        gen_castling_move(Side::KingSide);
+        gen_castling_move(Side::QueenSide);
     }
 
     fn checkers(&self, position: &Position) -> Bitboard {
@@ -392,7 +385,12 @@ impl MoveGen {
         pin_rays
     }
 
-    fn gen_moves_and_check<const CAPTURES: bool>(&self, position: &Position) -> (MoveList, bool) {
+    fn gen_moves_and_check<const ONLY_CAPTURES: bool>(
+        &self,
+        position: &Position,
+    ) -> (MoveList, bool) {
+        use PieceKind::*;
+
         let mut moves = MoveList::new();
 
         // TODO: Is this generated thrice?
@@ -405,7 +403,7 @@ impl MoveGen {
             let checkers = self.checkers(position);
 
             if checkers.len() == 2 {
-                self.gen_non_pawn_moves::<CAPTURES>(
+                self.gen_non_pawn_moves::<ONLY_CAPTURES>(
                     position,
                     PieceKind::King,
                     !bb!(),
@@ -416,46 +414,26 @@ impl MoveGen {
             } else {
                 let checking_sq = unsafe { checkers.first_sq_unchecked() };
                 // Can't block a check with a capture, unless capturing the checker
-                let blocking_sqs = if CAPTURES {
+                let blocking_sqs = if ONLY_CAPTURES {
                     checkers
                 } else {
                     self.tables.ray_to[king_sq][checking_sq] | checkers
                 };
 
-                self.gen_pawn_moves::<CAPTURES>(position, blocking_sqs, pin_rays, &mut moves);
-                self.gen_non_pawn_moves::<CAPTURES>(
-                    position,
-                    PieceKind::Knight,
-                    blocking_sqs,
-                    pin_rays,
-                    bb!(),
-                    &mut moves,
-                );
-                self.gen_non_pawn_moves::<CAPTURES>(
-                    position,
-                    PieceKind::Bishop,
-                    blocking_sqs,
-                    pin_rays,
-                    bb!(),
-                    &mut moves,
-                );
-                self.gen_non_pawn_moves::<CAPTURES>(
-                    position,
-                    PieceKind::Rook,
-                    blocking_sqs,
-                    pin_rays,
-                    bb!(),
-                    &mut moves,
-                );
-                self.gen_non_pawn_moves::<CAPTURES>(
-                    position,
-                    PieceKind::Queen,
-                    blocking_sqs,
-                    pin_rays,
-                    bb!(),
-                    &mut moves,
-                );
-                self.gen_non_pawn_moves::<CAPTURES>(
+                self.gen_pawn_moves::<ONLY_CAPTURES>(position, blocking_sqs, pin_rays, &mut moves);
+
+                for kind in [Knight, Bishop, Rook, Queen] {
+                    self.gen_non_pawn_moves::<ONLY_CAPTURES>(
+                        position,
+                        kind,
+                        blocking_sqs,
+                        pin_rays,
+                        bb!(),
+                        &mut moves,
+                    );
+                }
+
+                self.gen_non_pawn_moves::<ONLY_CAPTURES>(
                     position,
                     PieceKind::King,
                     !bb!(),
@@ -465,40 +443,20 @@ impl MoveGen {
                 );
             }
         } else {
-            self.gen_pawn_moves::<CAPTURES>(position, !bb!(), pin_rays, &mut moves);
-            self.gen_non_pawn_moves::<CAPTURES>(
-                position,
-                PieceKind::Knight,
-                !bb!(),
-                pin_rays,
-                bb!(),
-                &mut moves,
-            );
-            self.gen_non_pawn_moves::<CAPTURES>(
-                position,
-                PieceKind::Bishop,
-                !bb!(),
-                pin_rays,
-                bb!(),
-                &mut moves,
-            );
-            self.gen_non_pawn_moves::<CAPTURES>(
-                position,
-                PieceKind::Rook,
-                !bb!(),
-                pin_rays,
-                bb!(),
-                &mut moves,
-            );
-            self.gen_non_pawn_moves::<CAPTURES>(
-                position,
-                PieceKind::Queen,
-                !bb!(),
-                pin_rays,
-                bb!(),
-                &mut moves,
-            );
-            self.gen_non_pawn_moves::<CAPTURES>(
+            self.gen_pawn_moves::<ONLY_CAPTURES>(position, !bb!(), pin_rays, &mut moves);
+
+            for kind in [Knight, Bishop, Rook, Queen] {
+                self.gen_non_pawn_moves::<ONLY_CAPTURES>(
+                    position,
+                    kind,
+                    !bb!(),
+                    pin_rays,
+                    bb!(),
+                    &mut moves,
+                );
+            }
+
+            self.gen_non_pawn_moves::<ONLY_CAPTURES>(
                 position,
                 PieceKind::King,
                 !bb!(),
@@ -506,7 +464,8 @@ impl MoveGen {
                 danger_sqs,
                 &mut moves,
             );
-            if !CAPTURES {
+
+            if !ONLY_CAPTURES {
                 self.gen_castling_moves(position, danger_sqs, &mut moves);
             }
         }

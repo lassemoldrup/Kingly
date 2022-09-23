@@ -11,9 +11,11 @@ mod iter;
 
 #[macro_export]
 macro_rules! bb {
-    ( $( $sq:expr ),* ) => {
+    ( $( $sq:tt ),* ) => { {
+        #[allow(unused_imports)]
+        use Square::*;
         $crate::types::Bitboard::new() $(.add_sq($sq) )*
-    };
+    }};
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
@@ -227,9 +229,6 @@ mod tests {
 
     #[test]
     fn sub_test() {
-        assert_eq!(
-            bb!(Square::A1, Square::A2) - bb!(Square::A1, Square::H8),
-            bb!(Square::A2)
-        );
+        assert_eq!(bb!(A1, A2) - bb!(A1, H8), bb!(A2));
     }
 }

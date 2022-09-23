@@ -192,6 +192,10 @@ fn promotion_moves_unmade_correctly() {
         position.make_move(mv!(B2 x C1 n));
         position.make_move(mv!(H7 x G8 r));
         position.make_move(mv!(C2 x D1 b));
+        position.unmake_move();
+        position.unmake_move();
+        position.unmake_move();
+        position.unmake_move();
     }
 
     position_matches_fen(position, fen);

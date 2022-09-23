@@ -7,10 +7,12 @@ use crate::types::{PieceKind, Square};
 #[macro_export]
 macro_rules! mv {
     ( $from:tt -> $to:tt ) => {{
+        #[allow(unused_imports)]
         use $crate::types::Square::*;
         $crate::types::Move::new_regular($from, $to, false)
     }};
     ( $from:tt x $to:tt ) => {{
+        #[allow(unused_imports)]
         use $crate::types::Square::*;
         $crate::types::Move::new_regular($from, $to, true)
     }};
@@ -55,14 +57,17 @@ macro_rules! mv {
         mv!($from x $to $crate::types::PieceKind::Queen)
     };
     ( $from:tt ep $to:tt ) => {{
+        #[allow(unused_imports)]
         use $crate::types::Square::*;
         $crate::types::Move::new_en_passant($from, $to)
     }};
     ( $from:tt -> $to:tt $kind:expr ) => {{
+        #[allow(unused_imports)]
         use $crate::types::Square::*;
         $crate::types::Move::new_promotion($from, $to, $kind, false)
     }};
     ( $from:tt x $to:tt $kind:expr ) => {{
+        #[allow(unused_imports)]
         use $crate::types::Square::*;
         $crate::types::Move::new_promotion($from, $to, $kind, true)
     }};

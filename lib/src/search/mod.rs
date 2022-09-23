@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Reverse;
 use std::mem;
 use std::rc::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -156,8 +155,8 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         best_score
     }
 
-    fn score_move(mv: &Move) -> i32 {
-        todo!()
+    fn score_move(mv: &Move) -> impl Ord {
+        !mv.capture()
     }
 
     fn reorder_moves(&self, mut moves: &mut [Move], best_move: Option<Move>) {
@@ -236,7 +235,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
                 let entry = Entry::new(score, mv, Bound::Lower, depth);
                 self.trans_table.insert(&self.position, entry);
 
-                // TODO: Should we notify score or -score?
                 #[cfg(feature = "trace_search")]
                 self.notify_score_found(score, trace::ReturnKind::Beta(mv));
 

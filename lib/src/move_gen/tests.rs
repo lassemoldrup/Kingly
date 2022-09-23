@@ -342,7 +342,7 @@ fn checkers_correct_with_pawn() {
     let position = Position::from_fen(fen).unwrap();
     let move_gen = get_move_gen();
 
-    assert_eq!(move_gen.checkers(&position), bb!(Square::D4));
+    assert_eq!(move_gen.checkers(&position), bb!(D4));
 }
 
 #[test]
@@ -351,7 +351,7 @@ fn checkers_correct_with_knight() {
     let position = Position::from_fen(fen).unwrap();
     let move_gen = get_move_gen();
 
-    assert_eq!(move_gen.checkers(&position), bb!(Square::G5));
+    assert_eq!(move_gen.checkers(&position), bb!(G5));
 }
 
 #[test]
@@ -360,7 +360,7 @@ fn checkers_correct_with_bishop() {
     let position = Position::from_fen(fen).unwrap();
     let move_gen = get_move_gen();
 
-    assert_eq!(move_gen.checkers(&position), bb!(Square::B4));
+    assert_eq!(move_gen.checkers(&position), bb!(B4));
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn checkers_correct_with_rook() {
     let position = Position::from_fen(fen).unwrap();
     let move_gen = get_move_gen();
 
-    assert_eq!(move_gen.checkers(&position), bb!(Square::E3));
+    assert_eq!(move_gen.checkers(&position), bb!(E3));
 }
 
 #[test]
@@ -378,7 +378,7 @@ fn checkers_correct_with_queen() {
     let position = Position::from_fen(fen).unwrap();
     let move_gen = get_move_gen();
 
-    assert_eq!(move_gen.checkers(&position), bb!(Square::A5));
+    assert_eq!(move_gen.checkers(&position), bb!(A5));
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn checkers_correct_with_double_check() {
     let position = Position::from_fen(fen).unwrap();
     let move_gen = get_move_gen();
 
-    assert_eq!(move_gen.checkers(&position), bb!(Square::E2, Square::F7));
+    assert_eq!(move_gen.checkers(&position), bb!(E2, F7));
 }
 
 #[test]
@@ -435,7 +435,6 @@ fn pin_rays_correct() {
     let move_gen = get_move_gen();
 
     let pin_rays = move_gen.pin_rays(&position);
-    use Square::*;
     assert_eq!(pin_rays, bb!(C4, B5, D4, D5, D6, D7, E3, F3, G3));
 }
 
