@@ -419,10 +419,15 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         self.search(alpha, beta, depth, params)
     }
 
-    fn primary_variation(&mut self) -> Vec<Move> {
+    fn primary_variation(&mut self, depth: u8) -> Vec<Move> {
         let mut primary_variation = vec![];
 
-        while let Some(entry) = self.trans_table.get(&self.position) {
+        for _ in 0..depth {
+            let entry = match self.trans_table.get(&self.position) {
+                Some(entry) => entry,
+                None => break,
+            };
+
             // Sanity checking in case of hash collision
             let moves = self.move_gen.gen_all_moves(&self.position);
             if !moves.contains(entry.best_move) {
@@ -458,7 +463,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         best_score: Value,
         params: SearchParams,
     ) {
-        let pv = self.primary_variation();
+        let pv = self.primary_variation(depth);
         let hash_full = ((self.trans_table.len() * 1000) / self.trans_table.capacity()) as u32;
         let elapsed_nanos = iteration_start.elapsed().as_nanos();
         let nps = (params.nodes as u128 * 1_000_000_000 / elapsed_nanos) as u64;

@@ -28,7 +28,7 @@ impl<O: Output> Writer<O> {
 
     pub fn id(&self) -> io::Result<()> {
         let mut output = self.output.lock();
-        writeln!(output, "id name kingly_lib")?;
+        writeln!(output, "id name Kingly")?;
         writeln!(output, "id author Lasse Møldrup")
     }
 
