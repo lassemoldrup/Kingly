@@ -3,9 +3,6 @@ name = "kingly-lib"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-trace_search = []
-
 [dependencies]
 arrayvec = "0.7.2"
 bitintr = "0.3.0"

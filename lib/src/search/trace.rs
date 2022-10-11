@@ -1,6 +1,4 @@
-use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
-use std::rc::Weak;
 
 use crate::types::{Move, Value};
 
@@ -65,46 +63,65 @@ pub trait Observer {
     fn aspiration_iter_end(&mut self, result: AspirationResult);
 }
 
-impl<'c, 'f, E> Search<'c, 'f, E> {
-    pub fn register<O>(mut self, observer: Weak<RefCell<O>>) -> Self
-    where
-        O: Observer + 'static,
-    {
-        self.observers.push(observer as Weak<RefCell<dyn Observer>>);
-        self
-    }
+impl Observer for () {
+    fn new_depth(&mut self, _depth: u8) {}
 
-    fn notify_observers(&self, f: impl Fn(&mut dyn Observer)) {
-        for observer in self.observers.iter().filter_map(|o| o.upgrade()) {
-            f(&mut *(*observer).borrow_mut());
+    fn move_made(&mut self, _mv: Move, _alpha: Value, _beta: Value) {}
+
+    fn move_unmade(&mut self, _mv: Move) {}
+
+    fn score_found(&mut self, _score: Value, _kind: ReturnKind) {}
+
+    fn aspiration_start(&mut self, _prev: Value) {}
+
+    fn aspiration_iter_start(&mut self, _low: Value, _high: Value) {}
+
+    fn aspiration_iter_end(&mut self, _result: AspirationResult) {}
+}
+
+impl<'c, 'f, E> Search<'c, 'f, E> {
+    pub fn register<O>(self, observer: O) -> Search<'c, 'f, E, O>
+    where
+        O: Observer,
+    {
+        Search {
+            limits: self.limits,
+            callbacks: self.callbacks,
+            position: self.position,
+            move_gen: self.move_gen,
+            eval: self.eval,
+            trans_table: self.trans_table,
+            observer,
         }
     }
+}
 
-    pub(super) fn notify_new_depth(&self, depth: u8) {
-        self.notify_observers(|o| o.new_depth(depth));
+impl<'c, 'f, E, O: Observer> Search<'c, 'f, E, O> {
+    pub(super) fn notify_new_depth(&mut self, depth: u8) {
+        self.observer.new_depth(depth);
     }
 
-    pub(super) fn notify_move_made(&self, mv: Move, alpha: Value, beta: Value) {
-        self.notify_observers(|o| o.move_made(mv, alpha, beta));
+    pub(super) fn notify_move_made(&mut self, mv: Move, alpha: Value, beta: Value) {
+        self.observer.move_made(mv, alpha, beta);
     }
 
-    pub(super) fn notify_move_unmade(&self, mv: Move) {
-        self.notify_observers(|o| o.move_unmade(mv));
+    pub(super) fn notify_move_unmade(&mut self, mv: Move) {
+        self.observer.move_unmade(mv);
     }
 
-    pub(super) fn notify_score_found(&self, score: Value, kind: ReturnKind) {
-        self.notify_observers(|o| o.score_found(score, kind));
+    pub(super) fn notify_score_found(&mut self, score: Value, kind: ReturnKind) {
+        self.observer.score_found(score, kind);
     }
 
-    pub(super) fn notify_aspiration_start(&self, prev: Value) {
-        self.notify_observers(|o| o.aspiration_start(prev));
+    pub(super) fn notify_aspiration_start(&mut self, prev: Value) {
+        self.observer.aspiration_start(prev);
     }
 
-    pub(super) fn notify_aspiration_iter_start(&self, low: Value, high: Value) {
-        self.notify_observers(|o| o.aspiration_iter_start(low, high));
+    pub(super) fn notify_aspiration_iter_start(&mut self, low: Value, high: Value) {
+        self.observer.aspiration_iter_start(low, high);
     }
 
-    pub(super) fn notify_aspiration_iter_end(&self, result: AspirationResult) {
-        self.notify_observers(|o| o.aspiration_iter_end(result));
+    pub(super) fn notify_aspiration_iter_end(&mut self, result: AspirationResult) {
+        self.observer.aspiration_iter_end(result);
     }
 }

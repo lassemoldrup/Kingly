@@ -5,16 +5,27 @@ use std::ops::{Add, Mul, Neg, RangeInclusive, Sub};
 pub struct Value(i16);
 
 impl Value {
+    const NEG_INF: RangeInclusive<i16> = (i16::MIN + 1)..=(i16::MIN + 1 + 100);
+    const INF: RangeInclusive<i16> = (i16::MAX - 100)..=i16::MAX;
+
     pub const fn centi_pawn(cp: i16) -> Self {
         Self(cp)
     }
 
-    pub const fn mate_in_neg(moves: u16) -> Self {
+    pub const fn mate_in_ply_neg(moves: u16) -> Self {
         Self(i16::MIN + 1 + moves as i16)
     }
 
-    pub const fn mate_in(moves: u16) -> Self {
+    pub const fn mate_in_ply(moves: u16) -> Self {
         Self(i16::MAX - moves as i16)
+    }
+
+    pub fn inc_mate(self) -> Self {
+        match self.0 {
+            v if Self::NEG_INF.contains(&v) => Self(v + 1),
+            v if Self::INF.contains(&v) => Self(v - 1),
+            v => Self(v),
+        }
     }
 }
 
@@ -50,14 +61,11 @@ impl Mul<i16> for Value {
     }
 }
 
-const NEG_INF: RangeInclusive<i16> = (i16::MIN + 1)..=(i16::MIN + 1 + 100);
-const INF: RangeInclusive<i16> = (i16::MAX - 100)..=i16::MAX;
-
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self.0 {
-            v if NEG_INF.contains(&v) => write!(f, "mate -{}", v - i16::MIN - 1),
-            v if INF.contains(&v) => write!(f, "mate {}", i16::MAX - v),
+            v if Self::NEG_INF.contains(&v) => write!(f, "mate -{}", (v - i16::MIN) / 2),
+            v if Self::INF.contains(&v) => write!(f, "mate {}", (i16::MAX - v + 1) / 2),
             v => write!(f, "cp {}", v),
         }
     }

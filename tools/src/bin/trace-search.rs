@@ -1,8 +1,4 @@
-//#![feature(is_some_with)]
-
-use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
-use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::{env, process};
 
@@ -150,9 +146,9 @@ impl Tree {
     }
 }
 
-impl Observer for Tree {
+impl Observer for &mut Tree {
     fn new_depth(&mut self, _: u8) {
-        *self = Self::new();
+        **self = Tree::new();
     }
 
     fn move_made(&mut self, mv: Move, alpha: Value, beta: Value) {
@@ -333,14 +329,13 @@ fn main() {
     let mut trans_table = TranspositionTable::new();
     let depth: u8 = args[2].parse().unwrap();
 
-    let tree = Rc::new(RefCell::new(Tree::new()));
+    let mut tree = Tree::new();
 
     Search::new(position, move_gen, eval, &mut trans_table)
+        .register(&mut tree)
         .depth(depth)
-        .register(Rc::downgrade(&tree))
         .start(&AtomicBool::new(false));
 
-    let tree = Rc::try_unwrap(tree).unwrap().into_inner();
     let app = TreeApp::new(tree);
 
     let options = NativeOptions::default();

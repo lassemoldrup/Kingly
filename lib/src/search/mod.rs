@@ -1,6 +1,4 @@
-use std::cell::RefCell;
 use std::mem;
-use std::rc::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -18,9 +16,7 @@ use self::transposition_table::{Bound, Entry};
 mod tests;
 mod transposition_table;
 pub use transposition_table::TranspositionTable;
-#[cfg(feature = "trace_search")]
 mod trace;
-#[cfg(feature = "trace_search")]
 pub use trace::{AspirationResult, Observer, ReturnKind};
 
 #[derive(Clone, Copy)]
@@ -41,15 +37,14 @@ struct Limits {
 }
 
 type Callback<'f> = dyn FnMut(&SearchInfo) + 'f;
-pub struct Search<'c, 'f, E> {
+pub struct Search<'c, 'f, E, O = ()> {
     limits: Limits,
     callbacks: Vec<Box<Callback<'f>>>,
     position: Position,
     move_gen: MoveGen,
     eval: E,
     trans_table: &'c mut TranspositionTable,
-    #[cfg(feature = "trace_search")]
-    observers: Vec<Weak<RefCell<dyn trace::Observer>>>,
+    observer: O,
 }
 
 impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
@@ -66,10 +61,12 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             move_gen,
             eval,
             trans_table,
-            observers: vec![],
+            observer: (),
         }
     }
+}
 
+impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
     pub fn moves(mut self, moves: &[PseudoMove]) -> Self {
         let legal_moves = self.move_gen.gen_all_moves(&self.position);
         self.limits.moves = Some(
@@ -213,7 +210,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         }
 
         let mut best_move = moves[0];
-        let mut best_score = Value::mate_in_neg(0);
+        let mut best_score = Value::mate_in_ply_neg(0);
         let mut low = alpha;
 
         for &mv in moves {
@@ -221,21 +218,18 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
                 return None;
             }
 
-            #[cfg(feature = "trace_search")]
             self.notify_move_made(mv, -beta, -low);
 
             self.position.make_move(mv);
-            let score = -search(self, -beta, -low, depth - 1, params);
+            let score = -search(self, -beta, -low, depth - 1, params).inc_mate();
             self.position.unmake_move();
 
-            #[cfg(feature = "trace_search")]
             self.notify_move_unmade(mv);
 
             if score >= beta {
                 let entry = Entry::new(score, mv, Bound::Lower, depth);
                 self.trans_table.insert(&self.position, entry);
 
-                #[cfg(feature = "trace_search")]
                 self.notify_score_found(score, trace::ReturnKind::Beta(mv));
 
                 return Some(score);
@@ -256,7 +250,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         let entry = Entry::new(best_score, best_move, bound, depth);
         self.trans_table.insert(&self.position, entry);
 
-        #[cfg(feature = "trace_search")]
         self.notify_score_found(best_score, trace::ReturnKind::Best(best_move));
 
         Some(best_score)
@@ -274,9 +267,8 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         if moves.is_empty() {
             // Checkmate
             return if check {
-                let score = Value::mate_in_neg(((params.start_depth - depth + 1) / 2) as u16);
+                let score = Value::mate_in_ply_neg(0);
 
-                #[cfg(feature = "trace_search")]
                 self.notify_score_found(score, trace::ReturnKind::Checkmate);
 
                 score
@@ -284,7 +276,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             } else {
                 let score = Value::centi_pawn(0);
 
-                #[cfg(feature = "trace_search")]
                 self.notify_score_found(score, trace::ReturnKind::Stalemate);
 
                 score
@@ -295,7 +286,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         if self.position.is_draw() {
             let score = Value::centi_pawn(0);
 
-            #[cfg(feature = "trace_search")]
             self.notify_score_found(score, trace::ReturnKind::RuleDraw);
 
             return score;
@@ -303,11 +293,10 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
 
         // TODO: Do this better
         let mut table_move = None;
-        if let Some(entry) = self.trans_table.get(&self.position) {
+        if let Some(&entry) = self.trans_table.get(&self.position) {
             if entry.depth >= depth {
                 match entry.bound {
                     Bound::Exact => {
-                        #[cfg(feature = "trace_search")]
                         self.notify_score_found(entry.score, trace::ReturnKind::TTExact);
 
                         return entry.score;
@@ -317,7 +306,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
                 }
 
                 if beta <= alpha {
-                    #[cfg(feature = "trace_search")]
                     self.notify_score_found(entry.score, trace::ReturnKind::TTBound);
 
                     return entry.score;
@@ -341,7 +329,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             let entry = Entry::new(score, best_move, bound, depth);
             self.trans_table.insert(&self.position, entry);
 
-            #[cfg(feature = "trace_search")]
             self.notify_score_found(score, trace::ReturnKind::Quiesce);
 
             return score;
@@ -352,7 +339,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         // Safety: `moves` are generated
         unsafe {
             self.search_moves(&moves, alpha, beta, depth, params, Self::search)
-                .unwrap_or(Value::mate_in_neg(0))
+                .unwrap_or(Value::mate_in_ply_neg(0))
         }
     }
 
@@ -373,11 +360,9 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
                 high = beta.min(high + START_DELTA);
             }
 
-            #[cfg(feature = "trace_search")]
             self.notify_aspiration_start(entry.score);
 
             for exp in 1.. {
-                #[cfg(feature = "trace_search")]
                 self.notify_aspiration_iter_start(low, high);
 
                 let score = self.search(low, high, depth, params);
@@ -385,30 +370,27 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
 
                 if score >= high {
                     if score >= beta {
-                        #[cfg(feature = "trace_search")]
                         self.notify_aspiration_iter_end(trace::AspirationResult::FailBeta);
 
                         return score;
                     }
 
-                    #[cfg(feature = "trace_search")]
                     self.notify_aspiration_iter_end(trace::AspirationResult::FailHigh);
 
                     high = (score + high - entry.score).max(entry.score + delta);
                 } else if score <= low {
                     if score <= alpha {
                         // This should never happen when calling from the root
-                        #[cfg(feature = "trace_search")]
+
                         self.notify_aspiration_iter_end(trace::AspirationResult::FailAlpha);
 
                         return score;
                     }
-                    #[cfg(feature = "trace_search")]
+
                     self.notify_aspiration_iter_end(trace::AspirationResult::FailLow);
 
                     low = (score + low - entry.score).min(entry.score - delta);
                 } else {
-                    #[cfg(feature = "trace_search")]
                     self.notify_aspiration_iter_end(trace::AspirationResult::InBounds);
 
                     return score;
@@ -495,7 +477,6 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
 
         // Iterative deepening
         for depth in 1..=max_depth {
-            #[cfg(feature = "trace_search")]
             self.notify_new_depth(depth);
 
             let iteration_start = Instant::now();
@@ -515,8 +496,8 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
             let best = unsafe {
                 self.search_moves(
                     &root_moves,
-                    Value::mate_in_neg(0),
-                    Value::mate_in(0),
+                    Value::mate_in_ply_neg(0),
+                    Value::mate_in_ply(0),
                     depth,
                     &mut params,
                     Self::aspiration_window_search,
