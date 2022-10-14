@@ -20,12 +20,22 @@ impl Value {
         Self(i16::MAX - moves as i16)
     }
 
-    pub fn inc_mate(self) -> Self {
-        match self.0 {
-            v if Self::NEG_INF.contains(&v) => Self(v + 1),
-            v if Self::INF.contains(&v) => Self(v - 1),
-            v => Self(v),
+    pub fn inc_mate(mut self) -> Self {
+        if self.0 <= i16::MIN + 1 + 100 {
+            self.0 += 1;
+        } else if self.0 >= i16::MAX - 100 {
+            self.0 -= 1;
         }
+        self
+    }
+
+    pub fn dec_mate(mut self) -> Self {
+        if self.0 <= i16::MIN + 1 + 100 && self.0 != i16::MIN + 1 {
+            self.0 -= 1;
+        } else if self.0 >= i16::MAX - 100 && self.0 != i16::MAX {
+            self.0 += 1;
+        }
+        self
     }
 }
 
@@ -73,6 +83,10 @@ impl Display for Value {
 
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        Display::fmt(&self, f)
+        match self.0 {
+            v if Self::NEG_INF.contains(&v) => write!(f, "-m{} (ply)", v - i16::MIN - 1),
+            v if Self::INF.contains(&v) => write!(f, "m{} (ply)", i16::MAX - v),
+            v => write!(f, "{}.{}", v / 100, v % 100),
+        }
     }
 }

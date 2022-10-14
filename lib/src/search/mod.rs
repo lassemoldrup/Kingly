@@ -19,7 +19,7 @@ pub use transposition_table::TranspositionTable;
 mod trace;
 pub use trace::{AspirationResult, Observer, ReturnKind};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct SearchParams<'a> {
     nodes: u64,
     sel_depth: u8,
@@ -218,10 +218,13 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
                 return None;
             }
 
-            self.notify_move_made(mv, -beta, -low);
+            // Calling dec_mate and inc_mate, since mate in 5 ply
+            // at this depth will be mate in 4 ply at child depth
+            self.notify_move_made(mv, -beta.dec_mate(), -low.dec_mate());
 
             self.position.make_move(mv);
-            let score = -search(self, -beta, -low, depth - 1, params).inc_mate();
+            let score =
+                -search(self, -beta.dec_mate(), -low.dec_mate(), depth - 1, params).inc_mate();
             self.position.unmake_move();
 
             self.notify_move_unmade(mv);

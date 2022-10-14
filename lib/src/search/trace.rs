@@ -13,7 +13,7 @@ pub enum ReturnKind {
     Quiesce,
     Checkmate,
     Stalemate,
-    // Threefold repetition or fifty-move rule
+    /// Threefold repetition or fifty-move rule
     RuleDraw,
 }
 
