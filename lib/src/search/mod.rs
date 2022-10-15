@@ -377,14 +377,13 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         params: &mut SearchParams,
     ) -> Value {
         if let Some(&entry) = self.trans_table.get(&self.position) {
-            const START_DELTA: Value = Value::centi_pawn(12);
-            let mut low = alpha.max(entry.score - START_DELTA);
-            let mut high = beta.min(entry.score + START_DELTA);
+            const START_DELTA: Value = Value::centi_pawn(15);
 
-            while high <= low {
-                low = alpha.max(low - START_DELTA);
-                high = beta.min(high + START_DELTA);
-            }
+            // The low and high must stay within [alpha; beta],
+            // but in case e.g. entry.score - START_DELTA is above beta,
+            // we make sure the interval is not empty
+            let mut low = alpha.max((entry.score - START_DELTA).min(beta - START_DELTA));
+            let mut high = beta.min((entry.score + START_DELTA).max(alpha + START_DELTA));
 
             self.notify_aspiration_start(entry.score);
 
@@ -403,7 +402,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
 
                     self.notify_aspiration_iter_end(trace::AspirationResult::FailHigh);
 
-                    high = (score + high - entry.score).max(entry.score + delta);
+                    high = (score.max(entry.score) + delta).min(beta);
                 } else if score <= low {
                     if score <= alpha {
                         // This should never happen when calling from the root
@@ -415,7 +414,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
 
                     self.notify_aspiration_iter_end(trace::AspirationResult::FailLow);
 
-                    low = (score + low - entry.score).min(entry.score - delta);
+                    low = (score.min(entry.score) - delta).max(alpha);
                 } else {
                     self.notify_aspiration_iter_end(trace::AspirationResult::InBounds);
 

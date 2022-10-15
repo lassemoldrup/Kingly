@@ -86,7 +86,7 @@ impl Debug for Value {
         match self.0 {
             v if Self::NEG_INF.contains(&v) => write!(f, "-m{} (ply)", v - i16::MIN - 1),
             v if Self::INF.contains(&v) => write!(f, "m{} (ply)", i16::MAX - v),
-            v => write!(f, "{}.{}", v / 100, v % 100),
+            v => write!(f, "{}.{:02}", v / 100, (v % 100).abs()),
         }
     }
 }
