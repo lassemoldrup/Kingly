@@ -71,6 +71,7 @@ macro_rules! mv {
         use $crate::types::Square::*;
         $crate::types::Move::new_promotion($from, $to, $kind, true)
     }};
+    () => { $crate::types::Move::NULL };
 }
 
 pub enum MoveKind {
@@ -91,6 +92,8 @@ pub enum MoveKind {
 pub struct Move(u16);
 
 impl Move {
+    pub const NULL: Self = Self(0);
+
     pub fn new_regular(from: Square, to: Square, capture: bool) -> Self {
         let mut encoding = 0;
 
@@ -169,10 +172,17 @@ impl Move {
             .ok_or(format!("Illegal move '{}'", value))
             .map(|mv| *mv)
     }
+
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
+    }
 }
 
 impl Display for Move {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if self.is_null() {
+            return write!(f, "NULL");
+        }
         match self.kind() {
             MoveKind::Regular | MoveKind::Castling | MoveKind::EnPassant => {
                 write!(f, "{}{}", self.from(), self.to())
@@ -184,6 +194,9 @@ impl Display for Move {
 
 impl Debug for Move {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if self.is_null() {
+            return write!(f, "NULL");
+        }
         match self.kind() {
             MoveKind::Castling => write!(f, "c{}", self),
             MoveKind::EnPassant => write!(f, "ep{}", self),

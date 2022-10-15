@@ -11,6 +11,7 @@ pub enum ReturnKind {
     TTExact,
     TTBound,
     Quiesce,
+    NullMove,
     Checkmate,
     Stalemate,
     /// Threefold repetition or fifty-move rule
@@ -25,6 +26,7 @@ impl Display for ReturnKind {
             ReturnKind::TTExact => write!(f, "T.T. Exact"),
             ReturnKind::TTBound => write!(f, "T.T. Bound"),
             ReturnKind::Quiesce => write!(f, "Quiscence"),
+            ReturnKind::NullMove => write!(f, "Null Move"),
             ReturnKind::Checkmate => write!(f, "C. Mate"),
             ReturnKind::Stalemate => write!(f, "S. Mate"),
             ReturnKind::RuleDraw => write!(f, "Draw"),

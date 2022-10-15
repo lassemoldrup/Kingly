@@ -43,7 +43,7 @@ impl Pieces {
 
     /// Gets a `Bitboard` of all occupied squares
     pub fn get_occ(&self) -> Bitboard {
-        self.get_occ_for(Color::White) | self.get_occ_for(Color::Black)
+        self.occupied
     }
 
     pub fn set_sq(&mut self, sq: Square, pce: Piece) {

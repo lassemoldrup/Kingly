@@ -81,12 +81,6 @@ fn move_number_parsed_correctly_from_fen() {
     assert_eq!(position.move_number, 3);
 }
 
-fn position_matches_fen(position: Position, fen: &str) {
-    let fen_pos = Position::from_fen(fen).unwrap();
-
-    assert_eq!(position, fen_pos)
-}
-
 #[test]
 fn regular_move_made_correctly() {
     let mut position = Position::new();
@@ -99,7 +93,7 @@ fn regular_move_made_correctly() {
     }
 
     let res_fen = "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3";
-    position_matches_fen(position, res_fen);
+    assert!(position.matches_fen(res_fen).unwrap());
 }
 
 #[test]
@@ -113,7 +107,7 @@ fn castling_move_made_correctly() {
     }
 
     let res_fen = "rnbq1rk1/pppp1ppp/5n2/4p1B1/1b1P4/2NQ4/PPP1PPPP/2KR1BNR b - - 7 5";
-    position_matches_fen(position, res_fen);
+    assert!(position.matches_fen(res_fen).unwrap());
 }
 
 #[test]
@@ -129,7 +123,7 @@ fn promotion_moves_made_correctly() {
     }
 
     let res_fen = "rnbqkbRQ/2pppp2/8/8/8/8/P2PPP2/RNnbKBNR w KQq - 0 11";
-    position_matches_fen(position, res_fen);
+    assert!(position.matches_fen(res_fen).unwrap());
 }
 
 #[test]
@@ -142,7 +136,7 @@ fn en_passant_moves_made_correctly() {
     }
 
     let res_fen = "rnbqkbnr/ppp1pp1p/3P2p1/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3";
-    position_matches_fen(position, res_fen);
+    assert!(position.matches_fen(res_fen).unwrap());
 }
 
 #[test]
@@ -160,7 +154,7 @@ fn regular_moves_unmade_correctly() {
         position.unmake_move();
     }
 
-    position_matches_fen(position, STARTING_FEN);
+    assert!(position.matches_fen(STARTING_FEN).unwrap());
 }
 
 #[test]
@@ -179,7 +173,7 @@ fn castling_moves_unmade_correctly() {
         position.unmake_move();
     }
 
-    position_matches_fen(position, fen);
+    assert!(position.matches_fen(fen).unwrap());
 }
 
 #[test]
@@ -198,7 +192,7 @@ fn promotion_moves_unmade_correctly() {
         position.unmake_move();
     }
 
-    position_matches_fen(position, fen);
+    assert!(position.matches_fen(fen).unwrap());
 }
 
 #[test]
@@ -211,5 +205,24 @@ fn en_passant_moves_unmade_correctly() {
         position.unmake_move();
     }
 
-    position_matches_fen(position, fen);
+    assert!(position.matches_fen(fen).unwrap());
+}
+
+#[test]
+fn null_moves_made_and_unmade_correctly() {
+    let fen = "rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3";
+    let mut position = Position::from_fen(fen).unwrap();
+
+    unsafe {
+        position.make_move(mv!());
+    }
+
+    let null_fen = "rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3";
+    assert!(position.matches_fen(null_fen).unwrap());
+
+    unsafe {
+        position.unmake_move();
+    }
+
+    assert!(position.matches_fen(fen).unwrap());
 }

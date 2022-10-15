@@ -113,3 +113,31 @@ fn find_mate_in_eight() {
 
     assert_eq!(value, Value::mate_in_ply(15));
 }
+
+#[test]
+fn zugzwang_test_position1() {
+    let fen = "1q1k4/2Rr4/8/2Q3K1/8/8/8/8 w - - 0 1";
+    let position = Position::from_fen(fen).unwrap();
+    let mut best_move = mv!();
+
+    get_search(position, 16)
+        .depth(8)
+        .on_info(|info| best_move = info.pv[0])
+        .start(&AtomicBool::new(false));
+
+    assert_eq!(best_move, mv!(G5 -> H6));
+}
+
+#[test]
+fn zugzwang_test_position2() {
+    let fen = "8/8/8/3p1K2/2kP4/8/8/8 w - - 1 1";
+    let position = Position::from_fen(fen).unwrap();
+    let mut best_move = mv!();
+
+    get_search(position, 16)
+        .depth(8)
+        .on_info(|info| best_move = info.pv[0])
+        .start(&AtomicBool::new(false));
+
+    assert_eq!(best_move, mv!(F5 -> E5));
+}

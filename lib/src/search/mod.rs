@@ -7,6 +7,7 @@ use log::error;
 use crate::eval::Eval;
 use crate::move_gen::MoveGen;
 use crate::move_list::MoveList;
+use crate::mv;
 use crate::position::Position;
 use crate::types::{Move, PseudoMove, Value};
 
@@ -335,6 +336,28 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             self.notify_score_found(score, trace::ReturnKind::Quiesce);
 
             return score;
+        }
+
+        // Null move pruning with R=3
+        if !check && depth > 3 && self.position.null_move_heuristic() {
+            self.notify_move_made(mv!(), -beta.dec_mate(), -alpha.dec_mate());
+
+            let score;
+            unsafe {
+                self.position.make_move(mv!());
+                score = -self
+                    .search(-beta.dec_mate(), -alpha.dec_mate(), depth - 3, params)
+                    .inc_mate();
+                self.position.unmake_move();
+            }
+
+            self.notify_move_unmade(mv!());
+
+            if score >= beta {
+                self.notify_score_found(score, trace::ReturnKind::NullMove);
+
+                return score;
+            }
         }
 
         self.reorder_moves(&mut moves, table_move);

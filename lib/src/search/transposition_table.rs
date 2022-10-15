@@ -62,17 +62,15 @@ impl TranspositionTable {
             // Safety: Modulo ensures that index is in bounds
             let entry_opt = unsafe { self.data.get_unchecked_mut(i) };
             match entry_opt {
-                Some((k, e)) => {
-                    if *k == key {
-                        *e = entry;
-                        return;
-                    }
-
-                    if e.entry_score < min {
-                        min = e.entry_score;
-                        min_idx = i;
-                    }
+                Some((k, e)) if *k == key => {
+                    *e = entry;
+                    return;
                 }
+                Some((_, e)) if e.entry_score < min => {
+                    min = e.entry_score;
+                    min_idx = i;
+                }
+                Some(_) => {}
                 None => {
                     *entry_opt = Some((key, entry));
                     self.count += 1;
@@ -97,11 +95,10 @@ impl TranspositionTable {
             // Safety: Modulo ensures that index is in bounds
             let entry_opt = unsafe { self.data.get_unchecked(i) };
             match entry_opt {
-                Some((k, e)) => {
-                    if *k == key {
-                        return Some(e);
-                    }
+                Some((k, e)) if *k == key => {
+                    return Some(e);
                 }
+                Some(_) => {}
                 None => return None,
             }
         }
