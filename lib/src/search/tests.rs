@@ -20,8 +20,10 @@ fn get_search(position: Position, hash_size: usize) -> Search<'static, 'static, 
 
 #[test]
 fn queen_standoff_should_give_advantage_to_player_to_move() {
-    let w_to_move_pos = Position::from_fen("4k3/8/8/3q4/3Q4/8/8/4K3 w - - 0 1").unwrap();
-    let b_to_move_pos = Position::from_fen("4k3/8/8/3q4/3Q4/8/8/4K3 b - - 0 1").unwrap();
+    let w_to_move_fen = "4k3/8/8/3q4/3Q4/8/8/4K3 w - - 0 1";
+    let b_to_move_fen = "4k3/8/8/3q4/3Q4/8/8/4K3 b - - 0 1";
+    let w_to_move_pos = Position::from_fen(w_to_move_fen).unwrap();
+    let b_to_move_pos = Position::from_fen(b_to_move_fen).unwrap();
 
     let mut w_value = Value::centi_pawn(0);
     let mut b_value = Value::centi_pawn(0);
@@ -43,7 +45,8 @@ fn queen_standoff_should_give_advantage_to_player_to_move() {
 
 #[test]
 fn finds_mate_in_two() {
-    let position = Position::from_fen("3r2k1/5ppp/8/8/8/8/4R3/K3R3 w - - 0 1").unwrap();
+    let fen = "3r2k1/5ppp/8/8/8/8/4R3/K3R3 w - - 0 1";
+    let position = Position::from_fen(fen).unwrap();
     let mut value = Value::centi_pawn(0);
 
     get_search(position, 1)
@@ -56,7 +59,8 @@ fn finds_mate_in_two() {
 
 #[test]
 fn finds_threefold_repetition() {
-    let mut position = Position::from_fen("6kq/6p1/6Q1/8/8/8/1q6/6K1 w - - 0 1").unwrap();
+    let fen = "6kq/6p1/6Q1/8/8/8/1q6/6K1 w - - 0 1";
+    let mut position = Position::from_fen(fen).unwrap();
     unsafe {
         position.make_move(mv!(G6 -> E8));
         position.make_move(mv!(G8 -> H7));
@@ -77,7 +81,8 @@ fn finds_threefold_repetition() {
 
 #[test]
 fn finds_fifty_move_draw() {
-    let position = Position::from_fen("6kq/8/8/8/5K2/8/8/8 b - - 98 4").unwrap();
+    let fen = "6kq/8/8/8/5K2/8/8/8 b - - 98 4";
+    let position = Position::from_fen(fen).unwrap();
     let mut value = Value::centi_pawn(-100);
 
     get_search(position, 1)
@@ -90,7 +95,8 @@ fn finds_fifty_move_draw() {
 
 #[test]
 fn no_fifty_move_draw_on_checkmate() {
-    let position = Position::from_fen("7q/5kp1/8/8/8/8/1q6/6K1 w - - 98 2").unwrap();
+    let fen = "7q/5kp1/8/8/8/8/1q6/6K1 w - - 98 2";
+    let position = Position::from_fen(fen).unwrap();
     let mut value = Value::centi_pawn(0);
 
     get_search(position, 1)
@@ -103,7 +109,8 @@ fn no_fifty_move_draw_on_checkmate() {
 
 #[test]
 fn find_mate_in_eight() {
-    let position = Position::from_fen("3k4/8/8/8/3K4/5R2/8/8 w - - 0 1").unwrap();
+    let fen = "3k4/8/8/8/3K4/5R2/8/8 w - - 0 1";
+    let position = Position::from_fen(fen).unwrap();
     let mut value = Value::centi_pawn(0);
 
     get_search(position, 16)
