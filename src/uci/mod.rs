@@ -1,4 +1,5 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::error::Error;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::num::ParseIntError;
 use std::str::FromStr;
 use std::time::Duration;
@@ -19,6 +20,35 @@ use crate::io::{Input, Output};
 mod tests;
 mod writer;
 pub use writer::Writer;
+
+#[derive(Debug)]
+struct ParseCmdError(String);
+
+impl Error for ParseCmdError {}
+
+impl From<String> for ParseCmdError {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<ParseIntError> for ParseCmdError {
+    fn from(err: ParseIntError) -> Self {
+        Self(err.to_string())
+    }
+}
+
+impl Display for ParseCmdError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "Failed to parse command: {}", self.0)
+    }
+}
+
+macro_rules! parse_err {
+    ($str:literal $(, $arg:expr)*) => {
+        ParseCmdError(format!($str $(, $arg)*))
+    };
+}
 
 pub struct Uci<I, O> {
     client: Client<StandardEval>,
@@ -57,18 +87,18 @@ where
 
             match Self::parse_command(&cmd) {
                 Ok(cmd) => self.execute(cmd)?,
-                Err(err) => self.debug(&err)?,
+                Err(err) => self.debug(&err.0)?,
             }
         }
     }
 
-    fn parse_command(cmd: &str) -> Result<Command, String> {
+    fn parse_command(cmd: &str) -> Result<Command, ParseCmdError> {
         let cmds: Vec<_> = cmd.split_ascii_whitespace().collect();
         match cmds[0] {
             "debug" => get_arg(&cmds, 1).and_then(|arg| match arg {
                 "on" => Ok(Command::Debug(true)),
                 "off" => Ok(Command::Debug(false)),
-                _ => Err(format!("Invalid argument '{}'", arg)),
+                _ => Err(parse_err!("Invalid argument '{arg}'")),
             }),
 
             "isready" => Ok(Command::IsReady),
@@ -80,8 +110,8 @@ where
                         .map(|x| x.join(" "))
                         .collect_tuple::<(_, _)>()
                         .map(parse_uci_option)
-                        .unwrap_or_else(|| Err("Invalid argument".into())),
-                    _ => Err(format!("Invalid argument '{}'", arg)),
+                        .unwrap_or_else(|| Err(parse_err!("Invalid argument"))),
+                    _ => Err(parse_err!("Invalid argument '{arg}'")),
                 })
                 .map(Command::SetOption),
 
@@ -91,9 +121,9 @@ where
                     .split(|&c| c == "code")
                     .map(|x| x.join(" "))
                     .collect_tuple::<(_, _)>()
-                    .ok_or_else(|| "Missing code".to_string())
+                    .ok_or_else(|| parse_err!("Missing code"))
                     .map(|(name, code)| Command::Register { name, code }),
-                _ => Err(format!("Invalid argument(s) '{}'", cmds[1..].join(" "))),
+                _ => Err(parse_err!("Invalid argument(s) '{}'", cmds[1..].join(" "))),
             }),
 
             "ucinewgame" => Ok(Command::UciNewGame),
@@ -103,7 +133,7 @@ where
                 let fen = match sections.next() {
                     Some(["fen", end @ ..]) if !end.is_empty() => Ok(end.join(" ")),
                     Some(["startpos", ..]) => Ok(STARTING_FEN.to_string()),
-                    _ => Err(format!("Invalid argument(s) '{}'", cmds[1..].join(" "))),
+                    _ => Err(parse_err!("Invalid argument(s) '{}'", cmds[1..].join(" "))),
                 }?;
 
                 let mut moves = vec![];
@@ -136,9 +166,9 @@ where
 
             "quit" => Ok(Command::Quit),
 
-            "" => Err("Missing command".to_string()),
+            "" => Err(parse_err!("Missing command")),
 
-            _ => Err(format!("Unrecognized command '{}'", cmds[0])),
+            _ => Err(parse_err!("Unrecognized command '{}'", cmds[0])),
         }
     }
 
@@ -165,7 +195,7 @@ where
             }
             Command::Stop => self.client.stop(),
             Command::Quit => process::exit(0),
-            _ => Ok(self.debug(&format!("Unsupported command '{:?}'", cmd))?),
+            _ => Ok(self.debug(&format!("Unsupported command '{cmd:?}'"))?),
         }
         .or_else(|err| self.debug(&err))
     }
@@ -193,23 +223,25 @@ fn map_search_result(result: &SearchInfo) -> Vec<GoInfoPair> {
     info
 }
 
-fn get_arg<'a>(cmds: &[&'a str], idx: usize) -> Result<&'a str, String> {
+fn get_arg<'a>(cmds: &[&'a str], idx: usize) -> Result<&'a str, ParseCmdError> {
     cmds.get(idx)
-        .ok_or_else(|| "Missing argument".to_string())
+        .ok_or_else(|| parse_err!("Missing argument"))
         .map(|&arg| arg)
 }
 
-fn parse_uci_option((name, value): (String, String)) -> Result<UciOption, String> {
+fn parse_uci_option((name, value): (String, String)) -> Result<UciOption, ParseCmdError> {
     match name.as_str() {
         "Hash" => value
             .parse()
             .map(UciOption::Hash)
-            .map_err(|_| format!("Illegal value '{}'", value)),
-        _ => Err(format!("Unrecognized option '{}'", name)),
+            .map_err(|_| parse_err!("Illegal value '{value}'")),
+        _ => Err(parse_err!("Unrecognized option '{name}'")),
     }
 }
 
-fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b str]), String> {
+fn parse_go_option<'a, 'b>(
+    opts: &'a [&'b str],
+) -> Result<(GoOption, &'a [&'b str]), ParseCmdError> {
     match opts {
         ["searchmoves", end @ ..] => {
             let moves: Vec<_> = end
@@ -217,8 +249,11 @@ fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b st
                 .map(|&opt| PseudoMove::from_str(opt).ok())
                 .while_some()
                 .collect();
+
             if moves.is_empty() {
-                Err("searchmoves must be provided with at least 1 argument".to_string())
+                Err(parse_err!(
+                    "searchmoves must be provided with at least 1 move"
+                ))
             } else {
                 let num = moves.len();
                 Ok((GoOption::SearchMoves(moves), &end[num..]))
@@ -226,53 +261,45 @@ fn parse_go_option<'a, 'b>(opts: &'a [&'b str]) -> Result<(GoOption, &'a [&'b st
         }
         ["ponder", end @ ..] => Ok((GoOption::Ponder, end)),
         ["wtime", time, end @ ..] => {
-            let time = time.parse().map_err(|err: ParseIntError| err.to_string())?;
+            let time = time.parse::<u32>()?;
             Ok((GoOption::WTime(time), end))
         }
         ["btime", time, end @ ..] => {
-            let time = time.parse().map_err(|err: ParseIntError| err.to_string())?;
+            let time = time.parse::<u32>()?;
             Ok((GoOption::BTime(time), end))
         }
         ["winc", time, end @ ..] => {
-            let time = time.parse().map_err(|err: ParseIntError| err.to_string())?;
+            let time = time.parse::<u32>()?;
             Ok((GoOption::WInc(time), end))
         }
         ["binc", time, end @ ..] => {
-            let time = time.parse().map_err(|err: ParseIntError| err.to_string())?;
+            let time = time.parse::<u32>()?;
             Ok((GoOption::BInc(time), end))
         }
         ["movestogo", num_moves, end @ ..] => {
-            let num_moves = num_moves
-                .parse()
-                .map_err(|err: ParseIntError| err.to_string())?;
+            let num_moves = num_moves.parse::<u32>()?;
             Ok((GoOption::MovesToGo(num_moves), end))
         }
         ["depth", depth, end @ ..] => {
-            let depth = depth
-                .parse()
-                .map_err(|err: ParseIntError| err.to_string())?;
+            let depth = depth.parse::<u8>()?;
             Ok((GoOption::Depth(depth), end))
         }
         ["nodes", nodes, end @ ..] => {
-            let nodes = nodes
-                .parse()
-                .map_err(|err: ParseIntError| err.to_string())?;
+            let nodes = nodes.parse::<u64>()?;
             Ok((GoOption::Nodes(nodes), end))
         }
         ["mate", num_moves, end @ ..] => {
-            let num_moves = num_moves
-                .parse()
-                .map_err(|err: ParseIntError| err.to_string())?;
+            let num_moves = num_moves.parse::<u32>()?;
             Ok((GoOption::Mate(num_moves), end))
         }
         ["movetime", time, end @ ..] => {
-            let time = time.parse().map_err(|err: ParseIntError| err.to_string())?;
+            let time = time.parse::<u64>()?;
             Ok((GoOption::MoveTime(Duration::from_millis(time)), end))
         }
         ["infinite", end @ ..] => Ok((GoOption::Infinite, end)),
-        [_] => Err("Unrecognized option or missing argument".to_string()),
-        [opt, ..] => Err(format!("Unrecognized option '{}'", opt)),
-        [] => Err("Missing go option".to_string()),
+        [_] => Err(parse_err!("Unrecognized option or missing argument")),
+        [opt, ..] => Err(parse_err!("Unrecognized option '{opt}'")),
+        [] => Err(parse_err!("Missing go option")),
     }
 }
 
@@ -333,19 +360,19 @@ enum GoInfoPair {
 impl Display for GoInfoPair {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GoInfoPair::Depth(depth) => write!(f, "depth {}", depth),
-            GoInfoPair::SelDepth(depth) => write!(f, "seldepth {}", depth),
-            GoInfoPair::Time(time) => write!(f, "time {}", time),
-            GoInfoPair::Nodes(nodes) => write!(f, "nodes {}", nodes),
+            GoInfoPair::Depth(depth) => write!(f, "depth {depth}"),
+            GoInfoPair::SelDepth(depth) => write!(f, "seldepth {depth}"),
+            GoInfoPair::Time(time) => write!(f, "time {time}"),
+            GoInfoPair::Nodes(nodes) => write!(f, "nodes {nodes}"),
             GoInfoPair::Pv(pv) => write!(f, "pv {}", pv.iter().join(" ")),
-            GoInfoPair::Score(score) => write!(f, "score {}", score),
-            GoInfoPair::CurrMove(mv) => write!(f, "currmove {}", mv),
-            GoInfoPair::CurrMoveNumber(mv_number) => write!(f, "currmovenumber {}", mv_number),
-            GoInfoPair::HashFull(hash) => write!(f, "hashfull {}", hash),
-            GoInfoPair::Nps(nps) => write!(f, "nps {}", nps),
-            GoInfoPair::String(string) => write!(f, "string {}", string),
+            GoInfoPair::Score(score) => write!(f, "score {score}"),
+            GoInfoPair::CurrMove(mv) => write!(f, "currmove {mv}"),
+            GoInfoPair::CurrMoveNumber(mv_number) => write!(f, "currmovenumber {mv_number}"),
+            GoInfoPair::HashFull(hash) => write!(f, "hashfull {hash}"),
+            GoInfoPair::Nps(nps) => write!(f, "nps {nps}"),
+            GoInfoPair::String(string) => write!(f, "string {string}"),
             GoInfoPair::CurrLine { cpu_number, line } => {
-                write!(f, "currline {} {}", cpu_number, line.iter().join(" "))
+                write!(f, "currline {cpu_number} {}", line.iter().join(" "))
             }
         }
     }
