@@ -56,7 +56,7 @@ impl TranspositionTable {
         let key = position.zobrist;
         let index = key as usize & self.mod_mask;
 
-        let mut min = u8::MAX;
+        let mut min = i8::MAX;
         let mut min_idx = 0;
         for i in self.probe(index) {
             // Safety: Modulo ensures that index is in bounds
@@ -140,12 +140,12 @@ pub struct Entry {
     pub score: Value,
     pub best_move: Move,
     pub bound: Bound,
-    pub depth: u8,
-    entry_score: u8,
+    pub depth: i8,
+    entry_score: i8,
 }
 
 impl Entry {
-    pub fn new(score: Value, best_move: Move, bound: Bound, depth: u8) -> Self {
+    pub fn new(score: Value, best_move: Move, bound: Bound, depth: i8) -> Self {
         let entry_score = depth
             + match bound {
                 Bound::Exact => 1,

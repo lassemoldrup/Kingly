@@ -38,6 +38,12 @@ struct Limits {
 }
 
 type Callback<'f> = dyn FnMut(&SearchInfo) + 'f;
+
+/// Represents a handle to a search of some `Position`.
+///
+/// A `Search` can be used to build up a search with specific limits such as a
+/// max search depth. The actual search is executed upon calling the `start`
+/// method, once the `Search` has been initialized with the desired limits.
 pub struct Search<'c, 'f, E, O = ()> {
     limits: Limits,
     callbacks: Vec<Box<Callback<'f>>>,
@@ -158,7 +164,6 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
     }
 
     fn reorder_moves(&self, mut moves: &mut [Move], best_move: Option<Move>) {
-        // TODO: Do something better
         if moves.is_empty() {
             return;
         }
@@ -193,18 +198,18 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             || self.limits.nodes.map_or(false, |n| params.nodes >= n)
     }
 
-    /// Searches some `moves` and returns the best move and the value of that move
+    /// Searches some `moves` and returns the value of the best move.
     /// # Safety
-    /// `moves` must be legal
+    /// `moves` must be legal.
     #[inline(always)]
     unsafe fn search_moves(
         &mut self,
         moves: &[Move],
         alpha: Value,
         beta: Value,
-        depth: u8,
+        depth: i8,
         params: &mut SearchParams,
-        search: fn(&mut Self, Value, Value, u8, &mut SearchParams) -> Value,
+        search: fn(&mut Self, Value, Value, i8, &mut SearchParams) -> Value,
     ) -> Option<Value> {
         if moves.is_empty() {
             return None;
@@ -259,11 +264,72 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         Some(best_score)
     }
 
+    /// Returns `Some(score)` if the current position can be pruned at `depth`,
+    /// where `score` is the estimated value of the position.
+    /// This includes doing quiescence search as well. Otherwise, returns `None`.
+    fn prune(
+        &mut self,
+        alpha: Value,
+        beta: Value,
+        depth: i8,
+        best_move: Move,
+        params: &mut SearchParams,
+    ) -> Option<Value> {
+        // Do quiescence search
+        if depth <= 0 {
+            let score = self.quiesce(alpha, beta, params.start_depth + (-depth) as u8, params);
+            let bound = if score <= alpha {
+                Bound::Upper
+            } else if score >= beta {
+                Bound::Lower
+            } else {
+                Bound::Exact
+            };
+
+            let entry = Entry::new(score, best_move, bound, depth);
+            self.trans_table.insert(&self.position, entry);
+
+            self.notify_score_found(score, trace::ReturnKind::Quiesce);
+
+            return Some(score);
+        }
+
+        // Null move pruning with R=2
+        if depth > 2 && self.position.null_move_heuristic() {
+            self.notify_move_made(mv!(), -beta.dec_mate(), -alpha.dec_mate());
+
+            let score;
+            unsafe {
+                self.position.make_move(mv!());
+                score = -self
+                    .search(-beta.dec_mate(), -alpha.dec_mate(), depth - 2, params)
+                    .inc_mate();
+                self.position.unmake_move();
+            }
+
+            self.notify_move_unmade(mv!());
+
+            if score >= beta {
+                let entry = Entry::new(score, best_move, Bound::Lower, depth);
+                self.trans_table.insert(&self.position, entry);
+
+                self.notify_score_found(score, trace::ReturnKind::NullMove);
+
+                return Some(score);
+            }
+        }
+
+        None
+    }
+
+    /// Searches the current position to `depth` with negamax alpha-beta search
+    /// (https://www.chessprogramming.org/Alpha-Beta). Currently, the engine uses
+    /// fail-soft, which means it may return values outside of the interval `(alpha; beta)`.
     fn search(
         &mut self,
         mut alpha: Value,
         mut beta: Value,
-        depth: u8,
+        depth: i8,
         params: &mut SearchParams,
     ) -> Value {
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
@@ -319,45 +385,10 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             table_move = Some(entry.best_move);
         }
 
-        if depth == 0 {
-            let score = self.quiesce(alpha, beta, params.start_depth, params);
-            let best_move = table_move.unwrap_or_else(|| moves[0]);
-            let bound = if score <= alpha {
-                Bound::Upper
-            } else if score >= beta {
-                Bound::Lower
-            } else {
-                Bound::Exact
-            };
-
-            let entry = Entry::new(score, best_move, bound, depth);
-            self.trans_table.insert(&self.position, entry);
-
-            self.notify_score_found(score, trace::ReturnKind::Quiesce);
-
+        // Ensures we do not enter quiescence search or prune the position when in check
+        let best_move = table_move.unwrap_or_else(|| moves[0]);
+        if !check && let Some(score) = self.prune(alpha, beta, depth, best_move, params) {
             return score;
-        }
-
-        // Null move pruning with R=3
-        if !check && depth > 3 && self.position.null_move_heuristic() {
-            self.notify_move_made(mv!(), -beta.dec_mate(), -alpha.dec_mate());
-
-            let score;
-            unsafe {
-                self.position.make_move(mv!());
-                score = -self
-                    .search(-beta.dec_mate(), -alpha.dec_mate(), depth - 3, params)
-                    .inc_mate();
-                self.position.unmake_move();
-            }
-
-            self.notify_move_unmade(mv!());
-
-            if score >= beta {
-                self.notify_score_found(score, trace::ReturnKind::NullMove);
-
-                return score;
-            }
         }
 
         self.reorder_moves(&mut moves, table_move);
@@ -373,13 +404,13 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         &mut self,
         alpha: Value,
         beta: Value,
-        depth: u8,
+        depth: i8,
         params: &mut SearchParams,
     ) -> Value {
         if let Some(&entry) = self.trans_table.get(&self.position) {
             const START_DELTA: Value = Value::centi_pawn(15);
 
-            // The low and high must stay within [alpha; beta],
+            // The low and high must stay within [alpha; beta] (inclusive),
             // but in case e.g. entry.score - START_DELTA is above beta,
             // we make sure the interval is not empty
             let mut low = alpha.max((entry.score - START_DELTA).min(beta - START_DELTA));
@@ -523,7 +554,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
                     &root_moves,
                     Value::mate_in_ply_neg(0),
                     Value::mate_in_ply(0),
-                    depth,
+                    depth as i8,
                     &mut params,
                     Self::aspiration_window_search,
                 )

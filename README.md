@@ -6,6 +6,10 @@ Install Rust through [rustup](https://rustup.rs/) and run with cargo:
 ```
 cargo run --release
 ```
+Note: For now, the version of rust required is not stabilised, so it might be necessary to switch to the beta branch with
+```
+rustup toolchain install beta
+```
 
 ## Remaining tasks for the first version
 These tasks will need to be completed before version 0.1.0 is ready.
@@ -15,3 +19,5 @@ These tasks will need to be completed before version 0.1.0 is ready.
 - Proper benchmarking
 - Proper logging
 - Better eval
+- Endgame improvements
+- Game management AI
