@@ -1,4 +1,4 @@
-use super::get_material_score;
+use crate::eval::material::get_material_score;
 use crate::position::Position;
 
 #[test]

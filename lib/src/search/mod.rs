@@ -1,4 +1,3 @@
-use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -50,7 +49,7 @@ pub struct Search<'c, 'f, E, O = ()> {
     position: Position,
     move_gen: MoveGen,
     eval: E,
-    trans_table: &'c mut TranspositionTable,
+    trans_table: &'c TranspositionTable,
     observer: O,
 }
 
@@ -59,7 +58,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         position: Position,
         move_gen: MoveGen,
         eval: E,
-        trans_table: &'c mut TranspositionTable,
+        trans_table: &'c TranspositionTable,
     ) -> Self {
         Self {
             limits: Limits::default(),
@@ -76,13 +75,11 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
 impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
     pub fn moves(mut self, moves: &[PseudoMove]) -> Self {
         let legal_moves = self.move_gen.gen_all_moves(&self.position);
-        self.limits.moves = Some(
-            moves
-                .iter()
-                .map(|&mv| mv.into_move(&legal_moves))
-                .collect::<Result<_, _>>()
-                .unwrap_or_else(|err| panic!("{}", err)),
-        );
+        let moves = moves
+            .iter()
+            .map(|&mv| mv.into_move(&legal_moves).unwrap())
+            .collect();
+        self.limits.moves = Some(moves);
         self
     }
 
@@ -107,9 +104,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
     }
 
     fn root_moves(&mut self) -> MoveList {
-        let mut search_moves = None;
-        mem::swap(&mut search_moves, &mut self.limits.moves);
-
+        let search_moves = self.limits.moves.take();
         search_moves.unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position))
     }
 
@@ -121,7 +116,6 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         params: &mut SearchParams,
     ) -> Value {
         params.sel_depth = sel_depth.max(params.sel_depth);
-        params.nodes += 1;
 
         // We assume that we can do at least as well as the static
         // eval of the current position, i.e. we don't consider zugzwang
@@ -140,6 +134,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             // Safety: Generated moves are guaranteed to be legal
             unsafe {
                 self.position.make_move(mv);
+                params.nodes += 1;
                 score = -self.quiesce(-beta, -alpha, sel_depth + 1, params);
                 self.position.unmake_move();
             }
@@ -229,6 +224,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             self.notify_move_made(mv, -beta.dec_mate(), -low.dec_mate());
 
             self.position.make_move(mv);
+            params.nodes += 1;
             let score =
                 -search(self, -beta.dec_mate(), -low.dec_mate(), depth - 1, params).inc_mate();
             self.position.unmake_move();
@@ -301,6 +297,7 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             let score;
             unsafe {
                 self.position.make_move(mv!());
+                params.nodes += 1;
                 score = -self
                     .search(-beta.dec_mate(), -alpha.dec_mate(), depth - 2, params)
                     .inc_mate();
@@ -362,8 +359,9 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         }
 
         // TODO: Do this better
+        // Lookup if we've already searched this position
         let mut table_move = None;
-        if let Some(&entry) = self.trans_table.get(&self.position) {
+        if let Some(entry) = self.trans_table.get(&self.position) {
             if entry.depth >= depth {
                 match entry.bound {
                     Bound::Exact => {
@@ -385,15 +383,15 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             table_move = Some(entry.best_move);
         }
 
-        // Ensures we do not enter quiescence search or prune the position when in check
         let best_move = table_move.unwrap_or_else(|| moves[0]);
+        // Ensures we do not enter quiescence search or prune the position when in check
         if !check && let Some(score) = self.prune(alpha, beta, depth, best_move, params) {
             return score;
         }
 
         self.reorder_moves(&mut moves, table_move);
 
-        // Safety: `moves` are generated
+        // Safety: `moves` is generated
         unsafe {
             self.search_moves(&moves, alpha, beta, depth, params, Self::search)
                 .unwrap_or(Value::mate_in_ply_neg(0))
@@ -407,54 +405,57 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         depth: i8,
         params: &mut SearchParams,
     ) -> Value {
-        if let Some(&entry) = self.trans_table.get(&self.position) {
-            const START_DELTA: Value = Value::centi_pawn(15);
+        let entry_opt = self.trans_table.get(&self.position);
+        if entry_opt.is_none() {
+            return self.search(alpha, beta, depth, params);
+        }
+        let entry = entry_opt.unwrap();
 
-            // The low and high must stay within [alpha; beta] (inclusive),
-            // but in case e.g. entry.score - START_DELTA is above beta,
-            // we make sure the interval is not empty
-            let mut low = alpha.max((entry.score - START_DELTA).min(beta - START_DELTA));
-            let mut high = beta.min((entry.score + START_DELTA).max(alpha + START_DELTA));
+        const START_DELTA: Value = Value::centi_pawn(15);
 
-            self.notify_aspiration_start(entry.score);
+        // The low and high must stay within [alpha; beta] (inclusive),
+        // but in case e.g. entry.score - START_DELTA is above beta,
+        // we make sure the interval is not empty
+        let mut low = alpha.max((entry.score - START_DELTA).min(beta - START_DELTA));
+        let mut high = beta.min((entry.score + START_DELTA).max(alpha + START_DELTA));
 
-            for exp in 1.. {
-                self.notify_aspiration_iter_start(low, high);
+        self.notify_aspiration_start(entry.score);
 
-                let score = self.search(low, high, depth, params);
-                let delta = START_DELTA * (1 << exp);
+        for exp in 1.. {
+            self.notify_aspiration_iter_start(low, high);
 
-                if score >= high {
-                    if score >= beta {
-                        self.notify_aspiration_iter_end(trace::AspirationResult::FailBeta);
+            let score = self.search(low, high, depth, params);
+            let delta = START_DELTA * (1 << exp);
 
-                        return score;
-                    }
-
-                    self.notify_aspiration_iter_end(trace::AspirationResult::FailHigh);
-
-                    high = (score.max(entry.score) + delta).min(beta);
-                } else if score <= low {
-                    if score <= alpha {
-                        // This should never happen when calling from the root
-
-                        self.notify_aspiration_iter_end(trace::AspirationResult::FailAlpha);
-
-                        return score;
-                    }
-
-                    self.notify_aspiration_iter_end(trace::AspirationResult::FailLow);
-
-                    low = (score.min(entry.score) - delta).max(alpha);
-                } else {
-                    self.notify_aspiration_iter_end(trace::AspirationResult::InBounds);
+            if score >= high {
+                if score >= beta {
+                    self.notify_aspiration_iter_end(trace::AspirationResult::FailBeta);
 
                     return score;
                 }
+
+                self.notify_aspiration_iter_end(trace::AspirationResult::FailHigh);
+
+                high = (score.max(entry.score) + delta).min(beta);
+            } else if score <= low {
+                // This should never happen when calling from the root
+                if score <= alpha {
+                    self.notify_aspiration_iter_end(trace::AspirationResult::FailAlpha);
+
+                    return score;
+                }
+
+                self.notify_aspiration_iter_end(trace::AspirationResult::FailLow);
+
+                low = (score.min(entry.score) - delta).max(alpha);
+            } else {
+                self.notify_aspiration_iter_end(trace::AspirationResult::InBounds);
+
+                return score;
             }
         }
 
-        self.search(alpha, beta, depth, params)
+        unreachable!()
     }
 
     fn primary_variation(&mut self, depth: u8) -> Vec<Move> {

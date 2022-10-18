@@ -41,8 +41,9 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
         }
     }
 
-    /// Initializes the client
-    /// We wait with initializing big tables, so the program can start quickly
+    /// Initializes the client.
+    ///
+    /// We wait with initializing big tables, so the program can start quickly.
     pub fn init(&mut self) {
         self.position = Some(Position::new());
         self.move_gen = Some(MoveGen::new(Tables::get()));
@@ -126,8 +127,9 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
             .unwrap_or(false)
     }
 
-    /// UCI command: setoption name Hash value `hash_size`
-    /// `hash_size` is the number of MB
+    /// UCI command: setoption name Hash value `hash_size`.
+    ///
+    /// `hash_size` is the number of MB.
     /// Returns `Err` if searching
     pub fn set_option_hash(&self, hash_size: usize) -> Result<(), String> {
         if self.is_searching() {
@@ -157,7 +159,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
     /// Returns `Err` if searching, `fen` is not valid, or `moves` are not legal
     pub fn position(&mut self, fen: &str, moves: &[PseudoMove]) -> Result<(), String> {
         if self.is_searching() {
-            return Err(String::from("Attempt to set new game while searching"));
+            return Err(String::from("Attempt to change position while searching"));
         }
 
         let position = self.position.as_mut().expect(NOT_INIT);
@@ -176,7 +178,8 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
         Ok(())
     }
 
-    /// UCI command: go `options`
+    /// UCI command: go `options`.
+    ///
     /// Spawns a thread and passes `on_info` into the thread.
     /// Returns `Err` if searching.
     pub fn go(
@@ -199,7 +202,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
         // Spawn the search thread
         self.search_handle = Some(thread::spawn(move || {
             let mut trans_table = trans_table.lock();
-            let mut search = Search::new(position, move_gen, eval, &mut trans_table);
+            let mut search = Search::new(position, move_gen, eval, &trans_table);
 
             for option in options {
                 search = match option {
@@ -230,9 +233,9 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
         Ok(())
     }
 
-    /// UCI command: stop
-    /// Blocks until search is fully stopped
-    /// Returns `Err` if not searching
+    /// UCI command: stop.
+    ///
+    /// Blocks until search is fully stopped and returns `Err` if not searching
     pub fn stop(&mut self) -> Result<(), String> {
         if !self.is_searching() {
             return Err(String::from("Attempt to stop while not searching"));

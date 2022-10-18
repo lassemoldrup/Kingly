@@ -1,16 +1,18 @@
 use std::fmt::{self, Debug, Formatter};
 use std::mem::size_of;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use log::info;
+use parking_lot::RwLock;
 
 use crate::position::Position;
 use crate::types::{Move, Value};
 
 /// Fixed size hash table for positions. Some implementation details borrowed from the intmap crate
 pub struct TranspositionTable {
-    data: Vec<Option<(u64, Entry)>>,
+    data: RwLock<Vec<Option<(u64, Entry)>>>,
     mod_mask: usize,
-    count: usize,
+    count: AtomicUsize,
     capacity: usize,
 }
 
@@ -36,9 +38,9 @@ impl TranspositionTable {
             capacity, actual_capacity
         );
 
-        let data = vec![None; actual_capacity];
+        let data = RwLock::new(vec![None; actual_capacity]);
         let mod_mask = actual_capacity - 1;
-        let count = 0;
+        let count = AtomicUsize::new(0);
 
         info!("Done allocating trans. table");
 
@@ -51,16 +53,17 @@ impl TranspositionTable {
     }
 
     /// Inserts an entry. In case no free spot is found using linear probing,
-    /// a combination of entry depth and age is used to determine which gets replaced
-    pub fn insert(&mut self, position: &Position, entry: Entry) {
+    /// a combination of entry depth and age is used to determine which gets replaced.
+    pub fn insert(&self, position: &Position, entry: Entry) {
         let key = position.zobrist;
         let index = key as usize & self.mod_mask;
 
+        let mut data = self.data.write();
         let mut min = i8::MAX;
         let mut min_idx = 0;
         for i in self.probe(index) {
             // Safety: Modulo ensures that index is in bounds
-            let entry_opt = unsafe { self.data.get_unchecked_mut(i) };
+            let entry_opt = unsafe { data.get_unchecked_mut(i) };
             match entry_opt {
                 Some((k, e)) if *k == key => {
                     *e = entry;
@@ -73,7 +76,7 @@ impl TranspositionTable {
                 Some(_) => {}
                 None => {
                     *entry_opt = Some((key, entry));
-                    self.count += 1;
+                    self.count.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
             }
@@ -82,20 +85,20 @@ impl TranspositionTable {
         // Determine which node to be replaced
         if entry.entry_score >= min {
             unsafe {
-                *self.data.get_unchecked_mut(min_idx) = Some((key, entry));
+                *data.get_unchecked_mut(min_idx) = Some((key, entry));
             }
         }
     }
 
-    pub fn get(&self, position: &Position) -> Option<&Entry> {
+    pub fn get(&self, position: &Position) -> Option<Entry> {
         let key = position.zobrist;
         let index = key as usize & self.mod_mask;
 
         for i in self.probe(index) {
             // Safety: Modulo ensures that index is in bounds
-            let entry_opt = unsafe { self.data.get_unchecked(i) };
+            let &entry_opt = unsafe { self.data.read().get_unchecked(i) };
             match entry_opt {
-                Some((k, e)) if *k == key => {
+                Some((k, e)) if k == key => {
                     return Some(e);
                 }
                 Some(_) => {}
@@ -112,16 +115,16 @@ impl TranspositionTable {
     }
 
     pub fn clear(&mut self) {
-        self.data.fill(None);
-        self.count = 0;
+        self.data.get_mut().fill(None);
+        self.count.store(0, Ordering::Relaxed);
     }
 
     pub fn len(&self) -> usize {
-        self.count
+        self.count.load(Ordering::Relaxed)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.count == 0
+        self.len() == 0
     }
 
     pub fn capacity(&self) -> usize {

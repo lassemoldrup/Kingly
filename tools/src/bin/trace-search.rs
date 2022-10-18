@@ -326,12 +326,12 @@ fn main() {
     let position = Position::from_fen(&args[1]).unwrap();
     let move_gen = MoveGen::new(Tables::get());
     let eval = StandardEval::new(Tables::get());
-    let mut trans_table = TranspositionTable::new();
+    let trans_table = TranspositionTable::new();
     let depth: u8 = args[2].parse().unwrap();
 
     let mut tree = Tree::new();
 
-    Search::new(position, move_gen, eval, &mut trans_table)
+    Search::new(position, move_gen, eval, &trans_table)
         .register(&mut tree)
         .depth(depth)
         .start(&AtomicBool::new(false));

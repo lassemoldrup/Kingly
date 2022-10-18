@@ -3,7 +3,8 @@ use crate::position::Position;
 use crate::tables::Tables;
 use crate::types::Value;
 
-use super::*;
+use super::material::get_material_score;
+use super::Eval;
 
 #[derive(Clone, Copy)]
 pub struct StandardEval {
