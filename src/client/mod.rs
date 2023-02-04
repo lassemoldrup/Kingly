@@ -28,7 +28,7 @@ pub struct Client<E> {
     search_handle: Option<JoinHandle<()>>,
 }
 
-impl<E: Eval + Clone + Send + 'static> Client<E> {
+impl<E: Eval + Clone + Send + Sync + 'static> Client<E> {
     pub fn new() -> Self {
         let stop_search = Arc::new(AtomicBool::new(true));
         Self {
@@ -136,6 +136,10 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
             return Err(String::from("Attempt to change hash size while searching"));
         }
 
+        if hash_size == 0 {
+            return Err(String::from("Hash size must be at least 1 MB"));
+        }
+
         *self.trans_table.as_ref().expect(NOT_INIT).lock() =
             TranspositionTable::with_hash_size(hash_size);
 
@@ -216,6 +220,7 @@ impl<E: Eval + Clone + Send + 'static> Client<E> {
 
             let mut best_move = None;
             search
+                // .threads(10)
                 .on_info(|res| {
                     best_move = res.pv.first().copied();
                     on_info(GoInfo::NewDepth(res));

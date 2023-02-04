@@ -1,11 +1,11 @@
-use std::ops::{Deref, DerefMut, Index};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::{Iter, SliceIndex};
 
 use arrayvec::{ArrayVec, IntoIter};
 
 use crate::types::Move;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MoveList(ArrayVec<Move, 256>);
 
 impl MoveList {
@@ -77,6 +77,15 @@ where
 
     fn index(&self, index: I) -> &Self::Output {
         &self.0[index]
+    }
+}
+
+impl<I> IndexMut<I> for MoveList
+where
+    I: SliceIndex<[Move]>,
+{
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.0[index]
     }
 }
 

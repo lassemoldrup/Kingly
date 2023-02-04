@@ -2,7 +2,7 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::types::{Move, Value};
 
-use super::Search;
+use super::{Search, SearchThread};
 
 #[derive(Clone, Copy, Debug)]
 pub enum ReturnKind {
@@ -67,17 +67,11 @@ pub trait Observer {
 
 impl Observer for () {
     fn new_depth(&mut self, _depth: u8) {}
-
     fn move_made(&mut self, _mv: Move, _alpha: Value, _beta: Value) {}
-
     fn move_unmade(&mut self, _mv: Move) {}
-
     fn score_found(&mut self, _score: Value, _kind: ReturnKind) {}
-
     fn aspiration_start(&mut self, _prev: Value) {}
-
     fn aspiration_iter_start(&mut self, _low: Value, _high: Value) {}
-
     fn aspiration_iter_end(&mut self, _result: AspirationResult) {}
 }
 
@@ -88,6 +82,7 @@ impl<'c, 'f, E> Search<'c, 'f, E> {
     {
         Search {
             limits: self.limits,
+            num_threads: self.num_threads,
             callbacks: self.callbacks,
             position: self.position,
             move_gen: self.move_gen,
@@ -98,7 +93,7 @@ impl<'c, 'f, E> Search<'c, 'f, E> {
     }
 }
 
-impl<'c, 'f, E, O: Observer> Search<'c, 'f, E, O> {
+impl<'c, 's, E, O: Observer> SearchThread<'c, 's, E, O> {
     pub(super) fn notify_new_depth(&mut self, depth: u8) {
         self.observer.new_depth(depth);
     }

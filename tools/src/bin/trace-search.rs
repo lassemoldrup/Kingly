@@ -333,6 +333,7 @@ fn main() {
 
     Search::new(position, move_gen, eval, &trans_table)
         .register(&mut tree)
+        .threads(1)
         .depth(depth)
         .start(&AtomicBool::new(false));
 

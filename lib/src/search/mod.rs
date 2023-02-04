@@ -1,7 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::{Duration, Instant};
 
+use itertools::Itertools;
 use log::error;
+use parking_lot::Mutex;
+use rand::seq::SliceRandom;
 
 use crate::eval::Eval;
 use crate::move_gen::MoveGen;
@@ -28,6 +32,15 @@ struct SearchParams<'a> {
     search_start: Instant,
 }
 
+impl<'a> SearchParams<'a> {
+    fn merge_with(&mut self, others: &[Self]) {
+        self.nodes += others.iter().map(|sp| sp.nodes).sum::<u64>();
+        self.sel_depth = self
+            .sel_depth
+            .max(others.iter().map(|sp| sp.sel_depth).max().unwrap_or(0));
+    }
+}
+
 #[derive(Default)]
 struct Limits {
     moves: Option<MoveList>,
@@ -36,7 +49,7 @@ struct Limits {
     time: Option<Duration>,
 }
 
-type Callback<'f> = dyn FnMut(&SearchInfo) + 'f;
+type Callback<'f> = Box<dyn FnMut(&SearchInfo) + 'f>;
 
 /// Represents a handle to a search of some `Position`.
 ///
@@ -45,7 +58,8 @@ type Callback<'f> = dyn FnMut(&SearchInfo) + 'f;
 /// method, once the `Search` has been initialized with the desired limits.
 pub struct Search<'c, 'f, E, O = ()> {
     limits: Limits,
-    callbacks: Vec<Box<Callback<'f>>>,
+    num_threads: usize,
+    callbacks: Vec<Callback<'f>>,
     position: Position,
     move_gen: MoveGen,
     eval: E,
@@ -60,8 +74,11 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         eval: E,
         trans_table: &'c TranspositionTable,
     ) -> Self {
+        // Right now it seems that 10 threads is the sweet spot
+        let num_threads = num_cpus::get().min(10);
         Self {
             limits: Limits::default(),
+            num_threads,
             callbacks: vec![],
             position,
             move_gen,
@@ -72,7 +89,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
     }
 }
 
-impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
+impl<'c, 'f, E: Eval + Sync, O: Observer> Search<'c, 'f, E, O> {
     pub fn moves(mut self, moves: &[PseudoMove]) -> Self {
         let legal_moves = self.move_gen.gen_all_moves(&self.position);
         let moves = moves
@@ -103,11 +120,130 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         self
     }
 
+    pub fn threads(mut self, num: usize) -> Self {
+        if num == 0 {
+            panic!("Must have at least one thread");
+        }
+
+        self.num_threads = num;
+        self
+    }
+
+    /// Searches the current position with iterative deepening and notifies
+    /// all callbacks with some search info at the end of each iteration.
+    /// If `stop_search` is set to `true`, the search will stop.
+    pub fn start(mut self, stop_search: &AtomicBool) {
+        let search_start = Instant::now();
+
+        let mut root_moves = self.root_moves();
+        let max_depth = self.limits.depth.unwrap_or(u8::MAX);
+
+        let num_child_threads = self.num_threads - 1;
+        let mut main_thread = SearchThread {
+            limits: &self.limits,
+            position: self.position,
+            move_gen: &self.move_gen,
+            eval: &self.eval,
+            trans_table: self.trans_table,
+            observer: self.observer,
+        };
+
+        // Iterative deepening
+        for depth in 1..=max_depth {
+            main_thread.notify_new_depth(depth);
+
+            let iteration_start = Instant::now();
+
+            let mut params = SearchParams {
+                nodes: 0,
+                sel_depth: 0,
+                start_depth: depth,
+                stop_search,
+                search_start,
+            };
+
+            let best_move = self
+                .trans_table
+                .get(&main_thread.position)
+                .map(|e| e.best_move);
+            main_thread.reorder_moves(&mut root_moves, best_move);
+
+            let child_threads = (0..num_child_threads)
+                .map(|_| SearchThread {
+                    limits: main_thread.limits,
+                    position: main_thread.position.clone(),
+                    move_gen: main_thread.move_gen,
+                    eval: main_thread.eval,
+                    trans_table: main_thread.trans_table,
+                    observer: (),
+                })
+                .collect_vec();
+            let mut child_params = (0..num_child_threads)
+                .map(|_| SearchParams {
+                    nodes: 0,
+                    sel_depth: 0,
+                    start_depth: depth,
+                    stop_search: stop_search,
+                    search_start,
+                })
+                .collect_vec();
+
+            let mut best = Mutex::new(None);
+            thread::scope(|s| {
+                for (mut thread, params) in child_threads.into_iter().zip(child_params.iter_mut()) {
+                    let best = &best;
+                    let mut root_moves = root_moves.clone();
+                    root_moves[1..].shuffle(&mut rand::thread_rng());
+
+                    s.spawn(move || unsafe {
+                        thread.search_root(&root_moves, depth as i8, params, best);
+                    });
+                }
+                unsafe {
+                    main_thread.search_root(&root_moves, depth as i8, &mut params, &best);
+                }
+            });
+
+            let best_score = match best.get_mut() {
+                Some(score) => *score,
+                None => return,
+            };
+
+            // Technically unsound if client stops the search right after search iteration finishes
+            stop_search.store(false, Ordering::Relaxed);
+
+            params.merge_with(&child_params);
+            if main_thread.should_stop(&params) {
+                return;
+            }
+
+            main_thread.notify_info(
+                &mut self.callbacks,
+                search_start,
+                iteration_start,
+                depth,
+                best_score,
+                params,
+            );
+        }
+    }
+
     fn root_moves(&mut self) -> MoveList {
         let search_moves = self.limits.moves.take();
         search_moves.unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position))
     }
+}
 
+struct SearchThread<'c, 's, E, O = ()> {
+    limits: &'s Limits,
+    position: Position,
+    move_gen: &'s MoveGen,
+    eval: &'s E,
+    trans_table: &'c TranspositionTable,
+    observer: O,
+}
+
+impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
     fn quiesce(
         &mut self,
         mut alpha: Value,
@@ -258,6 +394,27 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         self.notify_score_found(best_score, trace::ReturnKind::Best(best_move));
 
         Some(best_score)
+    }
+
+    unsafe fn search_root(
+        &mut self,
+        root_moves: &[Move],
+        depth: i8,
+        params: &mut SearchParams,
+        best: &Mutex<Option<Value>>,
+    ) {
+        let res = self.search_moves(
+            root_moves,
+            Value::mate_in_ply_neg(0),
+            Value::mate_in_ply(0),
+            depth,
+            params,
+            SearchThread::aspiration_window_search,
+        );
+        params.stop_search.store(true, Ordering::Relaxed);
+        if let best @ None = &mut *best.lock() {
+            *best = res;
+        }
     }
 
     /// Returns `Some(score)` if the current position can be pruned at `depth`,
@@ -494,8 +651,9 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
         primary_variation
     }
 
-    fn notify_info(
+    fn notify_info<'f>(
         &mut self,
+        callbacks: &mut [Callback<'f>],
         search_start: Instant,
         iteration_start: Instant,
         depth: u8,
@@ -518,58 +676,8 @@ impl<'c, 'f, E: Eval, O: Observer> Search<'c, 'f, E, O> {
             hash_full,
         };
 
-        for callback in &mut self.callbacks {
+        for callback in callbacks {
             callback(&info);
-        }
-    }
-
-    /// Searches the current position with iterative deepening and notifies
-    /// all callbacks with some search info at the end of each iteration.
-    /// If `stop_search` is set to `true`, the search will stop.
-    pub fn start(mut self, stop_search: &AtomicBool) {
-        let search_start = Instant::now();
-
-        let mut root_moves = self.root_moves();
-        let max_depth = self.limits.depth.unwrap_or(u8::MAX);
-
-        // Iterative deepening
-        for depth in 1..=max_depth {
-            self.notify_new_depth(depth);
-
-            let iteration_start = Instant::now();
-
-            let mut params = SearchParams {
-                nodes: 0,
-                sel_depth: 0,
-                start_depth: depth,
-                stop_search,
-                search_start,
-            };
-
-            let best_move = self.trans_table.get(&self.position).map(|e| e.best_move);
-            self.reorder_moves(&mut root_moves, best_move);
-
-            // Safety: `root_moves` is either generated or checked in `self.root_moves()`
-            let best = unsafe {
-                self.search_moves(
-                    &root_moves,
-                    Value::mate_in_ply_neg(0),
-                    Value::mate_in_ply(0),
-                    depth as i8,
-                    &mut params,
-                    Self::aspiration_window_search,
-                )
-            };
-            let best_score = match best {
-                Some(b) => b,
-                None => return,
-            };
-
-            if self.should_stop(&params) {
-                return;
-            }
-
-            self.notify_info(search_start, iteration_start, depth, best_score, params);
         }
     }
 }

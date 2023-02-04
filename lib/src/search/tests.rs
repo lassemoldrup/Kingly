@@ -122,7 +122,7 @@ fn find_mate_in_eight() {
 }
 
 #[test]
-fn zugzwang_test_position1() {
+fn zugzwang_test_position_1() {
     let fen = "1q1k4/2Rr4/8/2Q3K1/8/8/8/8 w - - 0 1";
     let position = Position::from_fen(fen).unwrap();
     let mut best_move = mv!();
@@ -136,7 +136,7 @@ fn zugzwang_test_position1() {
 }
 
 #[test]
-fn zugzwang_test_position2() {
+fn zugzwang_test_position_2() {
     let fen = "8/8/8/3p1K2/2kP4/8/8/8 w - - 1 1";
     let position = Position::from_fen(fen).unwrap();
     let mut best_move = mv!();
