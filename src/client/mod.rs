@@ -220,7 +220,7 @@ impl<E: Eval + Clone + Send + Sync + 'static> Client<E> {
 
             let mut best_move = None;
             search
-                // .threads(10)
+                // .threads(1)
                 .on_info(|res| {
                     best_move = res.pv.first().copied();
                     on_info(GoInfo::NewDepth(res));

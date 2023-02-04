@@ -133,20 +133,20 @@ impl Move {
         Self(encoding)
     }
 
-    pub fn from(&self) -> Square {
+    pub fn from(self) -> Square {
         unsafe { Square::from_unchecked((self.0 & 0b111111) as u8) }
     }
 
-    pub fn to(&self) -> Square {
+    pub fn to(self) -> Square {
         unsafe { Square::from_unchecked(((self.0 >> 6) & 0b111111) as u8) }
     }
 
-    pub fn capture(&self) -> bool {
+    pub fn capture(self) -> bool {
         // TODO: Is this fast?
         (self.0 >> 12) & 0b1 != 0
     }
 
-    pub fn kind(&self) -> MoveKind {
+    pub fn kind(self) -> MoveKind {
         if (self.0 >> 13) & 0b1 != 0 {
             MoveKind::Promotion
         } else {
@@ -154,7 +154,7 @@ impl Move {
         }
     }
 
-    pub fn promotion(&self) -> PieceKind {
+    pub fn promotion(self) -> PieceKind {
         unsafe { mem::transmute(((self.0 >> 14) & 0b11) as u8) }
     }
 
@@ -173,8 +173,18 @@ impl Move {
             .map(|mv| *mv)
     }
 
-    pub fn is_null(&self) -> bool {
+    pub fn is_null(self) -> bool {
         self.0 == 0
+    }
+
+    pub fn into_inner(self) -> u16 {
+        self.0
+    }
+}
+
+impl From<u16> for Move {
+    fn from(value: u16) -> Self {
+        Self(value)
     }
 }
 

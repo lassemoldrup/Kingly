@@ -37,6 +37,10 @@ impl Value {
         }
         self
     }
+
+    pub fn into_inner(self) -> i16 {
+        self.0
+    }
 }
 
 impl Neg for Value {
