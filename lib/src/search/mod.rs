@@ -23,8 +23,8 @@ pub use transposition_table::TranspositionTable;
 mod trace;
 pub use trace::{AspirationResult, Observer, ReturnKind};
 
-// Right now it seems that more than 8 threads is detrimental
-const MAX_THREADS: usize = 8;
+// Right now it seems that more than 6 threads is detrimental
+const MAX_THREADS: usize = 6;
 
 #[derive(Clone, Copy, Debug)]
 struct SearchParams<'a> {
@@ -182,15 +182,22 @@ impl<'c, 'f, E: Eval + Sync, O: Observer> Search<'c, 'f, E, O> {
 
             let mut best = Mutex::new(None);
             thread::scope(|s| {
-                for (mut thread, params) in child_threads.into_iter().zip(child_params.iter_mut()) {
+                for (i, (mut thread, params)) in child_threads
+                    .into_iter()
+                    .zip(child_params.iter_mut())
+                    .enumerate()
+                {
                     let best = &best;
                     let mut root_moves = root_moves.clone();
+                    let child_depth = depth as i8 + (i + 2).trailing_zeros() as i8;
                     root_moves[1..].shuffle(&mut rand::thread_rng());
 
                     s.spawn(move || unsafe {
-                        thread.search_root(&root_moves, depth as i8, params, best);
+                        thread.search_root(&root_moves, child_depth, params, best);
                     });
                 }
+
+                // The main thread has index 1
                 unsafe {
                     main_thread.search_root(&root_moves, depth as i8, &mut params, &best);
                 }
@@ -253,14 +260,14 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         beta: Value,
         sel_depth: u8,
         params: &mut SearchParams,
-    ) -> Value {
+    ) -> Option<Value> {
         params.sel_depth = sel_depth.max(params.sel_depth);
 
         // We assume that we can do at least as well as the static
         // eval of the current position, i.e. we don't consider zugzwang
         let static_eval = self.eval.eval(&self.position);
         if static_eval >= beta {
-            return static_eval;
+            return Some(static_eval);
         } else if static_eval > alpha {
             alpha = static_eval;
         }
@@ -269,17 +276,21 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
 
         let moves = self.move_gen.gen_captures(&self.position);
         for mv in moves {
-            let score;
-            // Safety: Generated moves are guaranteed to be legal
-            unsafe {
-                self.position.make_move(mv);
-                params.nodes += 1;
-                score = -self.quiesce(-beta, -alpha, sel_depth + 1, params);
-                self.position.unmake_move();
+            if self.should_stop(params) {
+                return None;
             }
 
+            // Safety: Generated moves are guaranteed to be legal
+            let score = unsafe {
+                self.position.make_move(mv);
+                params.nodes += 1;
+                let res = self.quiesce(-beta, -alpha, sel_depth + 1, params);
+                self.position.unmake_move();
+                -res?
+            };
+
             if score >= beta {
-                return score;
+                return Some(score);
             }
 
             if score > best_score {
@@ -290,7 +301,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
             }
         }
 
-        best_score
+        Some(best_score)
     }
 
     fn score_move(mv: &Move) -> impl Ord {
@@ -325,10 +336,16 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
     }
 
     fn should_stop(&self, params: &SearchParams) -> bool {
-        let time_searched = params.search_start.elapsed();
+        // Only consider stopping every 2^11 = 2048 nodes
+        if params.nodes & ((1 << 11) - 1) != 0 {
+            return false;
+        }
 
         params.stop_search.load(Ordering::Relaxed)
-            || self.limits.time.map_or(false, |t| time_searched >= t)
+            || self.limits.time.map_or(false, |t| {
+                let time_searched = params.search_start.elapsed();
+                time_searched >= t
+            })
             || self.limits.nodes.map_or(false, |n| params.nodes >= n)
     }
 
@@ -343,7 +360,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         beta: Value,
         depth: i8,
         params: &mut SearchParams,
-        search_fn: fn(&mut Self, Value, Value, i8, &mut SearchParams) -> Value,
+        search_fn: fn(&mut Self, Value, Value, i8, &mut SearchParams) -> Option<Value>,
     ) -> Option<Value> {
         if moves.is_empty() {
             return None;
@@ -364,9 +381,9 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
 
             self.position.make_move(mv);
             params.nodes += 1;
-            let score =
-                -search_fn(self, -beta.dec_mate(), -low.dec_mate(), depth - 1, params).inc_mate();
+            let res = search_fn(self, -beta.dec_mate(), -low.dec_mate(), depth - 1, params);
             self.position.unmake_move();
+            let score = -res?.inc_mate();
 
             self.notify_move_unmade(mv);
 
@@ -433,7 +450,8 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
     ) -> Option<Value> {
         // Do quiescence search
         if depth <= 0 {
-            let score = self.quiesce(alpha, beta, params.start_depth + (-depth) as u8, params);
+            let score = self.quiesce(alpha, beta, params.start_depth + (-depth) as u8, params)?;
+
             let bound = if score <= alpha {
                 Bound::Upper
             } else if score >= beta {
@@ -454,15 +472,13 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         if depth > 2 && self.position.null_move_heuristic() {
             self.notify_move_made(mv!(), -beta.dec_mate(), -alpha.dec_mate());
 
-            let score;
-            unsafe {
+            let score = unsafe {
                 self.position.make_move(mv!());
                 params.nodes += 1;
-                score = -self
-                    .search(-beta.dec_mate(), -alpha.dec_mate(), depth - 2, params)
-                    .inc_mate();
+                let res = self.search(-beta.dec_mate(), -alpha.dec_mate(), depth - 2, params);
                 self.position.unmake_move();
-            }
+                -res?.inc_mate()
+            };
 
             self.notify_move_unmade(mv!());
 
@@ -488,7 +504,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         mut beta: Value,
         depth: i8,
         params: &mut SearchParams,
-    ) -> Value {
+    ) -> Option<Value> {
         let (mut moves, check) = self.move_gen.gen_all_moves_and_check(&self.position);
 
         if moves.is_empty() {
@@ -498,14 +514,14 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
 
                 self.notify_score_found(score, trace::ReturnKind::Checkmate);
 
-                score
+                Some(score)
             // Stalemate
             } else {
                 let score = Value::centi_pawn(0);
 
                 self.notify_score_found(score, trace::ReturnKind::Stalemate);
 
-                score
+                Some(score)
             };
         }
 
@@ -515,7 +531,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
 
             self.notify_score_found(score, trace::ReturnKind::RuleDraw);
 
-            return score;
+            return Some(score);
         }
 
         // TODO: Do this better
@@ -527,7 +543,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
                     Bound::Exact => {
                         self.notify_score_found(entry.score, trace::ReturnKind::TTExact);
 
-                        return entry.score;
+                        return Some(entry.score);
                     }
                     Bound::Lower => alpha = alpha.max(entry.score),
                     Bound::Upper => beta = beta.min(entry.score),
@@ -536,7 +552,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
                 if beta <= alpha {
                     self.notify_score_found(entry.score, trace::ReturnKind::TTBound);
 
-                    return entry.score;
+                    return Some(entry.score);
                 }
             }
 
@@ -546,16 +562,13 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         let best_move = table_move.unwrap_or_else(|| moves[0]);
         // Ensures we do not enter quiescence search or prune the position when in check
         if !check && let Some(score) = self.prune(alpha, beta, depth, best_move, params) {
-            return score;
+            return Some(score);
         }
 
         self.reorder_moves(&mut moves, table_move);
 
         // Safety: `moves` is generated
-        unsafe {
-            self.search_moves(&moves, alpha, beta, depth, params, Self::search)
-                .unwrap_or(Value::mate_in_ply_neg(0))
-        }
+        unsafe { self.search_moves(&moves, alpha, beta, depth, params, Self::search) }
     }
 
     fn aspiration_window_search(
@@ -564,12 +577,11 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         beta: Value,
         depth: i8,
         params: &mut SearchParams,
-    ) -> Value {
-        let entry_opt = self.trans_table.get(&self.position);
-        if entry_opt.is_none() {
-            return self.search(alpha, beta, depth, params);
-        }
-        let entry = entry_opt.unwrap();
+    ) -> Option<Value> {
+        let entry = match self.trans_table.get(&self.position) {
+            Some(e) => e,
+            None => return self.search(alpha, beta, depth, params),
+        };
 
         const START_DELTA: Value = Value::centi_pawn(15);
 
@@ -584,14 +596,14 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         for exp in 1.. {
             self.notify_aspiration_iter_start(low, high);
 
-            let score = self.search(low, high, depth, params);
+            let score = self.search(low, high, depth, params)?;
             let delta = START_DELTA * (1 << exp);
 
             if score >= high {
                 if score >= beta {
                     self.notify_aspiration_iter_end(trace::AspirationResult::FailBeta);
 
-                    return score;
+                    return Some(score);
                 }
 
                 self.notify_aspiration_iter_end(trace::AspirationResult::FailHigh);
@@ -602,7 +614,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
                 if score <= alpha {
                     self.notify_aspiration_iter_end(trace::AspirationResult::FailAlpha);
 
-                    return score;
+                    return Some(score);
                 }
 
                 self.notify_aspiration_iter_end(trace::AspirationResult::FailLow);
@@ -611,7 +623,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
             } else {
                 self.notify_aspiration_iter_end(trace::AspirationResult::InBounds);
 
-                return score;
+                return Some(score);
             }
         }
 

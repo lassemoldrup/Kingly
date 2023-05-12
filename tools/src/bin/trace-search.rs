@@ -33,6 +33,10 @@ enum NodeData {
         kind: ReturnKind,
         result: AspirationResult,
     },
+    Root {
+        mv: Move,
+        score: Value,
+    },
     PartialRoot,
     Partial {
         mv: Move,
@@ -48,10 +52,6 @@ enum NodeData {
         high: Value,
         score: Value,
         kind: ReturnKind,
-    },
-    Root {
-        mv: Move,
-        score: Value,
     },
 }
 
@@ -78,8 +78,17 @@ impl Display for NodeData {
                 kind,
                 result,
             } => write!(f, "{result} [{low}; {high}] -> {score} ({kind})"),
+
             NodeData::Root { mv, score } => write!(f, "Result: {mv} -> {score}"),
-            _ => panic!("Attempt to display partial node"),
+            NodeData::PartialRoot => write!(f, "Result: Stopped"),
+            NodeData::Partial { mv, alpha, beta } => write!(f, "{mv} [{alpha}; {beta}] Stopped"),
+            NodeData::PartialAspIteration1 { low, high } => write!(f, "Stopped [{low}; {high}]"),
+            NodeData::PartialAspIteration2 {
+                low,
+                high,
+                score,
+                kind,
+            } => write!(f, "Stopped [{low}; {high}] -> {score} ({kind})"),
         }
     }
 }
@@ -333,7 +342,7 @@ fn main() {
 
     Search::new(position, move_gen, eval, &trans_table)
         .register(&mut tree)
-        .threads(1)
+        // .threads(1)
         .depth(depth)
         .start(&AtomicBool::new(false));
 
