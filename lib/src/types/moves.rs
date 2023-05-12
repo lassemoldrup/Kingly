@@ -88,7 +88,7 @@ pub enum MoveKind {
 /// 13: promotion
 /// 14-15: kind (0: regular, 1: castling, 2: promotion (unused) 3: en passant) OR
 /// 14-15: promotion (0: knight, 1: bishop, 2: Rook, 3: Queen)
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Move(u16);
 
 impl Move {

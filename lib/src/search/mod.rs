@@ -23,6 +23,9 @@ pub use transposition_table::TranspositionTable;
 mod trace;
 pub use trace::{AspirationResult, Observer, ReturnKind};
 
+// Right now it seems that more than 8 threads is detrimental
+const MAX_THREADS: usize = 8;
+
 #[derive(Clone, Copy, Debug)]
 struct SearchParams<'a> {
     nodes: u64,
@@ -33,6 +36,16 @@ struct SearchParams<'a> {
 }
 
 impl<'a> SearchParams<'a> {
+    fn new(start_depth: u8, stop_search: &'a AtomicBool, search_start: Instant) -> Self {
+        Self {
+            nodes: 0,
+            sel_depth: 0,
+            start_depth,
+            stop_search,
+            search_start,
+        }
+    }
+
     fn merge_with(&mut self, others: &[Self]) {
         self.nodes += others.iter().map(|sp| sp.nodes).sum::<u64>();
         self.sel_depth = self
@@ -74,8 +87,7 @@ impl<'c, 'f, E: Eval> Search<'c, 'f, E> {
         eval: E,
         trans_table: &'c TranspositionTable,
     ) -> Self {
-        // Right now it seems that 10 threads is the sweet spot
-        let num_threads = num_cpus::get().min(10);
+        let num_threads = num_cpus::get().min(MAX_THREADS);
         Self {
             limits: Limits::default(),
             num_threads,
@@ -137,7 +149,6 @@ impl<'c, 'f, E: Eval + Sync, O: Observer> Search<'c, 'f, E, O> {
 
         let mut root_moves = self.root_moves();
         let max_depth = self.limits.depth.unwrap_or(u8::MAX);
-
         let num_child_threads = self.num_threads - 1;
         let mut main_thread = SearchThread {
             limits: &self.limits,
@@ -154,13 +165,7 @@ impl<'c, 'f, E: Eval + Sync, O: Observer> Search<'c, 'f, E, O> {
 
             let iteration_start = Instant::now();
 
-            let mut params = SearchParams {
-                nodes: 0,
-                sel_depth: 0,
-                start_depth: depth,
-                stop_search,
-                search_start,
-            };
+            let mut params = SearchParams::new(depth, stop_search, search_start);
 
             let best_move = self
                 .trans_table
@@ -169,23 +174,10 @@ impl<'c, 'f, E: Eval + Sync, O: Observer> Search<'c, 'f, E, O> {
             main_thread.reorder_moves(&mut root_moves, best_move);
 
             let child_threads = (0..num_child_threads)
-                .map(|_| SearchThread {
-                    limits: main_thread.limits,
-                    position: main_thread.position.clone(),
-                    move_gen: main_thread.move_gen,
-                    eval: main_thread.eval,
-                    trans_table: main_thread.trans_table,
-                    observer: (),
-                })
+                .map(|_| main_thread.split())
                 .collect_vec();
             let mut child_params = (0..num_child_threads)
-                .map(|_| SearchParams {
-                    nodes: 0,
-                    sel_depth: 0,
-                    start_depth: depth,
-                    stop_search: stop_search,
-                    search_start,
-                })
+                .map(|_| SearchParams::new(depth, stop_search, search_start))
                 .collect_vec();
 
             let mut best = Mutex::new(None);
@@ -244,6 +236,17 @@ struct SearchThread<'c, 's, E, O = ()> {
 }
 
 impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
+    fn split(&self) -> SearchThread<'c, 's, E, ()> {
+        SearchThread {
+            limits: self.limits,
+            position: self.position.clone(),
+            move_gen: self.move_gen,
+            eval: self.eval,
+            trans_table: self.trans_table,
+            observer: (),
+        }
+    }
+
     fn quiesce(
         &mut self,
         mut alpha: Value,
@@ -340,7 +343,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         beta: Value,
         depth: i8,
         params: &mut SearchParams,
-        search: fn(&mut Self, Value, Value, i8, &mut SearchParams) -> Value,
+        search_fn: fn(&mut Self, Value, Value, i8, &mut SearchParams) -> Value,
     ) -> Option<Value> {
         if moves.is_empty() {
             return None;
@@ -362,7 +365,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
             self.position.make_move(mv);
             params.nodes += 1;
             let score =
-                -search(self, -beta.dec_mate(), -low.dec_mate(), depth - 1, params).inc_mate();
+                -search_fn(self, -beta.dec_mate(), -low.dec_mate(), depth - 1, params).inc_mate();
             self.position.unmake_move();
 
             self.notify_move_unmade(mv);
@@ -411,7 +414,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
             params,
             SearchThread::aspiration_window_search,
         );
-        params.stop_search.store(true, Ordering::Relaxed);
+        params.stop_search.store(true, Ordering::SeqCst);
         if let best @ None = &mut *best.lock() {
             *best = res;
         }

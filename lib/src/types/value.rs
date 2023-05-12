@@ -67,6 +67,12 @@ impl Sub for Value {
     }
 }
 
+impl From<i16> for Value {
+    fn from(value: i16) -> Self {
+        Self(value)
+    }
+}
+
 impl Mul<i16> for Value {
     type Output = Self;
 
