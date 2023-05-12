@@ -2,8 +2,7 @@ use crate::position::Position;
 use crate::types::Value;
 
 mod material;
-#[cfg(test)]
-pub use material::MaterialEval;
+pub use material::{MaterialEval, PIECE_VALUES};
 mod standard;
 pub use standard::StandardEval;
 #[cfg(test)]

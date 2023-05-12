@@ -7,12 +7,12 @@ use log::error;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 
-use crate::eval::Eval;
+use crate::eval::{self, Eval};
 use crate::move_gen::MoveGen;
 use crate::move_list::MoveList;
 use crate::mv;
 use crate::position::Position;
-use crate::types::{Move, PseudoMove, Value};
+use crate::types::{Move, Piece, PseudoMove, Value};
 
 use self::transposition_table::{Bound, Entry};
 
@@ -274,7 +274,8 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
 
         let mut best_score = static_eval;
 
-        let moves = self.move_gen.gen_captures(&self.position);
+        let mut moves = self.move_gen.gen_captures(&self.position);
+        self.reorder_moves(&mut moves, None);
         for mv in moves {
             if self.should_stop(params) {
                 return None;
@@ -304,8 +305,16 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
         Some(best_score)
     }
 
-    fn score_move(mv: &Move) -> impl Ord {
-        !mv.capture()
+    fn score_move(&self, mv: &Move) -> impl Ord {
+        match (
+            self.position.pieces.get(mv.from()),
+            self.position.pieces.get(mv.to()),
+        ) {
+            (Some(Piece(from_kind, _)), Some(Piece(to_kind, _))) => {
+                eval::PIECE_VALUES[from_kind as usize] - eval::PIECE_VALUES[to_kind as usize]
+            }
+            _ => i16::MAX,
+        }
     }
 
     fn reorder_moves(&self, mut moves: &mut [Move], best_move: Option<Move>) {
@@ -332,7 +341,7 @@ impl<'c, 's, E: Eval, O: Observer> SearchThread<'c, 's, E, O> {
             moves = &mut moves[1..];
         }
 
-        moves.sort_unstable_by_key(Self::score_move);
+        moves.sort_unstable_by_key(|mv| self.score_move(mv));
     }
 
     fn should_stop(&self, params: &SearchParams) -> bool {

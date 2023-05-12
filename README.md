@@ -29,7 +29,7 @@ For a graphical experience, add Kingly to your favorite UCI compliant GUI, e.g. 
 - Lazy SMP parallelization
 - Null move pruning
 - Check extensions
-- Move reordering based on captures and PV 
+- Move reordering based on PV and MVV-LVA 
 
 **Evaluation**: Naive piece count + mobility
 

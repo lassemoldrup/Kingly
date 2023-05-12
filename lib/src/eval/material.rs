@@ -3,6 +3,9 @@ use crate::types::{Piece, PieceKind, Value};
 
 use super::Eval;
 
+// See types::PieceKind for order of piece kinds
+pub const PIECE_VALUES: [i16; 6] = [300, 300, 500, 900, 100, 0];
+
 /// Only evaluates based on material.
 pub struct MaterialEval;
 
@@ -29,10 +32,9 @@ fn piece_diff(position: &Position, kind: PieceKind) -> i16 {
 pub fn get_material_score(position: &Position) -> i16 {
     use PieceKind::*;
 
-    let piece_values = [100, 300, 300, 500, 900];
-    [Pawn, Knight, Bishop, Rook, Queen]
+    [Knight, Bishop, Rook, Queen, Pawn]
         .into_iter()
-        .zip(piece_values)
+        .zip(PIECE_VALUES)
         .map(|(kind, val)| val * piece_diff(position, kind))
         .sum()
 }
