@@ -3,13 +3,15 @@ name = "kingly"
 version = "0.1.0"
 edition = "2021"
 default-run = "kingly"
+authors = ["Lasse Møldrup <lasse.moeldrup@gmail.com>"]
 
 [workspace]
 members = [".", "lib", "tools"]
 default-members = [".", "lib", "tools"]
 
 [dependencies]
-
+clap = { version = "4.4", features = ["derive"] }
+crossbeam = "0.8"
 
 [profile.release]
 lto = "fat"
