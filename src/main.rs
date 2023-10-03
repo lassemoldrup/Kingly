@@ -1,9 +1,9 @@
-mod uci;
-
 use std::io;
 
 use clap::{Parser, Subcommand};
 use uci::Uci;
+
+mod uci;
 
 #[derive(Parser)]
 struct App {

@@ -1,10 +1,11 @@
 use std::fmt::Display;
 use std::io::{self, BufRead, StdoutLock, Write};
 use std::str::FromStr;
-use std::thread;
 use std::time::Duration;
+use std::{process, thread};
 
 use crossbeam::channel::{self, Receiver, Sender};
+use kingly_lib::search::{info_channel, InfoSender, ThreadPool};
 use kingly_lib::types::PseudoMove;
 
 #[cfg(test)]
@@ -13,6 +14,7 @@ mod tests;
 pub struct Uci<W> {
     input_rx: Receiver<String>,
     write_handle: W,
+    thread_pool: ThreadPool,
     debug_mode: bool,
 }
 
@@ -26,6 +28,7 @@ impl Uci<StdoutLock<'_>> {
         Self {
             input_rx,
             write_handle: io::stdout().lock(),
+            thread_pool: ThreadPool::new(),
             debug_mode: false,
         }
     }
@@ -35,16 +38,15 @@ impl<W: Write> Uci<W> {
     pub fn repl(mut self) -> io::Result<()> {
         self.print_prelude()?;
 
-        let (search_tx, search_rx) = channel::unbounded::<()>();
-        // TODO: Spawn search thread.
+        let (info_tx, info_rx) = info_channel();
 
         loop {
             channel::select! {
                 recv(self.input_rx) -> line => {
                     let line = line.expect("sender should be alive");
-                    self.handle_command(&line)?;
+                    self.handle_command(&line, info_tx.clone())?;
                 }
-                recv(search_rx) -> _ => {
+                recv(info_rx) -> info => {
                     todo!();
                 }
             }
@@ -70,7 +72,7 @@ impl<W: Write> Uci<W> {
         }
     }
 
-    fn handle_command(&mut self, command: &str) -> io::Result<()> {
+    fn handle_command(&mut self, command: &str, info_tx: InfoSender) -> io::Result<()> {
         if command.trim().is_empty() {
             return Ok(());
         }
@@ -83,7 +85,20 @@ impl<W: Write> Uci<W> {
             }
         };
 
-        todo!();
+        match command {
+            Command::Debug(value) => self.debug_mode = value,
+            Command::IsReady => writeln!(self.write_handle, "readyok")?,
+            Command::SetOption(_) => todo!(),
+            Command::UciNewGame => todo!(),
+            Command::Position { fen, moves } => todo!(),
+            Command::Go(_) => todo!(),
+            Command::Stop => {
+                self.thread_pool.stop();
+            }
+            Command::PonderHit => todo!(),
+            Command::Quit => process::exit(0),
+        }
+        Ok(())
     }
 }
 

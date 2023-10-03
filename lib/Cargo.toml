@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+crossbeam = "0.8"
+num_cpus = "1.16"
 thiserror = "1.0"
