@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::thread;
 
 use crossbeam::channel::{self, Receiver, Sender};
+use itertools::Itertools;
 
 use super::{Limits, SearchInfo, SearchJob};
 
@@ -29,19 +30,19 @@ impl ThreadPool {
     }
 
     pub fn spawn(&mut self, job: SearchJob, info_tx: InfoSender) {
-        let aggregator = JobRunner {
+        let runner = JobRunner {
             job,
             info_tx,
             kill_switch: self.kill_switch.clone(),
         };
-        self.runner_thread = Some(thread::spawn(move || aggregator.run()));
+        self.runner_thread = Some(thread::spawn(move || runner.run()));
     }
 
     pub fn stop(&mut self) -> Option<SearchInfo> {
         self.kill_switch.store(true, Ordering::Relaxed);
         self.runner_thread
             .take()
-            .map(|h| h.join().expect("aggregator thread shouldn't panic"))
+            .map(|h| h.join().expect("runner thread shouldn't panic"))
     }
 }
 
@@ -62,11 +63,10 @@ impl JobRunner {
             }
 
             let info = thread::scope(|s| {
-                let mut handles = Vec::with_capacity(num_threads);
-                for _ in 0..num_threads {
-                    let handle = s.spawn(|| self.search_depth(depth));
-                    handles.push(handle);
-                }
+                // Need to collect the handles to ensure that the threads are spawned
+                let handles = (0..num_threads)
+                    .map(|_| s.spawn(|| self.search_depth(depth)))
+                    .collect_vec();
                 handles
                     .into_iter()
                     .map(|h| h.join().unwrap())

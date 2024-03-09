@@ -21,7 +21,7 @@ fn main() -> io::Result<()> {
     let app = App::parse();
     match app.command {
         Some(Command::Perft { fen, depth }) => println!("Perft {depth} {fen}"),
-        None => Uci::new_standard().repl()?,
+        None => Uci::with_standard_io().repl()?,
     }
     Ok(())
 }

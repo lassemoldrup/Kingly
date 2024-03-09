@@ -19,7 +19,7 @@ pub struct Uci<W> {
 }
 
 impl Uci<StdoutLock<'_>> {
-    pub fn new_standard() -> Self {
+    pub fn with_standard_io() -> Self {
         let (input_tx, input_rx) = channel::unbounded();
         thread::spawn(move || {
             let stdin = io::stdin().lock();
@@ -44,7 +44,7 @@ impl<W: Write> Uci<W> {
             channel::select! {
                 recv(self.input_rx) -> line => {
                     let line = line.expect("sender should be alive");
-                    self.handle_command(&line, info_tx.clone())?;
+                    self.handle_command(&line, &info_tx)?;
                 }
                 recv(info_rx) -> info => {
                     todo!();
@@ -72,7 +72,7 @@ impl<W: Write> Uci<W> {
         }
     }
 
-    fn handle_command(&mut self, command: &str, info_tx: InfoSender) -> io::Result<()> {
+    fn handle_command(&mut self, command: &str, info_tx: &InfoSender) -> io::Result<()> {
         if command.trim().is_empty() {
             return Ok(());
         }
