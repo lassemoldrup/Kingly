@@ -185,9 +185,11 @@ impl Move {
     /// Returns the promotion kind of the move, if it is a promotion.
     #[inline]
     pub const fn promotion(self) -> Option<PieceKind> {
-        match self.kind() {
-            MoveKind::Promotion(kind) => Some(kind),
-            _ => None,
+        if self.0 & (1 << 13) != 0 {
+            let kind = ((self.0 >> 14) & 0b11) as u8;
+            Some(unsafe { mem::transmute(kind) })
+        } else {
+            None
         }
     }
 
@@ -212,10 +214,10 @@ impl Move {
     }
 }
 
-impl From<u16> for Move {
+impl From<Move> for u16 {
     #[inline]
-    fn from(value: u16) -> Self {
-        Self(value)
+    fn from(mv: Move) -> Self {
+        mv.0
     }
 }
 
@@ -346,10 +348,10 @@ pub struct IllegalMoveError(pub PseudoMove);
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseMoveError {
-    #[error("Invalid move: Length is not valid")]
+    #[error("length of move is not valid")]
     InvalidLength,
-    #[error("Invalid move: {0}")]
+    #[error("invalid square in move: {0}")]
     InvalidSquare(#[from] ParseSquareError),
-    #[error("Invalid move: Promotion is not valid: {0}")]
+    #[error("promotion is not valid: {0}")]
     InvalidPromotion(#[from] PieceFromCharError),
 }

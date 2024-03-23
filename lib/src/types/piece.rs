@@ -39,7 +39,7 @@ impl TryFrom<char> for PieceKind {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("Invalid piece character '{0}'")]
+#[error("invalid piece character '{0}'")]
 pub struct PieceFromCharError(char);
 
 /// Represents a piece in chess, i.e. a piece kind and a color.
@@ -47,15 +47,18 @@ pub struct PieceFromCharError(char);
 pub struct Piece(pub PieceKind, pub Color);
 
 impl Piece {
+    #[inline]
     pub const fn kind(self) -> PieceKind {
         self.0
     }
 
+    #[inline]
     pub const fn color(self) -> Color {
         self.1
     }
 
-    /// Iterates over all possibles value of `Piece`
+    /// Iterates over all possibles value of `Piece`.
+    #[inline]
     pub fn iter() -> impl Iterator<Item = Self> {
         iproduct!(
             [Color::White, Color::Black],

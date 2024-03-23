@@ -1,4 +1,3 @@
-use std::mem;
 use std::ops::Not;
 
 pub mod bitboard;
@@ -13,18 +12,22 @@ pub use square::*;
 
 /// Represents a color (white or black) in chess.
 #[derive(Clone, Copy, PartialEq, Debug, strum::Display)]
-#[repr(i8)]
+#[repr(u8)]
 pub enum Color {
-    White = 1,
-    Black = -1,
+    White = 0,
+    Black = 1,
 }
 
 impl Not for Color {
     type Output = Self;
 
     /// Returns the opposite color.
+    #[inline]
     fn not(self) -> Self::Output {
-        unsafe { mem::transmute(-(self as i8)) }
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        }
     }
 }
 
@@ -47,6 +50,7 @@ pub struct CastlingRights(u8);
 
 impl CastlingRights {
     /// Creates a new `CastlingRights` instance from the given castling rights.
+    #[inline]
     pub fn new(w_king: bool, w_queen: bool, b_king: bool, b_queen: bool) -> Self {
         CastlingRights(
             w_king as u8 | (w_queen as u8) << 1 | (b_king as u8) << 2 | (b_queen as u8) << 3,
@@ -54,6 +58,7 @@ impl CastlingRights {
     }
 
     /// Returns the castling rights for a given color and side.
+    #[inline]
     pub fn get(&self, color: Color, side: Side) -> bool {
         match color {
             Color::White => self.0 & side as u8 != 0,
@@ -63,6 +68,7 @@ impl CastlingRights {
 
     /// Sets king and queen castling rights for a given color based on a 2-bit number,
     /// e.g. 0b01 means giving kingside castling, 0b11 means giving both sided castling
+    #[inline]
     pub fn set(&mut self, color: Color, rights: u8) {
         match color {
             Color::White => self.0 |= rights,
@@ -72,6 +78,7 @@ impl CastlingRights {
 
     /// Similar to set, except it removes castling rights,
     /// e.g. 0b10 removes queenside castling
+    #[inline]
     pub fn remove(&mut self, color: Color, rights: u8) {
         match color {
             Color::White => self.0 &= !rights,
@@ -80,8 +87,16 @@ impl CastlingRights {
     }
 }
 
-impl Into<u8> for CastlingRights {
-    fn into(self) -> u8 {
-        self.0
+impl From<CastlingRights> for u8 {
+    #[inline]
+    fn from(castling: CastlingRights) -> Self {
+        castling.0
+    }
+}
+
+impl From<CastlingRights> for usize {
+    #[inline]
+    fn from(castling: CastlingRights) -> Self {
+        castling.0 as usize
     }
 }

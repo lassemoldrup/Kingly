@@ -2,6 +2,6 @@ target
 .idea
 .DS_Store
 
-Cargo.lock
+lib/Cargo.lock
 
 **/*.rs.bk

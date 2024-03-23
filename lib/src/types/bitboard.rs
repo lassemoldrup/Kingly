@@ -8,10 +8,10 @@ use super::{File, Rank, Square};
 
 #[macro_export]
 macro_rules! bb {
-    ( $( $sq:tt ),* ) => { {
+    ( $( $sq:expr ),* $(,)? ) => { {
         #[allow(unused_imports)]
         use Square::*;
-        $crate::types::Bitboard::new() $(.add_sq($sq) )*
+        $crate::types::Bitboard::new() $(.with_sq($sq) )*
     }};
 }
 
@@ -89,8 +89,14 @@ impl Bitboard {
 
     /// Returns a new `Bitboard` with `sq` added.
     #[inline]
-    pub const fn add_sq(self, sq: Square) -> Self {
+    pub const fn with_sq(self, sq: Square) -> Self {
         Bitboard(self.0 | (1 << sq as u64))
+    }
+
+    /// Adds `sq` to the `Bitboard`.
+    #[inline]
+    pub fn add_sq(&mut self, sq: Square) {
+        self.0 |= 1 << sq as u64;
     }
 
     /// Returns whether the `Bitboard` is empty or not.
@@ -119,6 +125,17 @@ impl IntoIterator for Bitboard {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         Iter { bb: self }
+    }
+}
+
+impl FromIterator<Square> for Bitboard {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = Square>>(iter: T) -> Self {
+        let mut bb = Bitboard::new();
+        for sq in iter {
+            bb.add_sq(sq);
+        }
+        bb
     }
 }
 
@@ -168,7 +185,7 @@ impl Sub for Bitboard {
 
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(rhs.0 & !self.0)
+        Self(self.0 & !rhs.0)
     }
 }
 
@@ -179,10 +196,10 @@ impl SubAssign for Bitboard {
     }
 }
 
-impl Into<u64> for Bitboard {
+impl From<Bitboard> for u64 {
     #[inline]
-    fn into(self) -> u64 {
-        self.0
+    fn from(bb: Bitboard) -> Self {
+        bb.0
     }
 }
 
@@ -196,7 +213,7 @@ impl From<u64> for Bitboard {
 impl From<Square> for Bitboard {
     #[inline]
     fn from(sq: Square) -> Self {
-        Self::new().add_sq(sq)
+        Self::new().with_sq(sq)
     }
 }
 

@@ -3,6 +3,8 @@ use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use std::str::FromStr;
 
+use super::{Color, Side};
+
 /// Represents a square on the chessboard.
 #[rustfmt::skip]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -21,23 +23,23 @@ pub enum Square {
 impl Square {
     /// Returns the rank of the square.
     #[inline]
-    pub fn rank(self) -> Rank {
+    pub const fn rank(self) -> Rank {
         // Safety: self is in [0; 63], so this is safe.
         unsafe { mem::transmute((self as u8) / 8) }
     }
 
     /// Returns the file of the square.
     #[inline]
-    pub fn file(self) -> File {
+    pub const fn file(self) -> File {
         // Safety: We mod by 8, so this is safe.
         unsafe { mem::transmute((self as u8) % 8) }
     }
 
     /// Returns the square with the given rank and file.
     #[inline]
-    pub fn from_rank_file(rank: Rank, file: File) -> Self {
+    pub const fn from_rank_file(rank: Rank, file: File) -> Self {
         // Safety: File and Rank are both in [0; 7], so the result is in [0; 63].
-        unsafe { Self::from_unchecked(rank as u8 + 8 * file as u8) }
+        unsafe { Self::from_unchecked(rank as u8 * 8 + file as u8) }
     }
 
     /// Returns the square with the given index.
@@ -48,6 +50,76 @@ impl Square {
     pub const unsafe fn from_unchecked(index: u8) -> Self {
         debug_assert!(index < 64);
         mem::transmute(index)
+    }
+
+    #[inline]
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..64).map(|i| unsafe { Self::from_unchecked(i) })
+    }
+
+    #[inline]
+    pub fn add_checked(self, vector: BoardVector) -> Option<Self> {
+        let res = (self as i8 + vector.0) as u8;
+        let dest = Self::try_from(res).ok()?;
+        let dist = self.dist(dest);
+        (dist <= 4).then_some(dest)
+    }
+
+    #[inline]
+    pub const fn dist(self, other: Self) -> u8 {
+        let dr = (self.rank() as i8 - other.rank() as i8).abs();
+        let df = (self.file() as i8 - other.file() as i8).abs();
+        (dr + df) as u8
+    }
+
+    #[inline]
+    pub const fn king_starting(color: Color) -> Self {
+        match color {
+            Color::White => Square::E1,
+            Color::Black => Square::E8,
+        }
+    }
+
+    #[inline]
+    pub const fn king_castling_dest(color: Color, side: Side) -> Self {
+        match color {
+            Color::White => match side {
+                Side::KingSide => Square::G1,
+                Side::QueenSide => Square::C1,
+            },
+            Color::Black => match side {
+                Side::KingSide => Square::G8,
+                Side::QueenSide => Square::C8,
+            },
+        }
+    }
+
+    #[inline]
+    pub const fn rook_starting(color: Color, side: Side) -> Square {
+        match color {
+            Color::White => match side {
+                Side::KingSide => Square::H1,
+                Side::QueenSide => Square::A1,
+            },
+            Color::Black => match side {
+                Side::KingSide => Square::H8,
+                Side::QueenSide => Square::A8,
+            },
+        }
+    }
+
+    #[inline]
+    pub const fn rook_castling_dest(color: Color, side: Side) -> Square {
+        match color {
+            Color::White => match side {
+                Side::KingSide => Square::F1,
+                Side::QueenSide => Square::D1,
+            },
+            Color::Black => match side {
+                Side::KingSide => Square::F8,
+                Side::QueenSide => Square::D8,
+            },
+        }
     }
 }
 
@@ -78,6 +150,19 @@ impl Add<BoardVector> for Square {
     }
 }
 
+impl TryFrom<u8> for Square {
+    type Error = SquareFromU8Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value < 64 {
+            // Safety: value is in [0; 63], so this is safe.
+            Ok(unsafe { Self::from_unchecked(value) })
+        } else {
+            Err(SquareFromU8Error(value))
+        }
+    }
+}
+
 impl FromStr for Square {
     type Err = ParseSquareError;
 
@@ -97,17 +182,33 @@ impl Display for Square {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("invalid square value: {0}")]
+pub struct SquareFromU8Error(u8);
+
 /// An error that can occur when parsing a square.
 #[derive(thiserror::Error, Debug)]
 pub enum ParseSquareError {
-    #[error("Invalid square: Invalid length")]
+    #[error("invalid square length")]
     InvalidLength,
-    #[error("Invalid square: {0}")]
+    #[error("invalid square: {0}")]
     ParseError(#[from] strum::ParseError),
 }
 
 /// Represents a rank on the chessboard.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, strum::EnumIter, strum::Display, strum::EnumString)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    strum::EnumIter,
+    strum::Display,
+    strum::EnumString,
+    strum::FromRepr,
+)]
 #[repr(u8)]
 pub enum Rank {
     #[strum(serialize = "1")]
@@ -128,8 +229,30 @@ pub enum Rank {
     Eighth,
 }
 
+impl Rank {
+    pub fn iter_before(self) -> impl Iterator<Item = Self> {
+        (0..self as u8).map(|i| unsafe { mem::transmute(i) }).rev()
+    }
+
+    pub fn iter_after(self) -> impl Iterator<Item = Self> {
+        (self as u8 + 1..8).map(|i| unsafe { mem::transmute(i) })
+    }
+}
+
 /// Represents a file on the chessboard.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, strum::EnumIter, strum::Display, strum::EnumString)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    strum::EnumIter,
+    strum::Display,
+    strum::EnumString,
+    strum::FromRepr,
+)]
 #[repr(u8)]
 pub enum File {
     #[strum(serialize = "a")]
@@ -148,6 +271,16 @@ pub enum File {
     G,
     #[strum(serialize = "h")]
     H,
+}
+
+impl File {
+    pub fn iter_before(self) -> impl Iterator<Item = Self> {
+        (0..self as u8).map(|i| unsafe { mem::transmute(i) }).rev()
+    }
+
+    pub fn iter_after(self) -> impl Iterator<Item = Self> {
+        (self as u8 + 1..8).map(|i| unsafe { mem::transmute(i) })
+    }
 }
 
 /// Represents a vector on the chessboard.
