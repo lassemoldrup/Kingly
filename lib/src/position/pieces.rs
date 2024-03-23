@@ -7,6 +7,9 @@ use crate::bb;
 use crate::square_map::SquareMap;
 use crate::types::{Bitboard, Color, File, Piece, PieceKind, Rank, Square};
 
+/// Holds the placement of pieces on the board.
+/// Allows for quickly querying [`Bitboard`]s of pieces and occupied squares as well as
+/// getting and setting pieces at specific squares on the board.
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Pieces {
     white_pieces: PieceBoards,
@@ -16,6 +19,8 @@ pub struct Pieces {
 }
 
 impl Pieces {
+    /// Creates a new `Pieces` instance with no pieces on the board. Note: this is not
+    /// a legal chess position, since there are no kings.
     #[inline]
     pub const fn new() -> Self {
         Self {

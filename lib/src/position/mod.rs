@@ -328,15 +328,8 @@ impl Position {
     }
 
     pub fn is_draw(&self) -> bool {
-        let threefold = match self.repetitions.get(self.zobrist) {
-            Some(&count) => count >= 3,
-            // The current position is always in the table
-            None => unsafe {
-                debug_assert!(false);
-                unreachable_unchecked()
-            },
-        };
-
+        let count = *self.repetitions.get(self.zobrist).unwrap_or(&0);
+        let threefold = count >= 3;
         threefold || self.ply_clock >= 100
     }
 
