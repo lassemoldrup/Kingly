@@ -1,7 +1,9 @@
 use crate::collections::MoveList;
 use crate::position::Position;
 use crate::tables::Tables;
-use crate::types::{Bitboard, BoardVector, Color, Move, Piece, PieceKind, Side, Square};
+use crate::types::{
+    Bitboard, BoardVector, Color, File, Move, Piece, PieceKind, Rank, Side, Square,
+};
 use crate::{bb, mv};
 
 #[cfg(test)]
@@ -13,7 +15,13 @@ pub struct MoveGen {
 }
 
 impl MoveGen {
-    pub fn new(tables: &'static Tables) -> Self {
+    pub fn init() -> Self {
+        Self {
+            tables: Tables::get(),
+        }
+    }
+
+    pub fn from_tables(tables: &'static Tables) -> Self {
         Self { tables }
     }
 
@@ -71,6 +79,30 @@ impl MoveGen {
 
     pub fn gen_captures(&self, position: &Position) -> MoveList {
         self.gen_moves_and_check::<true>(position).0
+    }
+
+    pub fn perft(&self, mut position: Position, depth: u8) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        fn inner(move_gen: &MoveGen, position: &mut Position, depth: u8) -> u64 {
+            let moves = move_gen.gen_all_moves(position);
+            if depth == 1 {
+                return moves.len() as u64;
+            }
+
+            let mut count = 0;
+            for mv in moves {
+                position.make_move(mv);
+                count += inner(move_gen, position, depth - 1);
+                position.unmake_move();
+            }
+
+            count
+        }
+
+        inner(self, &mut position, depth)
     }
 }
 
@@ -151,22 +183,27 @@ impl<'p> MoveGenState<'p> {
             return;
         }
 
-        let (up, up_left, up_right, fourth_rank, last_rank) = match self.position.to_move {
-            Color::White => (
-                BoardVector::NORTH,
-                BoardVector::NORTH_WEST,
-                BoardVector::NORTH_EAST,
-                Bitboard::RANKS[3],
-                Bitboard::RANKS[7],
-            ),
-            Color::Black => (
-                BoardVector::SOUTH,
-                BoardVector::SOUTH_EAST,
-                BoardVector::SOUTH_WEST,
-                Bitboard::RANKS[4],
-                Bitboard::RANKS[0],
-            ),
-        };
+        let (up, up_left, up_right, fourth_rank, last_rank, left_file, right_file) =
+            match self.position.to_move {
+                Color::White => (
+                    BoardVector::NORTH,
+                    BoardVector::NORTH_WEST,
+                    BoardVector::NORTH_EAST,
+                    Bitboard::from(Rank::Fourth),
+                    Bitboard::from(Rank::Eighth),
+                    Bitboard::from(File::A),
+                    Bitboard::from(File::H),
+                ),
+                Color::Black => (
+                    BoardVector::SOUTH,
+                    BoardVector::SOUTH_EAST,
+                    BoardVector::SOUTH_WEST,
+                    Bitboard::from(Rank::Fifth),
+                    Bitboard::from(Rank::First),
+                    Bitboard::from(File::H),
+                    Bitboard::from(File::A),
+                ),
+            };
 
         macro_rules! add_moves {
             ( $bb:expr => $dir:expr, |$from:ident, $to:ident| $block:block ) => {
@@ -243,8 +280,8 @@ impl<'p> MoveGenState<'p> {
 
         // Attacks
         let legal_atk = self.position.pieces.occupied_for(!self.position.to_move) & blocking_sqs;
-        let left = pawns >> up_left;
-        let right = pawns >> up_right;
+        let left = (pawns >> up_left) - right_file;
+        let right = (pawns >> up_right) - left_file;
         let left_atk = left & legal_atk;
         let right_atk = right & legal_atk;
         let left_atk_no_promo = left_atk - last_rank;

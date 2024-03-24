@@ -1,3 +1,8 @@
+use std::fs;
+use std::path::PathBuf;
+
+use serde::Deserialize;
+
 use crate::move_gen::MoveGenState;
 use crate::position::Position;
 use crate::tables::Tables;
@@ -6,8 +11,35 @@ use crate::{bb, mv};
 
 use super::MoveGen;
 
-fn get_move_gen() -> MoveGen {
-    MoveGen::new(Tables::get())
+#[derive(Deserialize)]
+struct PerftPosition {
+    depth: u8,
+    nodes: u64,
+    fen: String,
+}
+
+#[test]
+fn test_perft() {
+    let mut test_path = PathBuf::new();
+    test_path.push(env!("CARGO_MANIFEST_DIR"));
+    test_path.push("../resources/test/perft_positions.json");
+    let test_file = fs::File::open(test_path).unwrap();
+    let tests: Vec<PerftPosition> = serde_json::from_reader(test_file).unwrap();
+
+    let move_gen = MoveGen::init();
+    println!("Testing Perft...");
+    for (i, test) in tests.iter().enumerate() {
+        let position = Position::from_fen(&test.fen).unwrap();
+        println!("Running test position {}...", i + 1);
+        assert_eq!(
+            move_gen.perft(position.clone(), test.depth),
+            test.nodes,
+            "running depth {} on position\n{}\n{position}",
+            test.depth,
+            test.fen,
+        );
+    }
+    println!("All Perft test positions passed")
 }
 
 #[test]
@@ -343,7 +375,7 @@ fn checkers_correct_with_double_check() {
 fn check_avoidance_with_captures_blocks_and_dodges() {
     let fen = "rnbqk1nr/1ppp1p2/p5pp/3Pp3/1b1QP3/P7/1PP2PPP/RNB1KBNR w KQkq - 1 6";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -368,7 +400,7 @@ fn check_avoidance_with_captures_blocks_and_dodges() {
 fn check_avoidance_with_en_passant_capture_and_king_capture() {
     let fen = "rnbq1bnr/pppp1ppp/8/4k3/Q1PPp2P/6P1/PP2PP2/RNB1KBNR b KQ d3 0 6";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -390,7 +422,7 @@ fn pin_rays_correct() {
 fn pinned_pawns_can_only_move_along_pin_rays() {
     let fen = "N3kbn1/p2q1p2/2p1n3/1b1Pp2p/2P3p1/3K1Pr1/1P1P2PP/RNBQ1BNR w - - 16 22";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -407,7 +439,7 @@ fn pinned_pawns_can_only_move_along_pin_rays() {
 fn cant_capture_en_passant_due_to_pin() {
     let fen = "rnbq1bnr/pppp1p2/P5p1/8/N1RPpk1p/1P5P/1BP1PPP1/3QKBNR b K d3 0 12";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -418,7 +450,7 @@ fn cant_capture_en_passant_due_to_pin() {
 fn pinned_knights_cant_move() {
     let fen = "8/4k3/3nn3/8/1B2R3/8/3K4/8 b - - 0 1";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
     assert!(!moves.contains(mv!(D6 x E4)));
@@ -430,7 +462,7 @@ fn pinned_knights_cant_move() {
 fn pinned_sliding_pieces_can_only_move_along_pin_rays() {
     let fen = "8/4k1b1/8/4B3/3KRq2/8/5Q2/6q1 w - - 0 1";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -452,7 +484,7 @@ fn pinned_sliding_pieces_can_only_move_along_pin_rays() {
 fn gen_captures_works() {
     let fen = "2k5/1p1p2R1/4q3/1QpPn3/8/3N2B1/8/7K w - c6 0 1";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_captures(&position);
 
@@ -474,7 +506,7 @@ fn gen_captures_works() {
 fn test_position_1() {
     let fen = "4k2r/1b4bq/8/8/8/8/7B/rR2K2R w Kk - 0 1";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 
@@ -486,7 +518,7 @@ fn test_position_1() {
 fn test_position_2() {
     let fen = "rnbqkb1r/pppppppp/8/8/4n3/3P4/PPPKPPPP/RNBQ1BNR w kq - 3 3";
     let position = Position::from_fen(fen).unwrap();
-    let move_gen = get_move_gen();
+    let move_gen = MoveGen::init();
 
     let moves = move_gen.gen_all_moves(&position);
 

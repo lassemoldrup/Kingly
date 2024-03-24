@@ -17,7 +17,7 @@ use super::Position;
 pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(thiserror::Error, Debug)]
-pub enum FenParseError {
+pub enum ParseFenError {
     #[error("incorrect number of FEN fields: expected 6, got {0}")]
     IncorrectFieldCount(usize),
     #[error("incorrect number of ranks in FEN string: expected 8, got {0}")]
@@ -42,25 +42,33 @@ pub enum FenParseError {
     InvalidMoveNumber(ParseIntError),
 }
 
+impl FromStr for Position {
+    type Err = ParseFenError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Position::from_fen(s)
+    }
+}
+
 impl Position {
     /// Creates a position from a FEN string
-    pub fn from_fen(fen: &str) -> Result<Self, FenParseError> {
+    pub fn from_fen(fen: &str) -> Result<Self, ParseFenError> {
         let fields: Vec<&str> = fen.split(' ').collect();
         if fields.len() != 6 {
-            return Err(FenParseError::IncorrectFieldCount(fields.len()));
+            return Err(ParseFenError::IncorrectFieldCount(fields.len()));
         }
 
         // Piece placement
         let mut pieces = Pieces::new();
         let ranks: Vec<&str> = fields[0].split('/').rev().collect();
         if ranks.len() != 8 {
-            return Err(FenParseError::IncorrectRankCount(ranks.len()));
+            return Err(ParseFenError::IncorrectRankCount(ranks.len()));
         }
         for (rank, rank_str) in Rank::iter().zip(ranks) {
             let mut f = 0;
             for ch in rank_str.chars() {
                 let file = File::from_repr(f)
-                    .ok_or_else(|| FenParseError::TooManyFiles(rank_str.to_string()))?;
+                    .ok_or_else(|| ParseFenError::TooManyFiles(rank_str.to_string()))?;
                 if let Some(n) = ch.to_digit(10) {
                     f += n as u8;
                 } else {
@@ -70,15 +78,15 @@ impl Position {
                 }
             }
             if f > 8 {
-                return Err(FenParseError::TooManyFiles(rank_str.to_string()));
+                return Err(ParseFenError::TooManyFiles(rank_str.to_string()));
             } else if f < 8 {
-                return Err(FenParseError::TooFewFiles(rank_str.to_string()));
+                return Err(ParseFenError::TooFewFiles(rank_str.to_string()));
             }
         }
         if pieces.get_bb(Piece(PieceKind::King, Color::White)).len() != 1
             || pieces.get_bb(Piece(PieceKind::King, Color::Black)).len() != 1
         {
-            return Err(FenParseError::IncorrectKingCount);
+            return Err(ParseFenError::IncorrectKingCount);
         }
 
         // Player to move
@@ -86,7 +94,7 @@ impl Position {
         let to_move = match to_move_str {
             "w" => Color::White,
             "b" => Color::Black,
-            _ => return Err(FenParseError::InvalidColor(to_move_str.to_string())),
+            _ => return Err(ParseFenError::InvalidColor(to_move_str.to_string())),
         };
 
         // Castling rights
@@ -100,14 +108,14 @@ impl Position {
                     'k' => castling.set(Color::Black, 0b01),
                     'q' => castling.set(Color::Black, 0b10),
                     _ => {
-                        return Err(FenParseError::InvalidCastlingRights(
+                        return Err(ParseFenError::InvalidCastlingRights(
                             castling_str.to_string(),
                         ))
                     }
                 }
             }
             if u8::from(castling).count_ones() != castling_str.len() as u32 {
-                return Err(FenParseError::InvalidCastlingRights(
+                return Err(ParseFenError::InvalidCastlingRights(
                     castling_str.to_string(),
                 ));
             }
@@ -121,12 +129,12 @@ impl Position {
         };
 
         // Ply clock
-        let ply_clock = fields[4].parse().map_err(FenParseError::InvalidPlyClock)?;
+        let ply_clock = fields[4].parse().map_err(ParseFenError::InvalidPlyClock)?;
 
         // Move number
         let move_number = fields[5]
             .parse()
-            .map_err(FenParseError::InvalidMoveNumber)?;
+            .map_err(ParseFenError::InvalidMoveNumber)?;
 
         // Zobrist hash
         let tables = Tables::get();

@@ -40,7 +40,7 @@ impl Position {
     }
 
     /// Sets the position to the given FEN string without changing the repetition history.
-    pub fn set_fen(&mut self, fen: &str) -> Result<(), FenParseError> {
+    pub fn set_fen(&mut self, fen: &str) -> Result<(), ParseFenError> {
         let mut new_pos = Self::from_fen(fen)?;
         mem::swap(&mut self.repetitions, &mut new_pos.repetitions);
         *self = new_pos;
@@ -350,7 +350,7 @@ impl Position {
     }
 
     /// Returns `true` if the current position matches all the fields of `fen`
-    pub fn matches_fen(&self, fen: &str) -> Result<bool, FenParseError> {
+    pub fn matches_fen(&self, fen: &str) -> Result<bool, ParseFenError> {
         let other = Self::from_fen(fen)?;
         Ok(self.zobrist == other.zobrist
             && self.ply_clock == other.ply_clock
@@ -393,7 +393,7 @@ impl Display for Position {
             }
             writeln!(f)?;
         }
-        writeln!(f, "To move: {}", self.to_move)
+        write!(f, "To move: {}", self.to_move)
     }
 }
 
