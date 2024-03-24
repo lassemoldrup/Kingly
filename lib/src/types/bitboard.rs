@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 use std::iter::FusedIterator;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Sub, SubAssign};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shr, Sub, SubAssign};
 
 use strum::IntoEnumIterator;
 
-use super::{File, Rank, Square};
+use super::{BoardVector, File, Rank, Square};
 
 #[macro_export]
 macro_rules! bb {
@@ -15,72 +15,72 @@ macro_rules! bb {
     }};
 }
 
-/// Ranks from 1 to 8.
-pub const RANKS: [Bitboard; 8] = [
-    Bitboard(0x0000_0000_0000_00FF),
-    Bitboard(0x0000_0000_0000_FF00),
-    Bitboard(0x0000_0000_00FF_0000),
-    Bitboard(0x0000_0000_FF00_0000),
-    Bitboard(0x0000_00FF_0000_0000),
-    Bitboard(0x0000_FF00_0000_0000),
-    Bitboard(0x00FF_0000_0000_0000),
-    Bitboard(0xFF00_0000_0000_0000),
-];
-
-/// Files from A to H.
-pub const FILES: [Bitboard; 8] = [
-    Bitboard(0x0101_0101_0101_0101),
-    Bitboard(0x0202_0202_0202_0202),
-    Bitboard(0x0404_0404_0404_0404),
-    Bitboard(0x0808_0808_0808_0808),
-    Bitboard(0x1010_1010_1010_1010),
-    Bitboard(0x2020_2020_2020_2020),
-    Bitboard(0x4040_4040_4040_4040),
-    Bitboard(0x8080_8080_8080_8080),
-];
-
-/// Diagonals from h1 to a8 (index is 7 + rank - file).
-pub const DIAGS: [Bitboard; 15] = [
-    Bitboard(0x0000_0000_0000_0080),
-    Bitboard(0x0000_0000_0000_8040),
-    Bitboard(0x0000_0000_0080_4020),
-    Bitboard(0x0000_0000_8040_2010),
-    Bitboard(0x0000_0080_4020_1008),
-    Bitboard(0x0000_8040_2010_0804),
-    Bitboard(0x0080_4020_1008_0402),
-    Bitboard(0x8040_2010_0804_0201),
-    Bitboard(0x4020_1008_0402_0100),
-    Bitboard(0x2010_0804_0201_0000),
-    Bitboard(0x1008_0402_0100_0000),
-    Bitboard(0x0804_0201_0000_0000),
-    Bitboard(0x0402_0100_0000_0000),
-    Bitboard(0x0201_0000_0000_0000),
-    Bitboard(0x0100_0000_0000_0000),
-];
-
-/// Anti-diagonals from a1 to h8 (index is rank + file).
-pub const ANTI_DIAGS: [Bitboard; 15] = [
-    Bitboard(0x0000_0000_0000_0001),
-    Bitboard(0x0000_0000_0000_0102),
-    Bitboard(0x0000_0000_0001_0204),
-    Bitboard(0x0000_0000_0102_0408),
-    Bitboard(0x0000_0001_0204_0810),
-    Bitboard(0x0000_0102_0408_1020),
-    Bitboard(0x0001_0204_0810_2040),
-    Bitboard(0x0102_0408_1020_4080),
-    Bitboard(0x0204_0810_2040_8000),
-    Bitboard(0x0408_1020_4080_0000),
-    Bitboard(0x0810_2040_8000_0000),
-    Bitboard(0x1020_4080_0000_0000),
-    Bitboard(0x2040_8000_0000_0000),
-    Bitboard(0x4080_0000_0000_0000),
-    Bitboard(0x8000_0000_0000_0000),
-];
-
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct Bitboard(u64);
 
 impl Bitboard {
+    /// Ranks from 1 to 8.
+    pub const RANKS: [Self; 8] = [
+        Bitboard(0x0000_0000_0000_00FF),
+        Bitboard(0x0000_0000_0000_FF00),
+        Bitboard(0x0000_0000_00FF_0000),
+        Bitboard(0x0000_0000_FF00_0000),
+        Bitboard(0x0000_00FF_0000_0000),
+        Bitboard(0x0000_FF00_0000_0000),
+        Bitboard(0x00FF_0000_0000_0000),
+        Bitboard(0xFF00_0000_0000_0000),
+    ];
+
+    /// Files from A to H.
+    pub const FILES: [Self; 8] = [
+        Bitboard(0x0101_0101_0101_0101),
+        Bitboard(0x0202_0202_0202_0202),
+        Bitboard(0x0404_0404_0404_0404),
+        Bitboard(0x0808_0808_0808_0808),
+        Bitboard(0x1010_1010_1010_1010),
+        Bitboard(0x2020_2020_2020_2020),
+        Bitboard(0x4040_4040_4040_4040),
+        Bitboard(0x8080_8080_8080_8080),
+    ];
+
+    /// Diagonals from h1 to a8 (index is 7 + rank - file).
+    pub const DIAGS: [Self; 15] = [
+        Bitboard(0x0000_0000_0000_0080),
+        Bitboard(0x0000_0000_0000_8040),
+        Bitboard(0x0000_0000_0080_4020),
+        Bitboard(0x0000_0000_8040_2010),
+        Bitboard(0x0000_0080_4020_1008),
+        Bitboard(0x0000_8040_2010_0804),
+        Bitboard(0x0080_4020_1008_0402),
+        Bitboard(0x8040_2010_0804_0201),
+        Bitboard(0x4020_1008_0402_0100),
+        Bitboard(0x2010_0804_0201_0000),
+        Bitboard(0x1008_0402_0100_0000),
+        Bitboard(0x0804_0201_0000_0000),
+        Bitboard(0x0402_0100_0000_0000),
+        Bitboard(0x0201_0000_0000_0000),
+        Bitboard(0x0100_0000_0000_0000),
+    ];
+
+    /// Anti-diagonals from a1 to h8 (index is rank + file).
+    pub const ANTI_DIAGS: [Self; 15] = [
+        Bitboard(0x0000_0000_0000_0001),
+        Bitboard(0x0000_0000_0000_0102),
+        Bitboard(0x0000_0000_0001_0204),
+        Bitboard(0x0000_0000_0102_0408),
+        Bitboard(0x0000_0001_0204_0810),
+        Bitboard(0x0000_0102_0408_1020),
+        Bitboard(0x0001_0204_0810_2040),
+        Bitboard(0x0102_0408_1020_4080),
+        Bitboard(0x0204_0810_2040_8000),
+        Bitboard(0x0408_1020_4080_0000),
+        Bitboard(0x0810_2040_8000_0000),
+        Bitboard(0x1020_4080_0000_0000),
+        Bitboard(0x2040_8000_0000_0000),
+        Bitboard(0x4080_0000_0000_0000),
+        Bitboard(0x8000_0000_0000_0000),
+    ];
+
     /// Creates an empty `Bitboard`.
     #[inline]
     pub const fn new() -> Self {
@@ -196,6 +196,20 @@ impl SubAssign for Bitboard {
     }
 }
 
+impl Shr<BoardVector> for Bitboard {
+    type Output = Self;
+
+    #[inline]
+    fn shr(self, rhs: BoardVector) -> Self::Output {
+        let shift: i8 = rhs.into();
+        if shift > 0 {
+            Self(self.0 << shift as u64)
+        } else {
+            Self(self.0 >> -shift as u64)
+        }
+    }
+}
+
 impl From<Bitboard> for u64 {
     #[inline]
     fn from(bb: Bitboard) -> Self {
@@ -220,14 +234,14 @@ impl From<Square> for Bitboard {
 impl From<Rank> for Bitboard {
     #[inline]
     fn from(rank: Rank) -> Self {
-        RANKS[rank as usize]
+        Self::RANKS[rank as usize]
     }
 }
 
 impl From<File> for Bitboard {
     #[inline]
     fn from(file: File) -> Self {
-        FILES[file as usize]
+        Self::FILES[file as usize]
     }
 }
 

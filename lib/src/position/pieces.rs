@@ -4,7 +4,7 @@ use std::ops::Index;
 use strum::IntoEnumIterator;
 
 use crate::bb;
-use crate::square_map::SquareMap;
+use crate::collections::SquareMap;
 use crate::types::{Bitboard, Color, File, Piece, PieceKind, Rank, Square};
 
 /// Holds the placement of pieces on the board.
@@ -15,7 +15,6 @@ pub struct Pieces {
     white_pieces: PieceBoards,
     black_pieces: PieceBoards,
     map: SquareMap<Option<Piece>>,
-    occupied: Bitboard,
 }
 
 impl Pieces {
@@ -27,7 +26,6 @@ impl Pieces {
             white_pieces: PieceBoards::new(),
             black_pieces: PieceBoards::new(),
             map: SquareMap::new([None; 64]),
-            occupied: bb!(),
         }
     }
 
@@ -55,20 +53,20 @@ impl Pieces {
         }
     }
 
-    /// Gets the [`Square`] of the king of the given [`Color`].
+    /// Gets the [`Square`] of the king for the given [`Color`].
     ///
     /// # Panics
     /// Panics if there is no king of the given color.
     #[inline]
-    pub fn king_sq_of(&self, color: Color) -> Square {
+    pub fn king_sq_for(&self, color: Color) -> Square {
         let king = self.get_bb(Piece(PieceKind::King, color));
         king.into_iter().next().expect("there should be a king")
     }
 
     /// Gets a [`Bitboard`] of all occupied squares.
     #[inline]
-    pub const fn occupied(&self) -> Bitboard {
-        self.occupied
+    pub fn occupied(&self) -> Bitboard {
+        self.white_pieces.occupied | self.black_pieces.occupied
     }
 
     /// Sets the given [`Piece`] on the given [`Square`].
@@ -78,7 +76,6 @@ impl Pieces {
             Color::White => self.white_pieces.set_sq(pce.kind(), sq),
             Color::Black => self.black_pieces.set_sq(pce.kind(), sq),
         }
-        self.occupied = self.occupied.with_sq(sq);
 
         self.map[sq] = Some(pce);
     }
@@ -89,7 +86,6 @@ impl Pieces {
         let bb = bb!(sq);
         self.white_pieces.unset_sqs(bb);
         self.black_pieces.unset_sqs(bb);
-        self.occupied -= bb;
         self.map[sq] = None;
     }
 }

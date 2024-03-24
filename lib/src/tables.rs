@@ -4,16 +4,15 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
-use bitintr::Pdep;
+use bitintr::{Pdep, Pext};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
-use crate::bb;
-use crate::square_map::SquareMap;
-use crate::types::bitboard::{ANTI_DIAGS, DIAGS, FILES, RANKS};
-use crate::types::{Bitboard, BoardVector, File, Rank, Square};
+use crate::collections::SquareMap;
+use crate::types::{Bitboard, BoardVector, Color, File, Piece, PieceKind, Rank, Square};
+use crate::{bb, Position};
 
 lazy_static! {
     static ref TABLES: Tables = Tables::init();
@@ -142,15 +141,15 @@ impl Tables {
                 let delta_file = to_file - from_file;
 
                 if from_rank == to_rank {
-                    RANKS[from_rank as usize]
+                    Bitboard::RANKS[from_rank as usize]
                 } else if from_file == to_file {
-                    FILES[from_file as usize]
+                    Bitboard::FILES[from_file as usize]
                 } else if delta_rank == delta_file {
                     let diag_idx = (7 + from_rank - from_file) as usize;
-                    DIAGS[diag_idx]
+                    Bitboard::DIAGS[diag_idx]
                 } else if delta_rank == -delta_file {
                     let anit_diag_idx = (from_rank + from_file) as usize;
-                    ANTI_DIAGS[anit_diag_idx]
+                    Bitboard::ANTI_DIAGS[anit_diag_idx]
                 } else {
                     bb!()
                 }
@@ -193,6 +192,63 @@ impl Tables {
                 res.with_sq(to)
             })
         })
+    }
+
+    pub fn gen_bishop_attacks(&self, occ: Bitboard, sq: Square) -> Bitboard {
+        let bishop_attacks = self.slider_attacks.bishop_attacks(sq);
+        let occ: u64 = occ.into();
+        let key = occ.pext(self.bishop_masks[sq].into()) as usize;
+        unsafe { *bishop_attacks.get_unchecked(key) }
+    }
+
+    pub fn gen_rook_attacks(&self, occ: Bitboard, sq: Square) -> Bitboard {
+        let rook_attacks = self.slider_attacks.rook_attacks(sq);
+        let occ: u64 = occ.into();
+        let key = occ.pext(self.rook_masks[sq].into()) as usize;
+        unsafe { *rook_attacks.get_unchecked(key) }
+    }
+
+    pub fn gen_attacks_from_sq(&self, occ: Bitboard, pce: Piece, sq: Square) -> Bitboard {
+        match pce.kind() {
+            PieceKind::Pawn => match pce.color() {
+                Color::White => self.white_pawn_attacks[sq],
+                Color::Black => self.black_pawn_attacks[sq],
+            },
+            PieceKind::Knight => self.knight_attacks[sq],
+            PieceKind::Bishop => self.gen_bishop_attacks(occ, sq),
+            PieceKind::Rook => self.gen_rook_attacks(occ, sq),
+            PieceKind::Queen => self.gen_bishop_attacks(occ, sq) | self.gen_rook_attacks(occ, sq),
+            PieceKind::King => self.king_attacks[sq],
+        }
+    }
+
+    pub fn gen_attacks(&self, pce_bb: Bitboard, occ: Bitboard, pce: Piece) -> Bitboard {
+        match pce.kind() {
+            PieceKind::Pawn => {
+                let (left, right) = match pce.color() {
+                    Color::White => (BoardVector::NORTH_WEST, BoardVector::NORTH_EAST),
+                    Color::Black => (BoardVector::SOUTH_EAST, BoardVector::SOUTH_WEST),
+                };
+                (pce_bb >> left) | (pce_bb >> right)
+            }
+            _ => pce_bb.into_iter().fold(bb!(), |atks, sq| {
+                atks | self.gen_attacks_from_sq(occ, pce, sq)
+            }),
+        }
+    }
+
+    pub fn get_mobility(&self, position: &Position, color: Color) -> usize {
+        use PieceKind::*;
+
+        let occ = position.pieces.occupied();
+        [Pawn, Knight, Bishop, Rook, Queen, King]
+            .into_iter()
+            .map(|kind| {
+                let pce = Piece(kind, color);
+                let pce_bb = position.pieces.get_bb(pce);
+                self.gen_attacks(pce_bb, occ, pce).len()
+            })
+            .sum()
     }
 }
 

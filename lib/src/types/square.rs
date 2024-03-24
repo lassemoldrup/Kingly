@@ -150,6 +150,20 @@ impl Add<BoardVector> for Square {
     }
 }
 
+impl Sub<BoardVector> for Square {
+    type Output = Self;
+
+    /// Subtracts a [`BoardVector`] from a [`Square`], yielding a [`Square`]. See [`Square::add`] for
+    /// more information.
+    #[inline]
+    fn sub(self, rhs: BoardVector) -> Self::Output {
+        let res = (self as i8 - rhs.0) as u8;
+        debug_assert!(res < 64);
+        // Safety: We modulo the result by 64, so it's safe to convert to a square.
+        unsafe { Self::from_unchecked(res % 64) }
+    }
+}
+
 impl TryFrom<u8> for Square {
     type Error = SquareFromU8Error;
 
@@ -325,11 +339,26 @@ impl Neg for BoardVector {
     }
 }
 
+impl Mul<BoardVector> for i8 {
+    type Output = BoardVector;
+
+    fn mul(self, rhs: BoardVector) -> Self::Output {
+        BoardVector(self * rhs.0)
+    }
+}
+
 impl Mul<i8> for BoardVector {
     type Output = Self;
 
     #[inline]
     fn mul(self, rhs: i8) -> Self::Output {
         Self(self.0 * rhs)
+    }
+}
+
+impl From<BoardVector> for i8 {
+    #[inline]
+    fn from(vector: BoardVector) -> i8 {
+        vector.0
     }
 }

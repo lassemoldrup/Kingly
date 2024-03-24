@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
-use std::hint::unreachable_unchecked;
 use std::mem;
 
 use intmap::IntMap;
@@ -323,11 +322,16 @@ impl Position {
         self.zobrist ^= key.key(self.tables);
     }
 
+    /// Returns the last move made in the position.
+    #[inline]
     pub fn last_move(&self) -> Option<Move> {
         self.history.last().map(|um| um.mv)
     }
 
+    /// Returns whether the position is a draw by threefold repetition or the fifty-move rule.
+    #[inline]
     pub fn is_draw(&self) -> bool {
+        debug_assert!(self.repetitions.contains_key(self.zobrist));
         let count = *self.repetitions.get(self.zobrist).unwrap_or(&0);
         let threefold = count >= 3;
         threefold || self.ply_clock >= 100
@@ -335,6 +339,7 @@ impl Position {
 
     /// Returns a heuristic of whether a null move can be made
     /// without risking missing zugzwang
+    #[inline]
     pub fn null_move_heuristic(&self) -> bool {
         // Null moves are not considered if the player to move only has king and pawns
         let total_pieces = self.pieces.occupied_for(self.to_move).len();
@@ -393,7 +398,7 @@ impl Display for Position {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct Unmake {
+struct Unmake {
     mv: Move,
     capture: Option<Piece>,
     castling: CastlingRights,

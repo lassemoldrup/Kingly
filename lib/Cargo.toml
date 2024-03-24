@@ -14,3 +14,4 @@ lazy_static = "1.4"
 bitintr = "0.3"
 rand = { version = "0.8", features = ["min_const_gen"] }
 rand_chacha = "0.3"
+arrayvec = "0.7"
