@@ -41,7 +41,9 @@ fn main() -> Result<(), Error> {
             let start = Instant::now();
             let res = move_gen.perft(position, depth);
             let elapsed = start.elapsed();
-            println!("Nodes: {}, Elapsed: {} ms", res, elapsed.as_millis());
+            println!("Nodes:\t{res}");
+            println!("Elapsed:\t{} ms", elapsed.as_millis());
+            println!("NPS:\t{} kn/s", res / elapsed.as_millis() as u64);
         }
         Some(Command::Divide { fen, depth }) => {
             if depth == 0 {
@@ -58,7 +60,8 @@ fn main() -> Result<(), Error> {
                 total += count;
                 println!("{mv}: {count}",);
             }
-            println!("Moves: {}, Total: {total}", moves.len());
+            println!("Moves: {}", moves.len());
+            println!("Total: {total}");
         }
         None => Uci::with_standard_io().repl()?,
     }

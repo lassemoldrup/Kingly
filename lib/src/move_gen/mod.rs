@@ -32,15 +32,16 @@ impl MoveGen {
         use PieceKind::*;
 
         let mut state = MoveGenState::new(position, self.tables);
+        state.set_danger_sqs();
 
         let check = state.danger_sqs.contains(state.king_sq);
         if check {
             let checkers = state.checkers();
 
             if checkers.len() == 2 {
-                // TODO: Pin rays are still generated in this case, but they are not needed
                 state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
             } else {
+                state.set_pin_rays();
                 let checking_sq = checkers.into_iter().next().unwrap();
                 // Can't block a check with a capture, unless capturing the checker
                 let blocking_sqs = if ONLY_CAPTURES {
@@ -56,6 +57,7 @@ impl MoveGen {
                 state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
             }
         } else {
+            state.set_pin_rays();
             state.gen_pawn_moves::<ONLY_CAPTURES>(!bb!());
             for kind in [Knight, Bishop, Rook, Queen] {
                 state.gen_non_pawn_moves::<ONLY_CAPTURES>(kind, !bb!());
@@ -118,22 +120,15 @@ struct MoveGenState<'p> {
 
 impl<'p> MoveGenState<'p> {
     fn new(position: &'p Position, tables: &'static Tables) -> Self {
-        let king_sq = position.pieces.king_sq_for(position.to_move);
-        let occupied = position.pieces.occupied();
-
-        let mut state = Self {
+        Self {
             moves: MoveList::new(),
-            king_sq,
-            occupied,
+            king_sq: position.pieces.king_sq_for(position.to_move),
+            occupied: position.pieces.occupied(),
             pin_rays: bb!(),
             danger_sqs: bb!(),
             position,
             tables,
-        };
-        state.set_pin_rays();
-        state.set_danger_sqs();
-
-        state
+        }
     }
 
     /// Generates all non-pawn moves for the given `PieceKind` `kind`, except castling moves

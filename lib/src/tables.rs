@@ -225,11 +225,21 @@ impl Tables {
     pub fn gen_attacks(&self, pce_bb: Bitboard, occ: Bitboard, pce: Piece) -> Bitboard {
         match pce.kind() {
             PieceKind::Pawn => {
-                let (left, right) = match pce.color() {
-                    Color::White => (BoardVector::NORTH_WEST, BoardVector::NORTH_EAST),
-                    Color::Black => (BoardVector::SOUTH_EAST, BoardVector::SOUTH_WEST),
+                let (left, right, first_file, last_file) = match pce.color() {
+                    Color::White => (
+                        BoardVector::NORTH_WEST,
+                        BoardVector::NORTH_EAST,
+                        Bitboard::from(File::A),
+                        Bitboard::from(File::H),
+                    ),
+                    Color::Black => (
+                        BoardVector::SOUTH_EAST,
+                        BoardVector::SOUTH_WEST,
+                        Bitboard::from(File::H),
+                        Bitboard::from(File::A),
+                    ),
                 };
-                (pce_bb >> left) | (pce_bb >> right)
+                ((pce_bb >> left) - last_file) | ((pce_bb >> right) - first_file)
             }
             _ => pce_bb.into_iter().fold(bb!(), |atks, sq| {
                 atks | self.gen_attacks_from_sq(occ, pce, sq)

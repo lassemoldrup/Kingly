@@ -42,10 +42,17 @@ fn test_perft() {
     println!("All Perft test positions passed")
 }
 
+fn get_and_init_state(position: &Position) -> MoveGenState {
+    let mut state = MoveGenState::new(position, Tables::get());
+    state.set_pin_rays();
+    state.set_danger_sqs();
+    state
+}
+
 #[test]
 fn correct_pawn_moves_in_starting_position() {
     let position = Position::new();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_pawn_moves::<false>(!bb!());
     let moves = state.moves;
@@ -61,7 +68,7 @@ fn correct_pawn_moves_in_starting_position() {
 fn correct_forward_pawn_moves_for_black() {
     let fen = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_pawn_moves::<false>(!bb!());
     let moves = state.moves;
@@ -77,7 +84,7 @@ fn correct_forward_pawn_moves_for_black() {
 fn correct_pawn_captures_for_white() {
     let fen = "rnbqkb1r/p1p1p1pp/7n/1p1p1pP1/P3P3/8/1PPP1P1P/RNBQKBNR w KQkq - 1 5";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_pawn_moves::<false>(!bb!());
     let moves = state.moves;
@@ -92,7 +99,7 @@ fn correct_pawn_captures_for_white() {
 fn correct_pawn_captures_for_black() {
     let fen = "rnbqkbnr/p1p1p1pp/8/1p1p4/P1B1p1P1/5N2/1PPP1P1P/RNBQK2R b KQkq - 1 5";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_pawn_moves::<false>(!bb!());
     let moves = state.moves;
@@ -107,7 +114,7 @@ fn correct_pawn_captures_for_black() {
 fn correct_en_passant() {
     let fen = "rnbqkb1r/p1p1pppp/5n2/1pPpP3/6P1/8/PP1P1P1P/RNBQKBNR w KQkq d6 0 6";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_pawn_moves::<false>(!bb!());
     let moves = state.moves;
@@ -121,7 +128,7 @@ fn correct_en_passant() {
 fn correct_promotions() {
     let position =
         Position::from_fen("r1bqk2r/pP2bpPp/2n1p3/8/8/3P1P2/PPP4P/RNBQKBNR w KQ - 1 11").unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_pawn_moves::<false>(!bb!());
     let moves = state.moves;
@@ -138,7 +145,7 @@ fn correct_promotions() {
 fn correct_knight_moves_for_white() {
     let fen = "rn1qkbnr/pp2pppp/8/3pN3/2p3b1/3P1P2/PPP1P1PP/RNBQKB1R w KQkq - 0 5";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::Knight, !bb!());
     let moves = state.moves;
@@ -155,7 +162,7 @@ fn correct_knight_moves_for_white() {
 fn correct_knight_moves_for_black() {
     let fen = "r2qkbnr/pp2pppp/2n5/P2pN3/2p3b1/3P1P2/1PP1P1PP/RNBQKB1R b KQkq - 0 6";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::Knight, !bb!());
     let moves = state.moves;
@@ -172,7 +179,7 @@ fn correct_knight_moves_for_black() {
 fn correct_non_castling_king_moves_for_white() {
     let fen = "r1bqkb1r/ppp1ppp1/2n5/2Pp4/4P2p/3Kn2P/PP1P1PP1/RNBQ1BNR w kq - 0 8";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::King, !bb!());
     let moves = state.moves;
@@ -187,7 +194,7 @@ fn correct_non_castling_king_moves_for_white() {
 fn correct_non_castling_king_moves_for_black() {
     let fen = "rnb3nr/1p4bp/p1ppk1pP/q4NP1/P3pp2/1P6/2PPPP2/R1BQKBNR b KQ - 1 13";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::King, !bb!());
     let moves = state.moves;
@@ -204,7 +211,7 @@ fn correct_non_castling_king_moves_for_black() {
 fn both_sides_castling_moves() {
     let fen = "rnbqkbnr/7p/ppppppp1/1B6/3PPB2/2NQ1N2/PPP2PPP/R3K2R w KQkq - 0 8";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_castling_moves();
     let moves = state.moves;
@@ -220,7 +227,7 @@ fn both_sides_castling_moves() {
 fn no_castling_through_pieces() {
     let fen = "rn2k2r/ppp2ppp/3q1n2/3pp3/1b1PPPb1/1PP1B1P1/P6P/RN1QKBNR b KQkq - 0 7";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_castling_moves();
     let moves = state.moves;
@@ -235,7 +242,7 @@ fn no_castling_through_pieces() {
 fn no_castling_through_attacks() {
     let fen = "r1bqkb1r/pppppppp/8/6B1/3PP2P/n2Q1Nn1/PPP2PP1/R3K2R w KQkq - 0 10";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_castling_moves();
     let moves = state.moves;
@@ -250,7 +257,7 @@ fn no_castling_through_attacks() {
 fn no_castling_when_in_check() {
     let fen = "r3k2r/ppp1bppp/2nq1N2/3p4/3PP3/2P5/PP2BPPP/RNBQK2R b KQkq - 0 8";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_castling_moves();
     let moves = state.moves;
@@ -263,7 +270,7 @@ fn no_castling_when_in_check() {
 fn correct_bishop_moves() {
     let fen = "rnbqkbnr/1ppp1pp1/p7/4p2p/1PB1P3/8/P1PP1PPP/RNBQK1NR w KQkq - 0 5";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::Bishop, !bb!());
     let moves = state.moves;
@@ -281,7 +288,7 @@ fn correct_bishop_moves() {
 fn correct_rook_moves() {
     let fen = "1nbqkbnr/1pppppp1/8/p2r4/4PPp1/3P3P/PPP1N3/RNBQKB1R b KQk - 1 7";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::Rook, !bb!());
     let moves = state.moves;
@@ -299,7 +306,7 @@ fn correct_rook_moves() {
 fn correct_queen_moves() {
     let fen = "r1bqkbnr/p1pp1p1p/1pnPp1p1/8/3Q4/8/PPP1PPPP/RNB1KBNR w KQkq - 0 5";
     let position = Position::from_fen(fen).unwrap();
-    let mut state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
 
     state.gen_non_pawn_moves::<false>(PieceKind::Queen, !bb!());
     let moves = state.moves;
@@ -413,7 +420,8 @@ fn check_avoidance_with_en_passant_capture_and_king_capture() {
 fn pin_rays_correct() {
     let fen = "N3kbn1/p2q1p2/2p1n3/1b1Pp2p/2P3p1/3K1Pr1/1P1P2PP/RNBQ1BNR w - - 16 22";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let mut state = get_and_init_state(&position);
+    state.set_pin_rays();
 
     assert_eq!(state.pin_rays, bb!(C4, B5, D4, D5, D6, D7, E3, F3, G3));
 }
@@ -525,4 +533,16 @@ fn test_position_2() {
     assert!(moves.contains(mv!(D2 -> E3)));
     assert!(moves.contains(mv!(D2 -> E1)));
     assert!(moves.contains(mv!(D3 x E4)));
+}
+
+#[test]
+fn test_position_3() {
+    let fen = "rnbqkbnr/2pppppp/1p6/p7/8/5PK1/PPPPP1PP/RNBQ1BNR w kq - 0 4";
+    let position = Position::from_fen(fen).unwrap();
+    let move_gen = MoveGen::init();
+
+    let moves = move_gen.gen_all_moves(&position);
+
+    assert!(moves.contains(mv!(G3 -> H3)));
+    assert_eq!(moves.len(), 22);
 }
