@@ -7,8 +7,8 @@ use strum::IntoEnumIterator;
 
 use crate::types::{File, Rank, Square};
 
-/// A map of values indexed by [`Square`]. The map is represented as a fixed-size
-/// array of length 64.
+/// A map of values indexed by [`Square`]. The map is represented as a
+/// fixed-size array of length 64.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SquareMap<T>([T; 64]);
 

@@ -126,8 +126,9 @@ impl Square {
 impl Add<BoardVector> for Square {
     type Output = Self;
 
-    /// Adds a [`BoardVector`] to a [`Square`], yielding a [`Square`] and wrapping around
-    /// the A and H files according to the little endian square numbering if necessary.
+    /// Adds a [`BoardVector`] to a [`Square`], yielding a [`Square`] and
+    /// wrapping around the A and H files according to the little endian
+    /// square numbering if necessary.
     ///
     /// # Panics
     /// Panics in debug mode if the result is not inside the board.
@@ -153,8 +154,8 @@ impl Add<BoardVector> for Square {
 impl Sub<BoardVector> for Square {
     type Output = Self;
 
-    /// Subtracts a [`BoardVector`] from a [`Square`], yielding a [`Square`]. See [`Square::add`] for
-    /// more information.
+    /// Subtracts a [`BoardVector`] from a [`Square`], yielding a [`Square`].
+    /// See [`Square::add`] for more information.
     #[inline]
     fn sub(self, rhs: BoardVector) -> Self::Output {
         let res = (self as i8 - rhs.0) as u8;

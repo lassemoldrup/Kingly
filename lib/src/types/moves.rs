@@ -81,7 +81,8 @@ macro_rules! mv {
     };
 }
 
-/// A chess move which includes information on squares, capture, move kind, and promotion.
+/// A chess move which includes information on squares, capture, move kind, and
+/// promotion.
 // Bit layout: ki|p|c|....to|..from
 // 0-5: from sq
 // 6-11: to sq
@@ -256,7 +257,8 @@ pub enum TryFromLegalError {
     Illegal(#[from] IllegalMoveError),
 }
 
-/// Represents the kind of a move, i.e. regular, castling, promotion, or en passant.
+/// Represents the kind of a move, i.e. regular, castling, promotion, or en
+/// passant.
 #[repr(C, u8)]
 pub enum MoveKind {
     /// A regular move.

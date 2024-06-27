@@ -39,7 +39,8 @@ impl Position {
         Position::from_fen(STARTING_FEN).unwrap()
     }
 
-    /// Sets the position to the given FEN string without changing the repetition history.
+    /// Sets the position to the given FEN string without changing the
+    /// repetition history.
     pub fn set_fen(&mut self, fen: &str) -> Result<(), ParseFenError> {
         let mut new_pos = Self::from_fen(fen)?;
         mem::swap(&mut self.repetitions, &mut new_pos.repetitions);
@@ -200,6 +201,7 @@ impl Position {
     /// # Panics
     /// Panics if there are no moves to unmake.
     pub fn unmake_move(&mut self) {
+        // TODO: benchmark history vs returning the unmake
         let unmake = self
             .history
             .pop()
@@ -328,7 +330,8 @@ impl Position {
         self.history.last().map(|um| um.mv)
     }
 
-    /// Returns whether the position is a draw by threefold repetition or the fifty-move rule.
+    /// Returns whether the position is a draw by threefold repetition or the
+    /// fifty-move rule.
     #[inline]
     pub fn is_draw(&self) -> bool {
         debug_assert!(self.repetitions.contains_key(self.zobrist));

@@ -17,9 +17,9 @@ struct App {
 #[derive(Debug, Subcommand)]
 enum Command {
     #[command(arg_required_else_help = true)]
-    Perft { fen: String, depth: u8 },
+    Perft { fen: String, depth: i8 },
     #[command(arg_required_else_help = true)]
-    Divide { fen: String, depth: u8 },
+    Divide { fen: String, depth: i8 },
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -4,11 +4,13 @@ pub mod bitboard;
 mod moves;
 mod piece;
 mod square;
+pub mod value;
 
 pub use bitboard::Bitboard;
 pub use moves::*;
 pub use piece::*;
 pub use square::*;
+pub use value::Value;
 
 /// Represents a color (white or black) in chess.
 #[derive(Clone, Copy, PartialEq, Debug, strum::Display)]
@@ -66,8 +68,9 @@ impl CastlingRights {
         }
     }
 
-    /// Sets king and queen castling rights for a given color based on a 2-bit number,
-    /// e.g. 0b01 means giving kingside castling, 0b11 means giving both sided castling
+    /// Sets king and queen castling rights for a given color based on a 2-bit
+    /// number, e.g. 0b01 means giving kingside castling, 0b11 means giving
+    /// both sided castling
     #[inline]
     pub fn set(&mut self, color: Color, rights: u8) {
         match color {

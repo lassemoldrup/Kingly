@@ -13,7 +13,7 @@ use super::MoveGen;
 
 #[derive(Deserialize)]
 struct PerftPosition {
-    depth: u8,
+    depth: i8,
     nodes: u64,
     fen: String,
 }

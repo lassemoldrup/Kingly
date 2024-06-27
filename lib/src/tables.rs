@@ -30,7 +30,8 @@ pub struct Tables {
     pub slider_attacks: SliderAttacks,
     /// The entire line between two squares, empty bb if not on line.
     pub line_through: SquareMap<SquareMap<Bitboard>>,
-    /// All the squares between two squares, includes the destination square, empty bb if not on a line
+    /// All the squares between two squares, includes the destination square,
+    /// empty bb if not on a line
     pub ray_to: SquareMap<SquareMap<Bitboard>>,
     pub zobrist_randoms: ZobristRandoms,
 }
@@ -264,15 +265,18 @@ impl Tables {
 
 pub struct SliderAttacks {
     _tables: Pin<Box<SliderAttacksTables>>,
-    /// Points to the slice of `SliderAttackTables` that holds bishop attacks for a given square.
+    /// Points to the slice of `SliderAttackTables` that holds bishop attacks
+    /// for a given square.
     bishop_attacks: SquareMap<NonNull<[Bitboard]>>,
-    /// Points to the slice of `SliderAttackTables` that holds rook attacks for a given square.
+    /// Points to the slice of `SliderAttackTables` that holds rook attacks for
+    /// a given square.
     rook_attacks: SquareMap<NonNull<[Bitboard]>>,
 }
 
 impl SliderAttacks {
     fn init(bishop_masks: &SquareMap<Bitboard>, rook_masks: &SquareMap<Bitboard>) -> Self {
-        // We do not want to allocate the big arrays on the stack, so we allocate them on the heap
+        // We do not want to allocate the big arrays on the stack, so we allocate them
+        // on the heap
         let layout = Layout::new::<SliderAttacksTables>();
         // Safety: The layout is correct
         let ptr = unsafe { alloc::alloc(layout) as *mut SliderAttacksTables };
@@ -285,7 +289,8 @@ impl SliderAttacks {
             let count = 1 << bishop_masks[sq].len();
             // Iterate over all possible occupancies
             for key in 0..count as u64 {
-                // Place the occupancy bits of `key` on the squares that are relevant for a bishop on `sq`
+                // Place the occupancy bits of `key` on the squares that are relevant for a
+                // bishop on `sq`
                 let occ_bb = key.pdep(bishop_masks[sq].into()).into();
                 let atk_bb = gen_bishop_attacks_slow(sq, occ_bb);
                 let idx = num_bishop_init + key as usize;
@@ -300,7 +305,8 @@ impl SliderAttacks {
             let count = 1 << rook_masks[sq].len();
             // Iterate over all possible occupancies
             for key in 0..count as u64 {
-                // Place the occupancy bits of `key` on the squares that are relevant for a rook on `sq`
+                // Place the occupancy bits of `key` on the squares that are relevant for a rook
+                // on `sq`
                 let occ_bb = key.pdep(rook_masks[sq].into()).into();
                 let atk_bb = gen_rook_attacks_slow(sq, occ_bb);
                 let idx = num_rook_init + key as usize;
@@ -330,12 +336,14 @@ impl SliderAttacks {
     }
 
     pub fn bishop_attacks(&self, sq: Square) -> &[Bitboard] {
-        // Safety: The bishop_attacks field is initialized correctly to point to the correct slice
+        // Safety: The bishop_attacks field is initialized correctly to point to the
+        // correct slice
         unsafe { self.bishop_attacks[sq].as_ref() }
     }
 
     pub fn rook_attacks(&self, sq: Square) -> &[Bitboard] {
-        // Safety: The rook_attacks field is initialized correctly to point to the correct slice
+        // Safety: The rook_attacks field is initialized correctly to point to the
+        // correct slice
         unsafe { self.rook_attacks[sq].as_ref() }
     }
 }

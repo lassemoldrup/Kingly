@@ -1,12 +1,15 @@
-use std::fmt::Display;
+use std::fmt::{self, Display, Formatter};
 use std::io::{self, BufRead, StdoutLock, Write};
 use std::str::FromStr;
 use std::time::Duration;
 use std::{process, thread};
 
 use crossbeam::channel::{self, Receiver, Sender};
-use kingly_lib::search::{info_channel, InfoSender, ThreadPool};
-use kingly_lib::types::PseudoMove;
+use kingly_lib::position::{ParseFenError, STARTING_FEN};
+use kingly_lib::search::{info_channel, InfoSender, SearchJob, ThreadPool};
+use kingly_lib::tables::Tables;
+use kingly_lib::types::{IllegalMoveError, PseudoMove};
+use kingly_lib::{MoveGen, Position};
 
 #[cfg(test)]
 mod tests;
@@ -15,6 +18,7 @@ pub struct Uci<W> {
     input_rx: Receiver<String>,
     write_handle: W,
     thread_pool: ThreadPool,
+    position: Position,
     debug_mode: bool,
 }
 
@@ -29,6 +33,7 @@ impl Uci<StdoutLock<'_>> {
             input_rx,
             write_handle: io::stdout().lock(),
             thread_pool: ThreadPool::new(),
+            position: Position::new(),
             debug_mode: false,
         }
     }
@@ -38,16 +43,25 @@ impl<W: Write> Uci<W> {
     pub fn repl(mut self) -> io::Result<()> {
         self.print_prelude()?;
 
+        // Initialize the tables
+        Tables::get();
+
         let (info_tx, info_rx) = info_channel();
 
         loop {
             channel::select! {
                 recv(self.input_rx) -> line => {
                     let line = line.expect("sender should be alive");
-                    self.handle_command(&line, &info_tx)?;
+                    if let Err(err) = self.handle_command(&line, &info_tx) {
+                        match err {
+                            UciError::Io(err) => return Err(err),
+                            _ => self.print_debug(err)?,
+                        }
+                    }
                 }
                 recv(info_rx) -> info => {
-                    todo!();
+                    let info = info.expect("sender is alive");
+                    writeln!(self.write_handle, "info {}", info)?;
                 }
             }
         }
@@ -72,30 +86,51 @@ impl<W: Write> Uci<W> {
         }
     }
 
-    fn handle_command(&mut self, command: &str, info_tx: &InfoSender) -> io::Result<()> {
+    fn handle_command(&mut self, command: &str, info_tx: &InfoSender) -> Result<(), UciError> {
         if command.trim().is_empty() {
             return Ok(());
         }
 
-        let command = match command.parse::<Command>() {
-            Ok(command) => command,
-            Err(err) => {
-                self.print_debug(format!("Failed to parse command: {err}."))?;
-                return Ok(());
-            }
-        };
-
+        let command: Command = command.parse()?;
+        self.print_debug(format!("Received command: {command}"))?;
         match command {
             Command::Debug(value) => self.debug_mode = value,
             Command::IsReady => writeln!(self.write_handle, "readyok")?,
-            Command::SetOption(_) => todo!(),
-            Command::UciNewGame => todo!(),
-            Command::Position { fen, moves } => todo!(),
-            Command::Go(_) => todo!(),
+            Command::SetOption(_) => {}
+            Command::UciNewGame => {
+                // TODO: what to do here?
+            }
+            Command::Position { fen, moves } => {
+                self.position.set_fen(&fen)?;
+                let legal = MoveGen::init().gen_all_moves(&self.position);
+                for mv in moves {
+                    self.position.make_move(mv.into_move(&legal)?);
+                }
+            }
+            Command::Go(options) => {
+                let mut builder = SearchJob::default_builder().position(self.position.clone());
+                for opt in options {
+                    builder = match opt {
+                        GoOption::SearchMoves(moves) => builder.moves(moves)?,
+                        GoOption::Depth(depth) => builder.depth(depth),
+                        GoOption::Nodes(nodes) => builder.nodes(nodes),
+                        GoOption::MoveTime(time) => builder.time(time),
+                        GoOption::Infinite => builder,
+                        _ => {
+                            self.print_debug(format!("Unsupported option: {opt}"))?;
+                            builder
+                        }
+                    };
+                }
+                let job = builder.build();
+                if !self.thread_pool.spawn(job, info_tx.clone()) {
+                    self.print_debug("Search already in progress")?;
+                }
+            }
             Command::Stop => {
                 self.thread_pool.stop();
             }
-            Command::PonderHit => todo!(),
+            Command::PonderHit => {}
             Command::Quit => process::exit(0),
         }
         Ok(())
@@ -107,6 +142,18 @@ fn handle_input<R: BufRead>(read_handle: R, tx: Sender<String>) -> io::Result<()
         tx.send(line?).expect("receiver should be alive");
     }
     Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+enum UciError {
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
+    #[error("failed to parse FEN string: {0}")]
+    ParseFen(#[from] ParseFenError),
+    #[error("failed to parse command: {0}")]
+    ParseCommand(#[from] ParseCommandError),
+    #[error("illegal move: {0}")]
+    IllegalMove(#[from] IllegalMoveError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -125,6 +172,14 @@ enum Command {
 #[derive(Debug, PartialEq)]
 enum UciOption {
     Hash(usize),
+}
+
+impl Display for UciOption {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            UciOption::Hash(value) => write!(f, "Hash {value}"),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug, PartialEq)]
@@ -257,6 +312,38 @@ impl FromStr for Command {
     }
 }
 
+impl Display for Command {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Command::Debug(on) => write!(f, "debug {}", if *on { "on" } else { "off" }),
+            Command::IsReady => write!(f, "isready"),
+            Command::SetOption(opt) => write!(f, "setoption {opt}"),
+            Command::UciNewGame => write!(f, "ucinewgame"),
+            Command::Position { fen, moves } => {
+                if fen == STARTING_FEN {
+                    write!(f, "position startpos")?;
+                } else {
+                    write!(f, "position fen {fen}")?;
+                }
+                for mv in moves {
+                    write!(f, " {mv}")?;
+                }
+                Ok(())
+            }
+            Command::Go(opts) => {
+                write!(f, "go")?;
+                for opt in opts {
+                    write!(f, " {opt}")?;
+                }
+                Ok(())
+            }
+            Command::Stop => write!(f, "stop"),
+            Command::PonderHit => write!(f, "ponderhit"),
+            Command::Quit => write!(f, "quit"),
+        }
+    }
+}
+
 fn parse_next_option<'cmd, T: FromStr>(
     mut opts: impl Iterator<Item = &'cmd str>,
 ) -> Result<T, ParseCommandError> {
@@ -275,9 +362,34 @@ pub enum GoOption {
     WInc(u32),
     BInc(u32),
     MovesToGo(u32),
-    Depth(u8),
+    Depth(i8),
     Nodes(u64),
     Mate(u32),
     MoveTime(Duration),
     Infinite,
+}
+
+impl Display for GoOption {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            GoOption::SearchMoves(moves) => {
+                write!(f, "searchmoves")?;
+                for mv in moves {
+                    write!(f, " {mv}")?;
+                }
+                Ok(())
+            }
+            GoOption::Ponder => write!(f, "ponder"),
+            GoOption::WTime(value) => write!(f, "wtime {value}"),
+            GoOption::BTime(value) => write!(f, "btime {value}"),
+            GoOption::WInc(value) => write!(f, "winc {value}"),
+            GoOption::BInc(value) => write!(f, "binc {value}"),
+            GoOption::MovesToGo(value) => write!(f, "movestogo {value}"),
+            GoOption::Depth(value) => write!(f, "depth {value}"),
+            GoOption::Nodes(value) => write!(f, "nodes {value}"),
+            GoOption::Mate(value) => write!(f, "mate {value}"),
+            GoOption::MoveTime(value) => write!(f, "movetime {}", value.as_millis()),
+            GoOption::Infinite => write!(f, "infinite"),
+        }
+    }
 }

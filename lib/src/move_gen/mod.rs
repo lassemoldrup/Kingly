@@ -9,18 +9,20 @@ use crate::{bb, mv};
 #[cfg(test)]
 mod tests;
 
+/// A move generator.
 #[derive(Clone, Copy)]
 pub struct MoveGen {
     tables: &'static Tables,
 }
 
 impl MoveGen {
+    /// Initializes a new `MoveGen` instance by initializing the [`Tables`]. This
+    /// can therefore be an expensive operation.
     pub fn init() -> Self {
-        Self {
-            tables: Tables::get(),
-        }
+        Self::from_tables(Tables::get())
     }
 
+    /// Creates a new `MoveGen` instance from the given [`Tables`].
     pub fn from_tables(tables: &'static Tables) -> Self {
         Self { tables }
     }
@@ -83,12 +85,12 @@ impl MoveGen {
         self.gen_moves_and_check::<true>(position).0
     }
 
-    pub fn perft(&self, mut position: Position, depth: u8) -> u64 {
+    pub fn perft(&self, mut position: Position, depth: i8) -> u64 {
         if depth == 0 {
             return 1;
         }
 
-        fn inner(move_gen: &MoveGen, position: &mut Position, depth: u8) -> u64 {
+        fn inner(move_gen: &MoveGen, position: &mut Position, depth: i8) -> u64 {
             let moves = move_gen.gen_all_moves(position);
             if depth == 1 {
                 return moves.len() as u64;
@@ -131,7 +133,8 @@ impl<'p> MoveGenState<'p> {
         }
     }
 
-    /// Generates all non-pawn moves for the given `PieceKind` `kind`, except castling moves
+    /// Generates all non-pawn moves for the given `PieceKind` `kind`, except
+    /// castling moves
     fn gen_non_pawn_moves<const ONLY_CAPTURES: bool>(
         &mut self,
         kind: PieceKind,
@@ -294,9 +297,9 @@ impl<'p> MoveGenState<'p> {
             let ep_square_bb = bb!(sq);
             let ep_pawn_sq = sq - up;
 
-            // Note: It will never be possible to block a check with en passant as the opponent's
-            //       last move will have to have been a pawn move, which doesn't allow for a
-            //       blockable discovered check
+            // Note: It will never be possible to block a check with en passant as the
+            // opponent's last move will have to have been a pawn move,
+            // which doesn't allow for a blockable discovered check
             if blocking_sqs.contains(ep_pawn_sq) {
                 if !((left & ep_square_bb).is_empty()) {
                     add_en_passant!(sq => up_left);
@@ -395,7 +398,8 @@ impl<'p> MoveGenState<'p> {
 
         let mut pin_rays = bb!();
 
-        // No need to only look at our own pieces (which is slower), since opp pieces are removed above
+        // No need to only look at our own pieces (which is slower), since opp pieces
+        // are removed above
         for sq in pinners {
             let pin_ray = self.tables.ray_to[self.king_sq][sq];
             let potential_pin = (pin_ray - pinners) & self.occupied;
