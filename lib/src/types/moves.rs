@@ -213,6 +213,15 @@ impl Move {
     pub const fn into_inner(self) -> u16 {
         self.0
     }
+
+    /// Creates a move from its inner `u16` representation.
+    ///
+    /// # Safety
+    /// The inner representation must be a valid move.
+    #[inline]
+    pub const unsafe fn from_inner(inner: u16) -> Self {
+        Self(inner)
+    }
 }
 
 impl From<Move> for u16 {

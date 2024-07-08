@@ -19,6 +19,8 @@ mod thread;
 pub use thread::{info_channel, InfoReceiver, InfoSender, ThreadPool};
 #[cfg(test)]
 mod tests;
+mod transposition_table;
+pub use transposition_table::{Entry, TranspositionTable};
 
 /// A search job that can be run by a [`ThreadPool`].
 #[derive(Clone)]
@@ -48,6 +50,7 @@ impl<E: Eval> SearchJob<E> {
         depth: i8,
         search_start: Instant,
         kill_switch: Arc<AtomicBool>,
+        transposition_table: Arc<TranspositionTable>,
     ) -> Option<SearchResult> {
         let moves = self
             .limits
@@ -61,6 +64,7 @@ impl<E: Eval> SearchJob<E> {
             },
             search_start,
             kill_switch,
+            transposition_table,
             _start_depth: depth,
         };
 
@@ -228,6 +232,7 @@ struct SearchParams {
     stats: SearchStats,
     search_start: Instant,
     kill_switch: Arc<AtomicBool>,
+    transposition_table: Arc<TranspositionTable>,
     _start_depth: i8,
 }
 

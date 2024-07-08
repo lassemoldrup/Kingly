@@ -16,8 +16,8 @@ pub struct MoveGen {
 }
 
 impl MoveGen {
-    /// Initializes a new `MoveGen` instance by initializing the [`Tables`]. This
-    /// can therefore be an expensive operation.
+    /// Initializes a new `MoveGen` instance by initializing the [`Tables`].
+    /// This can therefore be an expensive operation.
     pub fn init() -> Self {
         Self::from_tables(Tables::get())
     }

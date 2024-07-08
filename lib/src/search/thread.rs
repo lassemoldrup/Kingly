@@ -8,7 +8,7 @@ use itertools::Itertools;
 
 use crate::types::Move;
 
-use super::{SearchJob, SearchResult};
+use super::{SearchJob, SearchResult, TranspositionTable};
 
 /// The sending side of a channel that sends search info.
 pub type InfoSender = Sender<SearchInfo>;
@@ -23,9 +23,28 @@ pub fn info_channel() -> (InfoSender, InfoReceiver) {
 const MAX_THREADS: usize = 6;
 
 /// A thread pool for running search jobs.
+///
+/// # Example
+/// ```
+/// use kingly_lib::search::{ThreadPool, SearchJob, info_channel};
+/// use kingly_lib::types::Position;
+///
+/// let mut thread_pool = ThreadPool::new();
+/// let start_pos = Position::new();
+/// let job = SearchJob::default_builder()
+///     .position(start_pos)
+///     .depth(4)
+///     .build();
+/// // Create a channel for receiving search info
+/// let (tx, rx) = info_channel();
+/// thread_pool.spawn(job, tx).expect("search is not running");
+/// let best_move = thread_pool.wait();
+/// assert!(best_move.is_some());
+/// ```
 pub struct ThreadPool {
     runner_thread: Option<std::thread::JoinHandle<Option<Move>>>,
     kill_switch: Arc<AtomicBool>,
+    transposition_table: Arc<TranspositionTable>,
 }
 
 impl ThreadPool {
@@ -34,21 +53,24 @@ impl ThreadPool {
         Self {
             runner_thread: None,
             kill_switch: Arc::new(AtomicBool::new(false)),
+            transposition_table: Arc::new(TranspositionTable::new()),
         }
     }
 
-    /// Try to spawn threads to run a search job. Returns `false` if a job is already running.
-    pub fn spawn(&mut self, job: SearchJob, info_tx: InfoSender) -> bool {
+    /// Try to spawn threads to run a search job. Returns an error if a search is
+    /// already running.
+    pub fn spawn(&mut self, job: SearchJob, info_tx: InfoSender) -> Result<(), SearchRunningError> {
         if self.runner_thread.is_some() {
-            return false;
+            return Err(SearchRunningError);
         }
         let runner = JobRunner {
             job,
             info_tx,
-            kill_switch: self.kill_switch.clone(),
+            kill_switch: Arc::clone(&self.kill_switch),
+            transposition_table: Arc::clone(&self.transposition_table),
         };
         self.runner_thread = Some(std::thread::spawn(move || runner.run()));
-        true
+        Ok(())
     }
 
     /// Stop the currently running job and return the best move found so far.
@@ -57,11 +79,29 @@ impl ThreadPool {
         self.wait()
     }
 
-    /// Wait for the currently running job to finish and return the best move found.
+    /// Wait for the currently running job to finish and return the best move
+    /// found.
     pub fn wait(&mut self) -> Option<Move> {
         self.runner_thread
             .take()
             .and_then(|h| h.join().expect("runner thread shouldn't panic"))
+    }
+
+    /// Sets the size of the transposition table in MB. This can only be done
+    /// when no search is running. Returns an error if a search is running.
+    pub fn set_hash_size(&mut self, size: usize) -> Result<(), SearchRunningError> {
+        let Some(transposition_table) = Arc::get_mut(&mut self.transposition_table) else {
+            return Err(SearchRunningError);
+        };
+        assert!(self.runner_thread.is_none());
+        *transposition_table = TranspositionTable::with_hash_size(size);
+        Ok(())
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -69,6 +109,7 @@ struct JobRunner {
     job: SearchJob,
     info_tx: InfoSender,
     kill_switch: Arc<AtomicBool>,
+    transposition_table: Arc<TranspositionTable>,
 }
 
 impl JobRunner {
@@ -114,13 +155,17 @@ impl JobRunner {
     }
 
     fn search_depth(&self, depth: i8, search_start: Instant) -> Option<SearchResult> {
-        self.job
-            .clone()
-            .search(depth, search_start, self.kill_switch.clone())
+        self.job.clone().search(
+            depth,
+            search_start,
+            Arc::clone(&self.kill_switch),
+            Arc::clone(&self.transposition_table),
+        )
     }
 }
 
-/// Information about an ongoing search. One of these is reated for each iteration of the search.
+/// Information about an ongoing search. One of these is reated for each
+/// iteration of the search.
 #[derive(Debug, Clone)]
 pub struct SearchInfo {
     /// The depth of the last completed iteration.
@@ -174,3 +219,8 @@ impl Display for SearchInfo {
         write!(f, " time {}", self.total_duration.as_millis())
     }
 }
+
+/// An error indicating that a search is already running.
+#[derive(Debug, thiserror::Error)]
+#[error("search is running")]
+pub struct SearchRunningError;

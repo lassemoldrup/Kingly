@@ -77,6 +77,22 @@ impl Value {
         }
         self
     }
+
+    /// Returns the inner `i16` representation of the value.
+    #[inline]
+    pub fn into_inner(self) -> i16 {
+        self.0
+    }
+
+    /// Creates a new `Value` from the inner `i16` representation.
+    ///
+    /// # Safety
+    /// THe value must not be `i16::MIN`.
+    #[inline]
+    pub unsafe fn from_inner(val: i16) -> Self {
+        debug_assert_ne!(val, i16::MIN);
+        Self(val)
+    }
 }
 
 impl Neg for Value {
@@ -94,13 +110,6 @@ impl Mul<i16> for Value {
     #[inline]
     fn mul(self, rhs: i16) -> Self::Output {
         Self(self.0.saturating_mul(rhs))
-    }
-}
-
-impl From<i16> for Value {
-    #[inline]
-    fn from(val: i16) -> Self {
-        Self(val)
     }
 }
 

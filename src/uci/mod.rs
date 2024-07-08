@@ -17,7 +17,6 @@ mod tests;
 pub struct Uci<W> {
     input_rx: Receiver<String>,
     write_handle: W,
-    thread_pool: ThreadPool,
     position: Position,
     debug_mode: bool,
 }
@@ -32,7 +31,6 @@ impl Uci<StdoutLock<'_>> {
         Self {
             input_rx,
             write_handle: io::stdout().lock(),
-            thread_pool: ThreadPool::new(),
             position: Position::new(),
             debug_mode: false,
         }
@@ -45,6 +43,7 @@ impl<W: Write> Uci<W> {
 
         // Initialize the tables
         Tables::get();
+        let mut thread_pool = ThreadPool::new();
 
         let (info_tx, info_rx) = info_channel();
 
@@ -52,7 +51,7 @@ impl<W: Write> Uci<W> {
             channel::select! {
                 recv(self.input_rx) -> line => {
                     let line = line.expect("sender should be alive");
-                    if let Err(err) = self.handle_command(&line, &info_tx) {
+                    if let Err(err) = self.handle_command(&line, &mut thread_pool, &info_tx) {
                         match err {
                             UciError::Io(err) => return Err(err),
                             _ => self.print_debug(err)?,
@@ -86,7 +85,12 @@ impl<W: Write> Uci<W> {
         }
     }
 
-    fn handle_command(&mut self, command: &str, info_tx: &InfoSender) -> Result<(), UciError> {
+    fn handle_command(
+        &mut self,
+        command: &str,
+        thread_pool: &mut ThreadPool,
+        info_tx: &InfoSender,
+    ) -> Result<(), UciError> {
         if command.trim().is_empty() {
             return Ok(());
         }
@@ -96,7 +100,13 @@ impl<W: Write> Uci<W> {
         match command {
             Command::Debug(value) => self.debug_mode = value,
             Command::IsReady => writeln!(self.write_handle, "readyok")?,
-            Command::SetOption(_) => {}
+            Command::SetOption(opt) => match opt {
+                UciOption::Hash(size) => {
+                    if thread_pool.set_hash_size(size).is_err() {
+                        self.print_debug("Cannot set hash size while search is running")?;
+                    }
+                }
+            },
             Command::UciNewGame => {
                 // TODO: what to do here?
             }
@@ -123,14 +133,16 @@ impl<W: Write> Uci<W> {
                     };
                 }
                 let job = builder.build();
-                if !self.thread_pool.spawn(job, info_tx.clone()) {
+                if thread_pool.spawn(job, info_tx.clone()).is_err() {
                     self.print_debug("Search already in progress")?;
                 }
             }
             Command::Stop => {
-                self.thread_pool.stop();
+                thread_pool.stop();
             }
-            Command::PonderHit => {}
+            Command::PonderHit => {
+                self.print_debug("Unsupported command: ponderhit")?;
+            }
             Command::Quit => process::exit(0),
         }
         Ok(())
