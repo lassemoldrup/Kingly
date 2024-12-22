@@ -27,7 +27,7 @@ const MAX_THREADS: usize = 6;
 /// # Example
 /// ```
 /// use kingly_lib::search::{ThreadPool, SearchJob, info_channel};
-/// use kingly_lib::types::Position;
+/// use kingly_lib::position::Position;
 ///
 /// let mut thread_pool = ThreadPool::new();
 /// let start_pos = Position::new();
@@ -35,16 +35,15 @@ const MAX_THREADS: usize = 6;
 ///     .position(start_pos)
 ///     .depth(4)
 ///     .build();
-/// // Create a channel for receiving search info
-/// let (tx, rx) = info_channel();
-/// thread_pool.spawn(job, tx).expect("search is not running");
+///
+/// let rx = thread_pool.spawn(job).expect("search is not running");
 /// let best_move = thread_pool.wait();
 /// assert!(best_move.is_some());
 /// ```
 pub struct ThreadPool {
     runner_thread: Option<std::thread::JoinHandle<Option<Move>>>,
     kill_switch: Arc<AtomicBool>,
-    transposition_table: Arc<TranspositionTable>,
+    t_table: Arc<TranspositionTable>,
 }
 
 impl ThreadPool {
@@ -53,13 +52,25 @@ impl ThreadPool {
         Self {
             runner_thread: None,
             kill_switch: Arc::new(AtomicBool::new(false)),
-            transposition_table: Arc::new(TranspositionTable::new()),
+            t_table: Arc::new(TranspositionTable::new()),
         }
     }
 
-    /// Try to spawn threads to run a search job. Returns an error if a search is
-    /// already running.
-    pub fn spawn(&mut self, job: SearchJob, info_tx: InfoSender) -> Result<(), SearchRunningError> {
+    /// Try to spawn threads to run a search job. Returns an error if a search
+    /// is already running.
+    pub fn spawn(&mut self, job: SearchJob) -> Result<InfoReceiver, SearchRunningError> {
+        let (tx, rx) = info_channel();
+        self.spawn_with_channel(job, tx)?;
+        Ok(rx)
+    }
+
+    /// Try to spawn threads to run a search job using a pre-constructed
+    /// channel. Returns an error if a search is already running.
+    pub fn spawn_with_channel(
+        &mut self,
+        job: SearchJob,
+        info_tx: InfoSender,
+    ) -> Result<(), SearchRunningError> {
         if self.runner_thread.is_some() {
             return Err(SearchRunningError);
         }
@@ -67,7 +78,7 @@ impl ThreadPool {
             job,
             info_tx,
             kill_switch: Arc::clone(&self.kill_switch),
-            transposition_table: Arc::clone(&self.transposition_table),
+            t_table: Arc::clone(&self.t_table),
         };
         self.runner_thread = Some(std::thread::spawn(move || runner.run()));
         Ok(())
@@ -90,11 +101,11 @@ impl ThreadPool {
     /// Sets the size of the transposition table in MB. This can only be done
     /// when no search is running. Returns an error if a search is running.
     pub fn set_hash_size(&mut self, size: usize) -> Result<(), SearchRunningError> {
-        let Some(transposition_table) = Arc::get_mut(&mut self.transposition_table) else {
+        let Some(t_table) = Arc::get_mut(&mut self.t_table) else {
             return Err(SearchRunningError);
         };
         assert!(self.runner_thread.is_none());
-        *transposition_table = TranspositionTable::with_hash_size(size);
+        *t_table = TranspositionTable::with_hash_size(size);
         Ok(())
     }
 }
@@ -109,7 +120,7 @@ struct JobRunner {
     job: SearchJob,
     info_tx: InfoSender,
     kill_switch: Arc<AtomicBool>,
-    transposition_table: Arc<TranspositionTable>,
+    t_table: Arc<TranspositionTable>,
 }
 
 impl JobRunner {
@@ -144,11 +155,16 @@ impl JobRunner {
             };
 
             best_move = merged_result.pv.first().copied();
-            let info =
-                SearchInfo::from_result(merged_result, search_start, iteration_start, depth, 0);
+            let hash_full = ((self.t_table.len() * 1000) / self.t_table.capacity()) as u32;
+            let info = SearchInfo::from_result(
+                merged_result,
+                search_start,
+                iteration_start,
+                depth,
+                hash_full,
+            );
             if self.info_tx.send(info).is_err() {
-                log::info!("Info channel closed, stopping search.");
-                break;
+                log::warn!("Info channel closed.");
             }
         }
         best_move
@@ -159,12 +175,12 @@ impl JobRunner {
             depth,
             search_start,
             Arc::clone(&self.kill_switch),
-            Arc::clone(&self.transposition_table),
+            Arc::clone(&self.t_table),
         )
     }
 }
 
-/// Information about an ongoing search. One of these is reated for each
+/// Information about an ongoing search. One of these is created for each
 /// iteration of the search.
 #[derive(Debug, Clone)]
 pub struct SearchInfo {

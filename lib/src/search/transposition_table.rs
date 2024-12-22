@@ -91,7 +91,7 @@ impl TranspositionTable {
         let masked_key = key_cell.load(Ordering::Relaxed);
         let packed_entry = entry_cell.load(Ordering::Relaxed);
 
-        // Check that the key mateches the entry
+        // Check that the key matches the entry
         if masked_key ^ packed_entry == key {
             Entry::from_u64(packed_entry)
         } else {
@@ -181,7 +181,8 @@ impl Entry {
     }
 }
 
-/// An enum indicating whether a score is exact, a lower bound, or an upper bound.
+/// An enum indicating whether a score is exact, a lower bound, or an upper
+/// bound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Bound {

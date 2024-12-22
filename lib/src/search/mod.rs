@@ -1,6 +1,6 @@
 //! Types and functions for searching for the best move in a position.
 //!
-//! The main way to start a search is create a [`ThreadPool`] and give it a
+//! The main way to start a search is to create a [`ThreadPool`] and give it a
 //! [`SearchJob`] to run.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
+use transposition_table::Bound;
 
 use crate::collections::MoveList;
 use crate::eval::{Eval, MaterialEval};
@@ -50,7 +51,7 @@ impl<E: Eval> SearchJob<E> {
         depth: i8,
         search_start: Instant,
         kill_switch: Arc<AtomicBool>,
-        transposition_table: Arc<TranspositionTable>,
+        t_table: Arc<TranspositionTable>,
     ) -> Option<SearchResult> {
         let moves = self
             .limits
@@ -64,15 +65,16 @@ impl<E: Eval> SearchJob<E> {
             },
             search_start,
             kill_switch,
-            transposition_table,
+            t_table,
             _start_depth: depth,
         };
 
         let score = self.search_moves(&moves, depth, value::NEG_INF, value::INF, &mut params)?;
+        let pv = self.primary_variation(depth, &params.t_table);
 
         Some(SearchResult {
             score,
-            pv: vec![],
+            pv,
             stats: params.stats,
         })
     }
@@ -80,11 +82,11 @@ impl<E: Eval> SearchJob<E> {
     fn alpha_beta(
         &mut self,
         depth: i8,
-        alpha: Value,
-        beta: Value,
+        mut alpha: Value,
+        mut beta: Value,
         params: &mut SearchParams,
     ) -> Option<Value> {
-        let (moves, check) = self.gen_moves_and_check();
+        let (mut moves, check) = self.gen_moves_and_check();
 
         if moves.is_empty() {
             // Checkmate
@@ -99,6 +101,27 @@ impl<E: Eval> SearchJob<E> {
         // Draw by threefold repetition or fifty-move rule
         if self.position.is_draw() {
             return Some(Value::centipawn(0));
+        }
+
+        if let Some(entry) = params.t_table.get(&self.position) {
+            if entry.depth >= depth {
+                match entry.bound {
+                    Bound::Exact => return Some(entry.score),
+                    Bound::Lower => alpha = alpha.max(entry.score),
+                    Bound::Upper => beta = beta.min(entry.score),
+                }
+
+                if alpha >= beta {
+                    return Some(entry.score);
+                }
+            }
+
+            if let Some(i) = moves.iter().position(|&mv| mv == entry.best_move) {
+                // TODO: MVV-LVA
+                moves.swap(0, i);
+            } else {
+                log::warn!("ttable move not found in move list");
+            }
         }
 
         if !check && depth <= 0 {
@@ -117,7 +140,7 @@ impl<E: Eval> SearchJob<E> {
         beta: Value,
         params: &mut SearchParams,
     ) -> Option<Value> {
-        // let mut best_move = *moves.first()?;
+        let mut best_move = *moves.first()?;
         let mut best_score = value::NEG_INF;
         let mut low = alpha;
 
@@ -133,15 +156,25 @@ impl<E: Eval> SearchJob<E> {
             let score = -res?.inc_mate();
 
             if score >= beta {
+                let entry = Entry::new(score, mv, Bound::Lower, depth);
+                params.t_table.insert(&self.position, entry);
                 return Some(score);
             }
 
             if score > best_score {
-                // best_move = mv;
+                best_move = mv;
                 best_score = score;
                 low = low.max(score);
             }
         }
+
+        let bound = if best_score <= alpha {
+            Bound::Upper
+        } else {
+            Bound::Exact
+        };
+        let entry = Entry::new(best_score, best_move, bound, depth);
+        params.t_table.insert(&self.position, entry);
 
         Some(best_score)
     }
@@ -165,6 +198,37 @@ impl<E: Eval> SearchJob<E> {
 
     fn static_eval(&self) -> Value {
         self.eval.eval(&self.position)
+    }
+
+    fn primary_variation(&mut self, depth: i8, t_table: &TranspositionTable) -> Vec<Move> {
+        let mut primary_variation = vec![];
+
+        for _ in 0..depth {
+            let entry = match t_table.get(&self.position) {
+                Some(entry) => entry,
+                None => break,
+            };
+
+            // Sanity checking in case of hash collision
+            let moves = self.move_gen.gen_all_moves(&self.position);
+            if !moves.contains(entry.best_move) {
+                log::warn!(
+                    "hash collision detected, move: {}, position:\n{}",
+                    entry.best_move,
+                    self.position
+                );
+                break;
+            }
+
+            primary_variation.push(entry.best_move);
+            self.position.make_move(entry.best_move);
+        }
+
+        for _ in &primary_variation {
+            self.position.unmake_move();
+        }
+
+        primary_variation
     }
 }
 
@@ -232,7 +296,7 @@ struct SearchParams {
     stats: SearchStats,
     search_start: Instant,
     kill_switch: Arc<AtomicBool>,
-    transposition_table: Arc<TranspositionTable>,
+    t_table: Arc<TranspositionTable>,
     _start_depth: i8,
 }
 

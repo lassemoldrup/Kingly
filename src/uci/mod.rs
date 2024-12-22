@@ -133,7 +133,10 @@ impl<W: Write> Uci<W> {
                     };
                 }
                 let job = builder.build();
-                if thread_pool.spawn(job, info_tx.clone()).is_err() {
+                if thread_pool
+                    .spawn_with_channel(job, info_tx.clone())
+                    .is_err()
+                {
                     self.print_debug("Search already in progress")?;
                 }
             }

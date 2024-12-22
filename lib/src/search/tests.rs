@@ -12,21 +12,21 @@ use super::{SearchJob, SearchResult, TranspositionTable};
 
 fn search(position: Position, depth: i8) -> SearchResult {
     let kill_switch = Arc::new(AtomicBool::new(false));
-    let transposition_table = Arc::new(TranspositionTable::with_hash_size(1));
+    let t_table = Arc::new(TranspositionTable::with_hash_size(1));
     SearchJob::default_builder()
         .position(position)
         .build()
-        .search(depth, Instant::now(), kill_switch, transposition_table)
+        .search(depth, Instant::now(), kill_switch, t_table)
         .unwrap()
 }
 
 fn search_material(position: Position, depth: i8) -> SearchResult {
     let kill_switch = Arc::new(AtomicBool::new(false));
-    let transposition_table = Arc::new(TranspositionTable::with_hash_size(1));
+    let t_table = Arc::new(TranspositionTable::with_hash_size(1));
     SearchJob::builder(MaterialEval)
         .position(position)
         .build()
-        .search(depth, Instant::now(), kill_switch, transposition_table)
+        .search(depth, Instant::now(), kill_switch, t_table)
         .unwrap()
 }
 
@@ -37,7 +37,7 @@ fn _search_threaded(position: Position, depth: i8) -> SearchResult {
         .depth(depth)
         .build();
     let (tx, rx) = info_channel();
-    thread_pool.spawn(job, tx).unwrap();
+    thread_pool.spawn_with_channel(job, tx).unwrap();
     let best = thread_pool.wait().unwrap();
     let info = rx.iter().last().unwrap();
     assert_eq!(info.result.pv[0], best);
