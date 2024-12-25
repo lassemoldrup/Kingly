@@ -46,9 +46,9 @@ fn main() -> Result<(), Error> {
             let start = Instant::now();
             let res = move_gen.perft(position, depth);
             let elapsed = start.elapsed();
-            println!("Nodes:\t{res}");
+            println!("Nodes:\t\t{res}");
             println!("Elapsed:\t{} ms", elapsed.as_millis());
-            println!("NPS:\t{} kn/s", res / elapsed.as_millis() as u64);
+            println!("NPS:\t\t{} kn/s", res / elapsed.as_millis() as u64);
         }
         Some(Command::Divide { fen, depth }) => {
             if depth == 0 {
@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
             let mut thread_pool = ThreadPool::new();
             let job = SearchJob::default_builder()
                 .position(Position::new())
-                .depth(6)
+                .depth(7)
                 .build();
             thread_pool
                 .set_num_threads(1)
@@ -86,6 +86,7 @@ fn main() -> Result<(), Error> {
                     nodes = result.stats.nodes;
                 }
             }
+            thread_pool.wait();
             println!("{nodes} nodes {seach_nps} nps");
         }
         None => Uci::with_standard_io().repl()?,

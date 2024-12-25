@@ -66,7 +66,7 @@ impl<E: Eval> SearchJob<E> {
             search_start,
             kill_switch,
             t_table,
-            _start_depth: depth,
+            start_depth: depth,
         };
 
         let score = self.search_moves(&moves, depth, value::NEG_INF, value::INF, &mut params)?;
@@ -125,7 +125,7 @@ impl<E: Eval> SearchJob<E> {
         }
 
         if !check && depth <= 0 {
-            return Some(self.static_eval());
+            return self.quiesce(alpha, beta, params.start_depth, params);
         }
 
         self.search_moves(&moves, depth, alpha, beta, params)
@@ -190,6 +190,54 @@ impl<E: Eval> SearchJob<E> {
                 .limits
                 .time
                 .is_some_and(|t| params.search_start.elapsed() >= t)
+    }
+
+    fn quiesce(
+        &mut self,
+        mut alpha: Value,
+        beta: Value,
+        sel_depth: i8,
+        params: &mut SearchParams,
+    ) -> Option<Value> {
+        params.stats.sel_depth = sel_depth.max(params.stats.sel_depth);
+
+        // We assume that we can do at least as well as the static
+        // eval of the current position, i.e. we don't consider zugzwang
+        let static_eval = self.static_eval();
+        if static_eval >= beta {
+            return Some(static_eval);
+        } else if static_eval > alpha {
+            alpha = static_eval;
+        }
+
+        let mut best_score = static_eval;
+
+        let moves = self.move_gen.gen_captures(&self.position);
+        // self.reorder_moves(&mut moves, None);
+        for mv in moves {
+            if self.should_stop(params) {
+                return None;
+            }
+
+            self.position.make_move(mv);
+            params.stats.nodes += 1;
+            let res = self.quiesce(-beta.dec_mate(), -alpha.dec_mate(), sel_depth + 1, params);
+            self.position.unmake_move();
+            let score = -res?.inc_mate();
+
+            if score >= beta {
+                return Some(score);
+            }
+
+            if score > best_score {
+                best_score = score;
+                if score > alpha {
+                    alpha = score;
+                }
+            }
+        }
+
+        Some(best_score)
     }
 
     fn gen_moves_and_check(&self) -> (MoveList, bool) {
@@ -297,7 +345,7 @@ struct SearchParams {
     search_start: Instant,
     kill_switch: Arc<AtomicBool>,
     t_table: Arc<TranspositionTable>,
-    _start_depth: i8,
+    start_depth: i8,
 }
 
 /// A builder for a [`SearchJob`].
