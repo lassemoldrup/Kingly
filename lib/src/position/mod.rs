@@ -48,6 +48,11 @@ impl Position {
         Ok(())
     }
 
+    /// Clear the repetition history of the position.
+    pub fn clear_repetitions(&mut self) {
+        self.repetitions.clear();
+    }
+
     /// Makes a move in the position.
     ///
     /// # Panics

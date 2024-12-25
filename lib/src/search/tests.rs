@@ -5,6 +5,7 @@ use std::time::Instant;
 use crate::eval::MaterialEval;
 use crate::mv;
 use crate::position::Position;
+use crate::search::thread::SearchInfo;
 use crate::search::ThreadPool;
 use crate::types::Value;
 
@@ -37,10 +38,12 @@ fn search_threaded(position: Position, depth: i8) -> SearchResult {
         .depth(depth)
         .build();
     let rx = thread_pool.spawn(job).unwrap();
-    let best = thread_pool.wait().unwrap();
-    let info = rx.iter().last().unwrap();
-    assert_eq!(info.result.pv[0], best);
-    info.result
+    let SearchInfo::Finished(result) = rx.iter().last().unwrap() else {
+        panic!("Last search info was not Finished");
+    };
+    let result = result.unwrap();
+    assert_eq!(result.pv[0], thread_pool.wait().unwrap());
+    result
 }
 
 #[test]

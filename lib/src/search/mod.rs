@@ -17,7 +17,7 @@ use crate::MoveGen;
 use crate::{types::Move, Position};
 
 mod thread;
-pub use thread::{info_channel, InfoReceiver, InfoSender, ThreadPool};
+pub use thread::{info_channel, InfoReceiver, InfoSender, SearchInfo, ThreadPool};
 #[cfg(test)]
 mod tests;
 mod transposition_table;

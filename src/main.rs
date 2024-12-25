@@ -3,7 +3,8 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 use kingly_lib::position::ParseFenError;
-use kingly_lib::MoveGen;
+use kingly_lib::search::{SearchInfo, SearchJob, ThreadPool};
+use kingly_lib::{MoveGen, Position};
 use uci::Uci;
 
 mod uci;
@@ -20,6 +21,8 @@ enum Command {
     Perft { fen: String, depth: i8 },
     #[command(arg_required_else_help = true)]
     Divide { fen: String, depth: i8 },
+    /// Required for OpenBench - tests the search performance of the system
+    Bench,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -33,6 +36,8 @@ enum Error {
 }
 
 fn main() -> Result<(), Error> {
+    pretty_env_logger::init();
+
     let app = App::parse();
     match app.command {
         Some(Command::Perft { fen, depth }) => {
@@ -62,6 +67,26 @@ fn main() -> Result<(), Error> {
             }
             println!("Moves: {}", moves.len());
             println!("Total: {total}");
+        }
+        Some(Command::Bench) => {
+            let mut thread_pool = ThreadPool::new();
+            let job = SearchJob::default_builder()
+                .position(Position::new())
+                .depth(6)
+                .build();
+            thread_pool
+                .set_num_threads(1)
+                .expect("search is not running");
+            let rx = thread_pool.spawn(job).expect("search is not running");
+            let mut seach_nps = 0;
+            let mut nodes = 0;
+            while let Ok(info) = rx.recv() {
+                if let SearchInfo::NewDepth { result, nps, .. } = info {
+                    seach_nps = nps;
+                    nodes = result.stats.nodes;
+                }
+            }
+            println!("{nodes} nodes {seach_nps} nps");
         }
         None => Uci::with_standard_io().repl()?,
     }

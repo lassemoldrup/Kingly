@@ -6,3 +6,6 @@ lib/Cargo.lock
 
 **/*.rs.bk
 old
+
+OpenBench/*
+!OpenBench/Makefile

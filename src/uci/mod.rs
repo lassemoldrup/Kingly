@@ -6,7 +6,7 @@ use std::{process, thread};
 
 use crossbeam::channel::{self, Receiver, Sender};
 use kingly_lib::position::{ParseFenError, STARTING_FEN};
-use kingly_lib::search::{info_channel, InfoSender, SearchJob, ThreadPool};
+use kingly_lib::search::{info_channel, InfoSender, SearchInfo, SearchJob, ThreadPool};
 use kingly_lib::tables::Tables;
 use kingly_lib::types::{IllegalMoveError, PseudoMove};
 use kingly_lib::{MoveGen, Position};
@@ -50,7 +50,10 @@ impl<W: Write> Uci<W> {
         loop {
             channel::select! {
                 recv(self.input_rx) -> line => {
-                    let line = line.expect("sender should be alive");
+                    let Ok(line) = line else {
+                        // IO channel is closed, exit the loop
+                        return Ok(());
+                    };
                     if let Err(err) = self.handle_command(&line, &mut thread_pool, &info_tx) {
                         match err {
                             UciError::Io(err) => return Err(err),
@@ -60,7 +63,7 @@ impl<W: Write> Uci<W> {
                 }
                 recv(info_rx) -> info => {
                     let info = info.expect("sender is alive");
-                    writeln!(self.write_handle, "info {}", info)?;
+                    self.print_info(info)?;
                 }
             }
         }
@@ -74,15 +77,51 @@ impl<W: Write> Uci<W> {
             self.write_handle,
             "option name Hash type spin default 16 min 1 max 1048576"
         )?;
-        writeln!(self.write_handle, "uciok")
+        writeln!(
+            self.write_handle,
+            "option name Threads type spin default 6 min 1 max 64"
+        )?;
+        writeln!(self.write_handle, "uciok")?;
+        self.write_handle.flush()
     }
 
     fn print_debug(&mut self, message: impl Display) -> io::Result<()> {
         if self.debug_mode {
-            writeln!(self.write_handle, "info Debug: {message}")
+            writeln!(self.write_handle, "info string Debug: {message}")?;
+            self.write_handle.flush()
         } else {
             Ok(())
         }
+    }
+
+    fn print_info(&mut self, info: SearchInfo) -> io::Result<()> {
+        match info {
+            SearchInfo::NewDepth {
+                depth,
+                result,
+                nps,
+                total_duration,
+                hash_full,
+            } => {
+                write!(
+                    self.write_handle,
+                    "info depth {} seldepth {} score {} nodes {} nps {} hashfull {} pv",
+                    depth, result.stats.sel_depth, result.score, result.stats.nodes, nps, hash_full,
+                )?;
+                for mv in &result.pv {
+                    write!(self.write_handle, " {}", mv)?;
+                }
+                writeln!(self.write_handle, " time {}", total_duration.as_millis())?;
+            }
+            SearchInfo::Finished(result) => {
+                if let Some(result) = result {
+                    writeln!(self.write_handle, "bestmove {}", result.pv[0])?;
+                } else {
+                    self.print_debug("Search did not return a result")?;
+                }
+            }
+        }
+        self.write_handle.flush()
     }
 
     fn handle_command(
@@ -99,21 +138,31 @@ impl<W: Write> Uci<W> {
         self.print_debug(format!("Received command: {command}"))?;
         match command {
             Command::Debug(value) => self.debug_mode = value,
-            Command::IsReady => writeln!(self.write_handle, "readyok")?,
+            Command::IsReady => {
+                writeln!(self.write_handle, "readyok")?;
+                self.write_handle.flush()?;
+            }
             Command::SetOption(opt) => match opt {
                 UciOption::Hash(size) => {
                     if thread_pool.set_hash_size(size).is_err() {
                         self.print_debug("Cannot set hash size while search is running")?;
                     }
                 }
+                UciOption::Threads(threads) => {
+                    if thread_pool.set_num_threads(threads).is_err() {
+                        self.print_debug("Cannot set threads while search is running")?;
+                    }
+                }
             },
             Command::UciNewGame => {
                 // TODO: what to do here?
+                self.position.clear_repetitions();
             }
             Command::Position { fen, moves } => {
                 self.position.set_fen(&fen)?;
-                let legal = MoveGen::init().gen_all_moves(&self.position);
+                let move_gen = MoveGen::init();
                 for mv in moves {
+                    let legal = move_gen.gen_all_moves(&self.position);
                     self.position.make_move(mv.into_move(&legal)?);
                 }
             }
@@ -187,12 +236,14 @@ enum Command {
 #[derive(Debug, PartialEq)]
 enum UciOption {
     Hash(usize),
+    Threads(usize),
 }
 
 impl Display for UciOption {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             UciOption::Hash(value) => write!(f, "Hash {value}"),
+            UciOption::Threads(value) => write!(f, "Threads {value}"),
         }
     }
 }
@@ -233,6 +284,10 @@ impl FromStr for Command {
                     Some("Hash") => {
                         let value = parse_next_option(&mut opts)?;
                         Ok(Self::SetOption(UciOption::Hash(value)))
+                    }
+                    Some("Threads") => {
+                        let value = parse_next_option(&mut opts)?;
+                        Ok(Self::SetOption(UciOption::Threads(value)))
                     }
                     Some(name) => Err(ParseCommandError::UsupportedOption(name.into())),
                     None => Err(ParseCommandError::MissingOption),

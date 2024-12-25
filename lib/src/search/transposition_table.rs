@@ -99,15 +99,19 @@ impl TranspositionTable {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.data
-            .fill_with(|| (AtomicU64::new(0), AtomicU64::new(0)));
-        self.count = AtomicUsize::new(0);
+    pub fn clear(&self) {
+        for (key, entry) in &self.data {
+            key.store(0, Ordering::Relaxed);
+            entry.store(0, Ordering::Relaxed);
+        }
+        // Concurrency: Release/acquire ensures that no other thread can observe
+        // the count being set to 0 before the data is cleared.
+        self.count.store(0, Ordering::Release);
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.count.load(Ordering::Relaxed)
+        self.count.load(Ordering::Acquire)
     }
 
     #[inline]
