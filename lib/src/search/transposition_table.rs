@@ -74,6 +74,7 @@ impl TranspositionTable {
                     .compare_exchange(0, new_entry, Ordering::Relaxed, Ordering::Relaxed)
                     .is_ok()
                 {
+                    // TODO: This kills performance, estimate hashfull instead
                     self.count.fetch_add(1, Ordering::Relaxed);
                 }
             }

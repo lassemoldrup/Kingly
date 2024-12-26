@@ -111,7 +111,7 @@ impl Engines {
                     Color::White => Ok(GameResult::OldWin),
                     Color::Black => Ok(GameResult::NewWin),
                 };
-            } else if legal_moves.is_empty() || position.is_draw() {
+            } else if legal_moves.is_empty() || position.is_rule_draw() {
                 return Ok(GameResult::Draw);
             }
 

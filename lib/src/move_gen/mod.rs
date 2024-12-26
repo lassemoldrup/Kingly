@@ -19,7 +19,7 @@ impl MoveGen {
     /// Initializes a new `MoveGen` instance by initializing the [`Tables`].
     /// This can therefore be an expensive operation.
     pub fn init() -> Self {
-        Self::from_tables(Tables::get())
+        Self::from_tables(Tables::get_or_init())
     }
 
     /// Creates a new `MoveGen` instance from the given [`Tables`].

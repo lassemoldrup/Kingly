@@ -6,6 +6,7 @@ use crossbeam::channel::{self, Receiver, Sender};
 use itertools::Itertools;
 
 use crate::types::Move;
+use crate::MoveGen;
 
 use super::{SearchJob, SearchResult, TranspositionTable};
 
@@ -40,7 +41,7 @@ const DEFAULT_THREADS: usize = 6;
 /// assert!(best_move.is_some());
 /// ```
 pub struct ThreadPool {
-    runner_thread: Option<std::thread::JoinHandle<Option<Move>>>,
+    runner_thread: Option<std::thread::JoinHandle<Option<SearchResult>>>,
     kill_switch: Arc<AtomicBool>,
     t_table: Arc<TranspositionTable>,
     num_threads: usize,
@@ -75,6 +76,7 @@ impl ThreadPool {
         if self.is_running() {
             return Err(SearchRunningError);
         }
+
         let runner = JobRunner {
             job,
             info_tx,
@@ -87,7 +89,7 @@ impl ThreadPool {
     }
 
     /// Stop the currently running job and return the best move found so far.
-    pub fn stop(&mut self) -> Option<Move> {
+    pub fn stop(&mut self) -> Option<SearchResult> {
         self.kill_switch.store(true, Ordering::Relaxed);
         let res = self.wait();
         self.kill_switch.store(false, Ordering::Relaxed);
@@ -96,7 +98,7 @@ impl ThreadPool {
 
     /// Wait for the currently running job to finish and return the best move
     /// found.
-    pub fn wait(&mut self) -> Option<Move> {
+    pub fn wait(&mut self) -> Option<SearchResult> {
         self.runner_thread
             .take()
             .and_then(|h| h.join().expect("runner thread shouldn't panic"))
@@ -148,7 +150,7 @@ struct JobRunner {
 }
 
 impl JobRunner {
-    fn run(self) -> Option<Move> {
+    fn run(self) -> Option<SearchResult> {
         let search_start = Instant::now();
 
         log::info!("Starting search with {:?}", self.job.limits);
@@ -192,15 +194,18 @@ impl JobRunner {
         }
 
         log::info!("Search finished, clearing t-table.");
-        let best_move = last_result.as_ref().map(|r| r.pv[0]);
-        let info = SearchInfo::Finished(last_result);
+        let best_move = last_result.as_ref().map(|r| r.pv[0]).unwrap_or_else(|| {
+            log::warn!("No best move found, returning first move.");
+            MoveGen::init().gen_all_moves(&self.job.position)[0]
+        });
+        let info = SearchInfo::Finished(best_move);
         if self.info_tx.send(info).is_err() {
             log::warn!("Info channel closed.");
         }
 
         self.t_table.clear();
 
-        best_move
+        last_result
     }
 
     fn search_depth(&self, depth: i8, search_start: Instant) -> Option<SearchResult> {
@@ -229,9 +234,8 @@ pub enum SearchInfo {
         /// The fullness of the hash table as a per mille value.
         hash_full: u32,
     },
-    /// The final search result. None if search was stopped before a result was
-    /// found.
-    Finished(Option<SearchResult>),
+    /// The best move found by the search.
+    Finished(Move),
 }
 
 impl SearchInfo {

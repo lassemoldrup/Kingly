@@ -338,7 +338,7 @@ impl Position {
     /// Returns whether the position is a draw by threefold repetition or the
     /// fifty-move rule.
     #[inline]
-    pub fn is_draw(&self) -> bool {
+    pub fn is_rule_draw(&self) -> bool {
         debug_assert!(self.repetitions.contains_key(self.zobrist));
         let count = *self.repetitions.get(self.zobrist).unwrap_or(&0);
         let threefold = count >= 3;

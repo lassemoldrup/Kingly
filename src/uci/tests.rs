@@ -67,7 +67,7 @@ fn test_parse_ucinewgame() {
 fn test_parse_position_startpos() {
     let input = "position startpos";
     let expected = Command::Position {
-        fen: String::new(),
+        fen: STARTING_FEN.into(),
         moves: vec![],
     };
     assert_eq!(input.parse::<Command>(), Ok(expected));

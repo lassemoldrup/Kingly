@@ -69,7 +69,7 @@ mod tests {
     fn all_zobrist_keys_different() {
         use Square::*;
 
-        let tables = Tables::get();
+        let tables = Tables::get_or_init();
 
         let mut z_keys = Vec::with_capacity(781);
 

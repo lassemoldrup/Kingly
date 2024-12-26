@@ -38,11 +38,11 @@ fn search_threaded(position: Position, depth: i8) -> SearchResult {
         .depth(depth)
         .build();
     let rx = thread_pool.spawn(job).unwrap();
-    let SearchInfo::Finished(result) = rx.iter().last().unwrap() else {
+    let SearchInfo::Finished(best_mv) = rx.iter().last().unwrap() else {
         panic!("Last search info was not Finished");
     };
-    let result = result.unwrap();
-    assert_eq!(result.pv[0], thread_pool.wait().unwrap());
+    let result = thread_pool.wait().unwrap();
+    assert_eq!(result.pv[0], best_mv);
     result
 }
 

@@ -15,7 +15,10 @@ use crate::types::{Bitboard, BoardVector, Color, File, Piece, PieceKind, Rank, S
 use crate::{bb, Position};
 
 lazy_static! {
-    static ref TABLES: Tables = Tables::init();
+    static ref TABLES: Tables = {
+        log::info!("Initializing tables...");
+        Tables::new()
+    };
 }
 
 pub struct Tables {
@@ -37,11 +40,15 @@ pub struct Tables {
 }
 
 impl Tables {
-    pub fn get() -> &'static Self {
+    pub fn get_or_init() -> &'static Self {
         &TABLES
     }
 
-    fn init() -> Self {
+    pub fn init() {
+        Self::get_or_init();
+    }
+
+    fn new() -> Self {
         let bishop_masks = Self::init_bishop_masks();
         let rook_masks = Self::init_rook_masks();
         Self {
@@ -447,7 +454,7 @@ mod tests {
 
     #[test]
     fn bishop_masks_initialized_correctly() {
-        let tables = Tables::get();
+        let tables = Tables::get_or_init();
 
         use Square::*;
         assert_eq!(tables.bishop_masks[A8], bb!(B7, C6, D5, E4, F3, G2));
@@ -460,7 +467,7 @@ mod tests {
 
     #[test]
     fn rook_masks_initialized_correctly() {
-        let tables = Tables::get();
+        let tables = Tables::get_or_init();
 
         use Square::*;
         assert_eq!(
@@ -479,7 +486,7 @@ mod tests {
 
     #[test]
     fn line_through_initialized_correctly() {
-        let tables = Tables::get();
+        let tables = Tables::get_or_init();
 
         use Square::*;
         assert_eq!(
@@ -500,7 +507,7 @@ mod tests {
 
     #[test]
     fn ray_to_initialized_correctly() {
-        let tables = Tables::get();
+        let tables = Tables::get_or_init();
 
         use Square::*;
         assert_eq!(tables.ray_to[B1][B5], bb!(B2, B3, B4, B5));

@@ -43,7 +43,7 @@ fn test_perft() {
 }
 
 fn get_and_init_state(position: &Position) -> MoveGenState {
-    let mut state = MoveGenState::new(position, Tables::get());
+    let mut state = MoveGenState::new(position, Tables::get_or_init());
     state.set_pin_rays();
     state.set_danger_sqs();
     state
@@ -328,7 +328,7 @@ fn correct_queen_moves() {
 fn checkers_correct_with_pawn() {
     let fen = "rnbqkbnr/ppp1pp1p/6p1/8/3pP3/4K3/PPPP1PPP/RNBQ1BNR w kq - 0 4";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let state = MoveGenState::new(&position, Tables::get_or_init());
 
     assert_eq!(state.checkers(), bb!(D4));
 }
@@ -337,7 +337,7 @@ fn checkers_correct_with_pawn() {
 fn checkers_correct_with_knight() {
     let fen = "rnbq1bnr/pppppkpp/5p2/6N1/8/7P/PPPPPPP1/RNBQKB1R b KQ - 2 3";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let state = MoveGenState::new(&position, Tables::get_or_init());
 
     assert_eq!(state.checkers(), bb!(G5));
 }
@@ -346,7 +346,7 @@ fn checkers_correct_with_knight() {
 fn checkers_correct_with_bishop() {
     let fen = "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/6P1/PPP1PP1P/RNBQKBNR w KQkq - 1 3";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let state = MoveGenState::new(&position, Tables::get_or_init());
 
     assert_eq!(state.checkers(), bb!(B4));
 }
@@ -355,7 +355,7 @@ fn checkers_correct_with_bishop() {
 fn checkers_correct_with_rook() {
     let fen = "rnbqkbnr/pppp1pp1/7p/8/5p1P/4R3/PPPPP1P1/RNBQKBN1 b Qkq - 1 4";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let state = MoveGenState::new(&position, Tables::get_or_init());
 
     assert_eq!(state.checkers(), bb!(E3));
 }
@@ -364,7 +364,7 @@ fn checkers_correct_with_rook() {
 fn checkers_correct_with_queen() {
     let fen = "rnb1kbnr/pp1ppppp/8/q1p5/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 1 3";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let state = MoveGenState::new(&position, Tables::get_or_init());
 
     assert_eq!(state.checkers(), bb!(A5));
 }
@@ -373,7 +373,7 @@ fn checkers_correct_with_queen() {
 fn checkers_correct_with_double_check() {
     let fen = "rnbqkbnr/2p2Ppp/pp6/8/8/8/PPPPQPPP/RNB1KBNR b KQkq - 0 5";
     let position = Position::from_fen(fen).unwrap();
-    let state = MoveGenState::new(&position, Tables::get());
+    let state = MoveGenState::new(&position, Tables::get_or_init());
 
     assert_eq!(state.checkers(), bb!(E2, F7));
 }

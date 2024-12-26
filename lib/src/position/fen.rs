@@ -137,7 +137,7 @@ impl Position {
             .map_err(ParseFenError::InvalidMoveNumber)?;
 
         // Zobrist hash
-        let tables = Tables::get();
+        let tables = Tables::get_or_init();
         let mut zobrist = 0;
 
         for pce in Piece::iter() {

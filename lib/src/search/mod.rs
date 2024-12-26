@@ -86,6 +86,10 @@ impl<E: Eval> SearchJob<E> {
         mut beta: Value,
         params: &mut SearchParams,
     ) -> Option<Value> {
+        if self.should_stop(params) {
+            return None;
+        }
+
         let (mut moves, check) = self.gen_moves_and_check();
 
         if moves.is_empty() {
@@ -99,7 +103,7 @@ impl<E: Eval> SearchJob<E> {
         }
 
         // Draw by threefold repetition or fifty-move rule
-        if self.position.is_draw() {
+        if self.position.is_rule_draw() {
             return Some(Value::centipawn(0));
         }
 
@@ -145,10 +149,6 @@ impl<E: Eval> SearchJob<E> {
         let mut low = alpha;
 
         for &mv in moves {
-            if self.should_stop(params) {
-                return None;
-            }
-
             self.position.make_move(mv);
             params.stats.nodes += 1;
             let res = self.alpha_beta(depth - 1, -beta.dec_mate(), -low.dec_mate(), params);
@@ -199,6 +199,12 @@ impl<E: Eval> SearchJob<E> {
         sel_depth: i8,
         params: &mut SearchParams,
     ) -> Option<Value> {
+        if self.should_stop(params) {
+            return None;
+        }
+
+        // todo!("try t-table insert+lookup");
+
         params.stats.sel_depth = sel_depth.max(params.stats.sel_depth);
 
         // We assume that we can do at least as well as the static
@@ -215,15 +221,11 @@ impl<E: Eval> SearchJob<E> {
         let moves = self.move_gen.gen_captures(&self.position);
         // self.reorder_moves(&mut moves, None);
         for mv in moves {
-            if self.should_stop(params) {
-                return None;
-            }
-
             self.position.make_move(mv);
             params.stats.nodes += 1;
-            let res = self.quiesce(-beta.dec_mate(), -alpha.dec_mate(), sel_depth + 1, params);
+            let res = self.quiesce(-beta, -alpha, sel_depth + 1, params);
             self.position.unmake_move();
-            let score = -res?.inc_mate();
+            let score = -res?;
 
             if score >= beta {
                 return Some(score);

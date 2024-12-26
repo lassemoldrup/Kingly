@@ -2,7 +2,7 @@ use std::fmt::{self, Display, Formatter};
 use std::io::{self, BufRead, StdoutLock, Write};
 use std::str::FromStr;
 use std::time::Duration;
-use std::{process, thread};
+use std::{panic, process, thread};
 
 use crossbeam::channel::{self, Receiver, Sender};
 use kingly_lib::position::{ParseFenError, STARTING_FEN};
@@ -10,6 +10,7 @@ use kingly_lib::search::{info_channel, InfoSender, SearchInfo, SearchJob, Thread
 use kingly_lib::tables::Tables;
 use kingly_lib::types::{IllegalMoveError, PseudoMove};
 use kingly_lib::{MoveGen, Position};
+use once_cell::unsync::Lazy;
 
 #[cfg(test)]
 mod tests;
@@ -17,8 +18,10 @@ mod tests;
 pub struct Uci<W> {
     input_rx: Receiver<String>,
     write_handle: W,
-    position: Position,
+    // TODO: Switch to LazyCell, once DerefMut is stabilized
+    position: Lazy<Position>,
     debug_mode: bool,
+    thread_pool: Lazy<ThreadPool>,
 }
 
 impl Uci<StdoutLock<'_>> {
@@ -31,22 +34,23 @@ impl Uci<StdoutLock<'_>> {
         Self {
             input_rx,
             write_handle: io::stdout().lock(),
-            position: Position::new(),
+            position: Lazy::new(Position::new),
             debug_mode: false,
+            thread_pool: Lazy::new(ThreadPool::new),
         }
     }
 }
 
 impl<W: Write> Uci<W> {
     pub fn repl(mut self) -> io::Result<()> {
-        self.print_prelude()?;
-
-        // Initialize the tables
-        Tables::get();
-        let mut thread_pool = ThreadPool::new();
+        // Ensure that the process exits if a search panics
+        let orig_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |panic_info| {
+            orig_hook(panic_info);
+            process::exit(1);
+        }));
 
         let (info_tx, info_rx) = info_channel();
-
         loop {
             channel::select! {
                 recv(self.input_rx) -> line => {
@@ -54,7 +58,7 @@ impl<W: Write> Uci<W> {
                         // IO channel is closed, exit the loop
                         return Ok(());
                     };
-                    if let Err(err) = self.handle_command(&line, &mut thread_pool, &info_tx) {
+                    if let Err(err) = self.handle_command(&line, &info_tx) {
                         match err {
                             UciError::Io(err) => return Err(err),
                             _ => self.print_debug(err)?,
@@ -113,23 +117,14 @@ impl<W: Write> Uci<W> {
                 }
                 writeln!(self.write_handle, " time {}", total_duration.as_millis())?;
             }
-            SearchInfo::Finished(result) => {
-                if let Some(result) = result {
-                    writeln!(self.write_handle, "bestmove {}", result.pv[0])?;
-                } else {
-                    self.print_debug("Search did not return a result")?;
-                }
+            SearchInfo::Finished(best_mv) => {
+                writeln!(self.write_handle, "bestmove {}", best_mv)?;
             }
         }
         self.write_handle.flush()
     }
 
-    fn handle_command(
-        &mut self,
-        command: &str,
-        thread_pool: &mut ThreadPool,
-        info_tx: &InfoSender,
-    ) -> Result<(), UciError> {
+    fn handle_command(&mut self, command: &str, info_tx: &InfoSender) -> Result<(), UciError> {
         if command.trim().is_empty() {
             return Ok(());
         }
@@ -137,6 +132,12 @@ impl<W: Write> Uci<W> {
         let command: Command = command.parse()?;
         self.print_debug(format!("Received command: {command}"))?;
         match command {
+            Command::Uci => {
+                self.print_prelude()?;
+                Tables::init();
+                Lazy::force(&self.position);
+                Lazy::force(&self.thread_pool);
+            }
             Command::Debug(value) => self.debug_mode = value,
             Command::IsReady => {
                 writeln!(self.write_handle, "readyok")?;
@@ -144,12 +145,12 @@ impl<W: Write> Uci<W> {
             }
             Command::SetOption(opt) => match opt {
                 UciOption::Hash(size) => {
-                    if thread_pool.set_hash_size(size).is_err() {
+                    if self.thread_pool.set_hash_size(size).is_err() {
                         self.print_debug("Cannot set hash size while search is running")?;
                     }
                 }
                 UciOption::Threads(threads) => {
-                    if thread_pool.set_num_threads(threads).is_err() {
+                    if self.thread_pool.set_num_threads(threads).is_err() {
                         self.print_debug("Cannot set threads while search is running")?;
                     }
                 }
@@ -182,7 +183,8 @@ impl<W: Write> Uci<W> {
                     };
                 }
                 let job = builder.build();
-                if thread_pool
+                if self
+                    .thread_pool
                     .spawn_with_channel(job, info_tx.clone())
                     .is_err()
                 {
@@ -190,7 +192,7 @@ impl<W: Write> Uci<W> {
                 }
             }
             Command::Stop => {
-                thread_pool.stop();
+                self.thread_pool.stop();
             }
             Command::PonderHit => {
                 self.print_debug("Unsupported command: ponderhit")?;
@@ -222,6 +224,7 @@ enum UciError {
 
 #[derive(Debug, PartialEq)]
 enum Command {
+    Uci,
     Debug(bool),
     IsReady,
     SetOption(UciOption),
@@ -268,6 +271,7 @@ impl FromStr for Command {
         let (cmd, opts) = s.split_once(' ').unwrap_or((s, ""));
         let opts = opts.trim_start();
         match cmd {
+            "uci" => Ok(Self::Uci),
             "debug" => {
                 let value = opts.split_whitespace().next();
                 match value {
@@ -298,8 +302,7 @@ impl FromStr for Command {
                 let (pos, moves) = opts.split_once("moves").unwrap_or((opts, ""));
                 let (mode, rest) = pos.split_once(' ').unwrap_or((pos, ""));
                 let fen = match mode {
-                    // TODO
-                    "startpos" => String::new(),
+                    "startpos" => STARTING_FEN.into(),
                     "fen" if rest.trim().is_empty() => {
                         return Err(ParseCommandError::MissingOption)
                     }
@@ -385,6 +388,7 @@ impl FromStr for Command {
 impl Display for Command {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            Command::Uci => write!(f, "uci"),
             Command::Debug(on) => write!(f, "debug {}", if *on { "on" } else { "off" }),
             Command::IsReady => write!(f, "isready"),
             Command::SetOption(opt) => write!(f, "setoption {opt}"),
@@ -395,8 +399,11 @@ impl Display for Command {
                 } else {
                     write!(f, "position fen {fen}")?;
                 }
-                for mv in moves {
-                    write!(f, " {mv}")?;
+                if !moves.is_empty() {
+                    write!(f, " moves")?;
+                    for mv in moves {
+                        write!(f, " {mv}")?;
+                    }
                 }
                 Ok(())
             }
