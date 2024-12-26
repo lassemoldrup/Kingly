@@ -23,6 +23,16 @@ mod tests;
 mod transposition_table;
 pub use transposition_table::{Entry, TranspositionTable};
 
+/// The result of a search.
+#[derive(Debug, Clone, Default)]
+pub struct SearchResult {
+    /// The evaluation of the position. `None` if the search was stopped before
+    /// a result was found.
+    pub evaluation: Option<SearchEvaluation>,
+    /// Statistics about the search.
+    pub stats: SearchStats,
+}
+
 /// A search job that can be run by a [`ThreadPool`].
 #[derive(Clone)]
 pub struct SearchJob<E = MaterialEval> {
@@ -48,16 +58,16 @@ impl<E: Eval> SearchJob<E> {
     /// search.
     fn search(
         mut self,
-        depth: i8,
         search_start: Instant,
         kill_switch: Arc<AtomicBool>,
         t_table: Arc<TranspositionTable>,
-    ) -> Option<SearchResult> {
+    ) -> SearchResult {
         let moves = self
             .limits
             .moves
             .clone()
             .unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).to_vec());
+        let depth = self.limits.depth.expect("depth should be set");
         let mut params = SearchParams {
             stats: SearchStats {
                 sel_depth: depth,
@@ -69,14 +79,20 @@ impl<E: Eval> SearchJob<E> {
             start_depth: depth,
         };
 
-        let score = self.search_moves(&moves, depth, value::NEG_INF, value::INF, &mut params)?;
-        let pv = self.primary_variation(depth, &params.t_table);
-
-        Some(SearchResult {
-            score,
-            pv,
-            stats: params.stats,
-        })
+        let score = self.search_moves(&moves, depth, value::NEG_INF, value::INF, &mut params);
+        if let Some(score) = score {
+            let pv = self.primary_variation(depth, &params.t_table);
+            let result = SearchEvaluation { score, pv };
+            SearchResult {
+                evaluation: Some(result),
+                stats: params.stats,
+            }
+        } else {
+            SearchResult {
+                evaluation: None,
+                stats: params.stats,
+            }
+        }
     }
 
     fn alpha_beta(
@@ -203,8 +219,6 @@ impl<E: Eval> SearchJob<E> {
             return None;
         }
 
-        // todo!("try t-table insert+lookup");
-
         params.stats.sel_depth = sel_depth.max(params.stats.sel_depth);
 
         // We assume that we can do at least as well as the static
@@ -303,29 +317,18 @@ struct Limits {
     time: Option<Duration>,
 }
 
-/// The result of a search.
+/// The evaluation according to a search, including the score and principal
+/// variation.
 #[derive(Debug, Clone)]
-pub struct SearchResult {
+pub struct SearchEvaluation {
     /// The score given to the position.
     pub score: Value,
     /// The principal variation of the search.
     pub pv: Vec<Move>,
-    /// Statistics including the depth and number of nodes searched.
-    pub stats: SearchStats,
 }
 
-impl SearchResult {
-    pub fn combine(self, other: Self) -> Self {
-        Self {
-            stats: self.stats.combine(other.stats),
-            // TODO: How do we choose the correct evaluation?
-            ..self
-        }
-    }
-}
-
-/// Statistics about a search.
-#[derive(Debug, Clone, Copy)]
+/// Statistics about a search, including the depth and number of nodes searched.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SearchStats {
     /// The maximum depth reached in the search.
     pub sel_depth: i8,
