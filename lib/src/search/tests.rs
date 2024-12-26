@@ -9,41 +9,66 @@ use crate::search::thread::SearchInfo;
 use crate::search::ThreadPool;
 use crate::types::Value;
 
-use super::{SearchJob, SearchResult, TranspositionTable};
+use super::{SearchEvaluation, SearchJob, TranspositionTable};
 
-fn search(position: Position, depth: i8) -> SearchResult {
+fn search(position: Position, depth: i8) -> SearchEvaluation {
     let kill_switch = Arc::new(AtomicBool::new(false));
     let t_table = Arc::new(TranspositionTable::with_hash_size(1));
     SearchJob::default_builder()
         .position(position)
+        .depth(depth)
         .build()
-        .search(depth, Instant::now(), kill_switch, t_table)
+        .search(Instant::now(), kill_switch, t_table)
+        .evaluation
         .unwrap()
 }
 
-fn search_material(position: Position, depth: i8) -> SearchResult {
+fn search_material(position: Position, depth: i8) -> SearchEvaluation {
     let kill_switch = Arc::new(AtomicBool::new(false));
     let t_table = Arc::new(TranspositionTable::with_hash_size(1));
     SearchJob::builder(MaterialEval)
         .position(position)
+        .depth(depth)
         .build()
-        .search(depth, Instant::now(), kill_switch, t_table)
+        .search(Instant::now(), kill_switch, t_table)
+        .evaluation
         .unwrap()
 }
 
-fn search_threaded(position: Position, depth: i8) -> SearchResult {
+fn search_threaded(position: Position, depth: i8) -> SearchEvaluation {
     let mut thread_pool = ThreadPool::new();
     let job = SearchJob::default_builder()
         .position(position)
         .depth(depth)
         .build();
-    let rx = thread_pool.spawn(job).unwrap();
+    let rx = thread_pool.run(job).unwrap();
     let SearchInfo::Finished(best_mv) = rx.iter().last().unwrap() else {
         panic!("Last search info was not Finished");
     };
     let result = thread_pool.wait().unwrap();
-    assert_eq!(result.pv[0], best_mv);
-    result
+    let evaluation = result.evaluation.unwrap();
+    assert_eq!(evaluation.pv[0], best_mv);
+    evaluation
+}
+
+#[test]
+fn test_resize_thread_pool_does_not_panic() {
+    let mut thread_pool = ThreadPool::new();
+    let job = SearchJob::default_builder()
+        .position(Position::new())
+        .depth(4)
+        .build();
+    thread_pool.set_num_threads(4).unwrap();
+    thread_pool.run(job.clone()).unwrap();
+    thread_pool.wait().unwrap();
+
+    thread_pool.set_num_threads(8).unwrap();
+    thread_pool.run(job.clone()).unwrap();
+    thread_pool.wait().unwrap();
+
+    thread_pool.set_num_threads(1).unwrap();
+    thread_pool.run(job.clone()).unwrap();
+    thread_pool.wait().unwrap();
 }
 
 #[test]

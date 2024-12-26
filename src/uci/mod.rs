@@ -102,7 +102,8 @@ impl<W: Write> Uci<W> {
         match info {
             SearchInfo::NewDepth {
                 depth,
-                result,
+                evaluation,
+                stats,
                 nps,
                 total_duration,
                 hash_full,
@@ -110,9 +111,9 @@ impl<W: Write> Uci<W> {
                 write!(
                     self.write_handle,
                     "info depth {} seldepth {} score {} nodes {} nps {} hashfull {} pv",
-                    depth, result.stats.sel_depth, result.score, result.stats.nodes, nps, hash_full,
+                    depth, stats.sel_depth, evaluation.score, stats.nodes, nps, hash_full,
                 )?;
-                for mv in &result.pv {
+                for mv in &evaluation.pv {
                     write!(self.write_handle, " {}", mv)?;
                 }
                 writeln!(self.write_handle, " time {}", total_duration.as_millis())?;
@@ -185,7 +186,7 @@ impl<W: Write> Uci<W> {
                 let job = builder.build();
                 if self
                     .thread_pool
-                    .spawn_with_channel(job, info_tx.clone())
+                    .run_with_channel(job, info_tx.clone())
                     .is_err()
                 {
                     self.print_debug("Search already in progress")?;

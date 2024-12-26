@@ -77,13 +77,13 @@ fn main() -> Result<(), Error> {
             thread_pool
                 .set_num_threads(1)
                 .expect("search is not running");
-            let rx = thread_pool.spawn(job).expect("search is not running");
+            let rx = thread_pool.run(job).expect("search is not running");
             let mut seach_nps = 0;
             let mut nodes = 0;
             while let Ok(info) = rx.recv() {
-                if let SearchInfo::NewDepth { result, nps, .. } = info {
+                if let SearchInfo::NewDepth { stats, nps, .. } = info {
                     seach_nps = nps;
-                    nodes = result.stats.nodes;
+                    nodes = stats.nodes;
                 }
             }
             thread_pool.wait();
