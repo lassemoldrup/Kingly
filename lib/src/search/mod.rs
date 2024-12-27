@@ -11,7 +11,7 @@ use itertools::Itertools;
 use transposition_table::Bound;
 
 use crate::collections::MoveList;
-use crate::eval::{Eval, MaterialEval};
+use crate::eval::{Eval, StandardEval};
 use crate::types::{value, IllegalMoveError, PseudoMove, Value};
 use crate::MoveGen;
 use crate::{types::Move, Position};
@@ -35,7 +35,7 @@ pub struct SearchResult {
 
 /// A search job that can be run by a [`ThreadPool`].
 #[derive(Clone)]
-pub struct SearchJob<E = MaterialEval> {
+pub struct SearchJob<E = StandardEval> {
     position: Position,
     limits: Limits,
     move_gen: MoveGen,
@@ -304,7 +304,7 @@ impl SearchJob {
             limits: Limits::default(),
             state: BuilderStateUninit,
             move_gen: MoveGen::init(),
-            eval: MaterialEval,
+            eval: StandardEval,
         }
     }
 }
@@ -354,7 +354,7 @@ struct SearchParams {
 }
 
 /// A builder for a [`SearchJob`].
-pub struct SearchJobBuilder<S, E = MaterialEval> {
+pub struct SearchJobBuilder<S, E = StandardEval> {
     limits: Limits,
     state: S,
     move_gen: MoveGen,

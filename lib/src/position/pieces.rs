@@ -88,6 +88,12 @@ impl Pieces {
         self.black_pieces.unset_sqs(bb);
         self.map[sq] = None;
     }
+
+    /// Returns the number of pieces on the board.
+    #[inline]
+    pub fn count(&self) -> usize {
+        self.occupied().len()
+    }
 }
 
 impl Index<Square> for Pieces {

@@ -25,12 +25,14 @@ impl Value {
     /// Creates a new negative mate `Value` from a number of ply.
     #[inline]
     pub fn neg_mate_in_ply(ply: u16) -> Self {
+        debug_assert!(ply <= MAX_MATE_PLY as u16);
         Self(NEG_INF.0 + ply as i16)
     }
 
     /// Creates a new mate `Value` from a number of ply.
     #[inline]
     pub fn mate_in_ply(ply: u16) -> Self {
+        debug_assert!(ply <= MAX_MATE_PLY as u16);
         Self(INF.0 - ply as i16)
     }
 

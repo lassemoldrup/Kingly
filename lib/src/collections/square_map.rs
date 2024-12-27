@@ -42,6 +42,11 @@ impl<T> SquareMap<T> {
         }
         Self(map.map(|v| unsafe { v.assume_init() }))
     }
+
+    #[inline]
+    pub const fn inner_map(&self) -> &[T; 64] {
+        &self.0
+    }
 }
 
 impl<T: Default + Copy> Default for SquareMap<T> {
