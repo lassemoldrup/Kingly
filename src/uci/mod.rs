@@ -282,8 +282,8 @@ enum UciOption {
 impl Display for UciOption {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            UciOption::Hash(value) => write!(f, "Hash {value}"),
-            UciOption::Threads(value) => write!(f, "Threads {value}"),
+            UciOption::Hash(value) => write!(f, "Hash value {value}"),
+            UciOption::Threads(value) => write!(f, "Threads value {value}"),
         }
     }
 }
@@ -441,7 +441,7 @@ impl Display for Command {
             Command::Uci => write!(f, "uci"),
             Command::Debug(on) => write!(f, "debug {}", if *on { "on" } else { "off" }),
             Command::IsReady => write!(f, "isready"),
-            Command::SetOption(opt) => write!(f, "setoption {opt}"),
+            Command::SetOption(opt) => write!(f, "setoption name {opt}"),
             Command::UciNewGame => write!(f, "ucinewgame"),
             Command::Position { fen, moves } => {
                 if fen == STARTING_FEN {

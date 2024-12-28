@@ -353,7 +353,7 @@ impl Position {
     }
 
     /// Returns a heuristic of whether a null move can be made
-    /// without risking missing zugzwang
+    /// without risking missing zugzwang.
     #[inline]
     pub fn null_move_heuristic(&self) -> bool {
         // Null moves are not considered if the player to move only has king and pawns
@@ -364,7 +364,7 @@ impl Position {
         total_pieces - pawns > 1
     }
 
-    /// Returns `true` if the current position matches all the fields of `fen`
+    /// Returns `true` if the current position matches all the fields of `fen`.
     pub fn matches_fen(&self, fen: &str) -> Result<bool, ParseFenError> {
         let other = Self::from_fen(fen)?;
         Ok(self.zobrist == other.zobrist
@@ -372,7 +372,8 @@ impl Position {
             && self.move_number == other.move_number)
     }
 
-    /// A number between 0 and 26, representing whether we are in the opening (26) or endgame (0).
+    /// A number between 0 and 26, representing whether we are in the opening
+    /// (26) or endgame (0).
     #[inline]
     pub fn game_phase(&self) -> i32 {
         // If there are less than 6 pieces on the board, we are in the endgame

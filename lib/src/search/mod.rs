@@ -54,19 +54,15 @@ impl<E: Eval> SearchJob<E> {
         }
     }
 
-    /// Starts the search and returns information about the pv and stats of the
-    /// search.
+    /// Starts a search to a given depth (without iterative deepening) and
+    /// returns information about the pv and stats of the search. Panics if
+    /// depth is not set.
     fn search(
         mut self,
         search_start: Instant,
         kill_switch: Arc<AtomicBool>,
         t_table: Arc<TranspositionTable>,
     ) -> SearchResult {
-        let moves = self
-            .limits
-            .moves
-            .clone()
-            .unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).to_vec());
         let depth = self.limits.depth.expect("depth should be set");
         let mut params = SearchParams {
             stats: SearchStats {
@@ -78,6 +74,16 @@ impl<E: Eval> SearchJob<E> {
             t_table,
             start_depth: depth,
         };
+
+        let mut moves = self
+            .limits
+            .moves
+            .clone()
+            .unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).to_vec());
+        self.reorder_moves(
+            &mut moves,
+            params.t_table.get(&self.position).map(|e| e.best_move),
+        );
 
         let score = self.search_moves(&moves, depth, value::NEG_INF, value::INF, &mut params);
         if let Some(score) = score {
@@ -135,17 +141,11 @@ impl<E: Eval> SearchJob<E> {
                     return Some(entry.score);
                 }
             }
-
-            if let Some(i) = moves.iter().position(|&mv| mv == entry.best_move) {
-                // TODO: MVV-LVA
-                moves.swap(0, i);
-            } else {
-                log::warn!("ttable move not found in move list");
-            }
+            self.reorder_moves(&mut moves, Some(entry.best_move));
         }
 
         if !check && depth <= 0 {
-            return self.quiesce(alpha, beta, params.start_depth, params);
+            return self.quiesce(alpha, beta, params.start_depth - depth, params);
         }
 
         self.search_moves(&moves, depth, alpha, beta, params)
@@ -254,6 +254,18 @@ impl<E: Eval> SearchJob<E> {
         }
 
         Some(best_score)
+    }
+
+    fn reorder_moves(&self, moves: &mut [Move], best_move: Option<Move>) {
+        let Some(best_move) = best_move else {
+            return;
+        };
+        if let Some(i) = moves.iter().position(|&mv| mv == best_move) {
+            // TODO: MVV-LVA
+            moves.swap(0, i);
+        } else {
+            log::warn!("ttable move not found in move list");
+        }
     }
 
     fn gen_moves_and_check(&self) -> (MoveList, bool) {
