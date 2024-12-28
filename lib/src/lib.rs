@@ -4,6 +4,7 @@ pub mod move_gen;
 pub mod position;
 pub mod search;
 pub mod tables;
+pub mod time_mananger;
 pub mod types;
 pub mod zobrist;
 

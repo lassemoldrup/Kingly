@@ -8,7 +8,8 @@ use crossbeam::channel::{self, Receiver, Sender};
 use kingly_lib::position::{ParseFenError, STARTING_FEN};
 use kingly_lib::search::{info_channel, InfoSender, SearchInfo, SearchJob, ThreadPool};
 use kingly_lib::tables::Tables;
-use kingly_lib::types::{IllegalMoveError, PseudoMove};
+use kingly_lib::time_mananger::TimeControl;
+use kingly_lib::types::{Color, IllegalMoveError, PseudoMove};
 use kingly_lib::{MoveGen, Position};
 use once_cell::unsync::Lazy;
 
@@ -170,19 +171,54 @@ impl<W: Write> Uci<W> {
             }
             Command::Go(options) => {
                 let mut builder = SearchJob::default_builder().position(self.position.clone());
+                let mut white_tc = None;
+                let mut black_tc = None;
+                let mut move_time = None;
                 for opt in options {
-                    builder = match opt {
-                        GoOption::SearchMoves(moves) => builder.moves(moves)?,
-                        GoOption::Depth(depth) => builder.depth(depth),
-                        GoOption::Nodes(nodes) => builder.nodes(nodes),
-                        GoOption::MoveTime(time) => builder.time(time),
-                        GoOption::Infinite => builder,
+                    match opt {
+                        GoOption::SearchMoves(moves) => builder = builder.moves(moves)?,
+                        GoOption::Depth(depth) => builder = builder.depth(depth),
+                        GoOption::Nodes(nodes) => builder = builder.nodes(nodes),
+                        GoOption::MoveTime(time) => {
+                            move_time = Some(time);
+                        }
+                        GoOption::Infinite => {}
+                        GoOption::WTime(time) => {
+                            white_tc
+                                .get_or_insert_with(TimeControl::default)
+                                .time_remaining = Duration::from_millis(time as u64);
+                        }
+                        GoOption::WInc(inc) => {
+                            white_tc.get_or_insert_with(TimeControl::default).increment =
+                                Duration::from_millis(inc as u64);
+                        }
+                        GoOption::BTime(time) => {
+                            black_tc
+                                .get_or_insert_with(TimeControl::default)
+                                .time_remaining = Duration::from_millis(time as u64);
+                        }
+                        GoOption::BInc(inc) => {
+                            black_tc.get_or_insert_with(TimeControl::default).increment =
+                                Duration::from_millis(inc as u64);
+                        }
                         _ => {
                             self.print_debug(format!("Unsupported option: {opt}"))?;
-                            builder
                         }
                     };
                 }
+
+                if let Some(time) = move_time {
+                    builder = builder.time(time);
+                } else if self.position.to_move == Color::White {
+                    if let Some(tc) = white_tc {
+                        builder = builder.time(tc.time_man());
+                    }
+                } else {
+                    if let Some(tc) = black_tc {
+                        builder = builder.time(tc.time_man());
+                    }
+                }
+
                 let job = builder.build();
                 if self
                     .thread_pool
