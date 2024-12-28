@@ -4,6 +4,7 @@ use std::str::FromStr;
 use intmap::IntMap;
 use strum::IntoEnumIterator;
 
+use crate::eval::{piece_value_early, piece_value_endgame};
 use crate::tables::Tables;
 use crate::types::{
     CastlingRights, Color, File, ParseSquareError, Piece, PieceFromCharError, PieceKind, Rank,
@@ -151,6 +152,16 @@ impl Position {
         let mut repetitions = IntMap::new();
         repetitions.insert(zobrist, 1);
 
+        // Evaluation of the position
+        let mut eval_early_game = 0;
+        let mut eval_endgame = 0;
+        for sq in Square::iter() {
+            if let Some(pce) = pieces.get(sq) {
+                eval_early_game += piece_value_early(pce, sq);
+                eval_endgame += piece_value_endgame(pce, sq);
+            }
+        }
+
         Ok(Position {
             pieces,
             to_move,
@@ -162,6 +173,8 @@ impl Position {
             history: Vec::new(),
             zobrist,
             tables,
+            eval_early_game,
+            eval_endgame,
         })
     }
 }

@@ -262,6 +262,10 @@ enum ParseCommandError {
     InvalidOption(String),
     #[error("Unsupported option: {0}")]
     UsupportedOption(String),
+    #[error("The 'setoption' command should start 'setoption name'")]
+    MissingNameKeyword,
+    #[error("The '{0}' option should be followed by the 'value' keyword")]
+    MissingValueKeyword(String),
 }
 
 impl FromStr for Command {
@@ -285,12 +289,21 @@ impl FromStr for Command {
             "isready" => Ok(Self::IsReady),
             "setoption" => {
                 let mut opts = opts.split_whitespace();
+                if opts.next() != Some("name") {
+                    return Err(ParseCommandError::MissingNameKeyword);
+                }
                 match opts.next() {
                     Some("Hash") => {
+                        if opts.next() != Some("value") {
+                            return Err(ParseCommandError::MissingValueKeyword("Hash".into()));
+                        }
                         let value = parse_next_option(&mut opts)?;
                         Ok(Self::SetOption(UciOption::Hash(value)))
                     }
                     Some("Threads") => {
+                        if opts.next() != Some("value") {
+                            return Err(ParseCommandError::MissingValueKeyword("Threads".into()));
+                        }
                         let value = parse_next_option(&mut opts)?;
                         Ok(Self::SetOption(UciOption::Threads(value)))
                     }

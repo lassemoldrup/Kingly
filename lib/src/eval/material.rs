@@ -4,7 +4,7 @@ use crate::types::{Piece, PieceKind, Value};
 use super::Eval;
 
 // See types::PieceKind for order of piece kinds
-const PIECE_VALUES: [i16; 6] = [300, 300, 500, 900, 100, 0];
+const PIECE_VALUES: [i16; 6] = [320, 320, 500, 900, 100, 0];
 
 /// Returns the value of a given piece kind.
 pub const fn piece_value(kind: PieceKind) -> i16 {

@@ -20,6 +20,17 @@ pub enum Color {
     Black = 1,
 }
 
+impl Color {
+    /// Returns 1 for white and -1 for black.
+    #[inline]
+    pub fn sign(self) -> i8 {
+        match self {
+            Color::White => 1,
+            Color::Black => -1,
+        }
+    }
+}
+
 impl Not for Color {
     type Output = Self;
 

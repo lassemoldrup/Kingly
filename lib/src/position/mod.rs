@@ -4,6 +4,7 @@ use std::mem;
 
 use intmap::IntMap;
 
+use crate::eval::{piece_value_early, piece_value_endgame};
 use crate::tables::Tables;
 use crate::types::{
     BoardVector, CastlingRights, Color, Move, MoveKind, Piece, PieceKind, Rank, Side, Square,
@@ -31,6 +32,8 @@ pub struct Position {
     history: Vec<Unmake>,
     pub zobrist: u64,
     tables: &'static Tables,
+    pub eval_early_game: i16,
+    pub eval_endgame: i16,
 }
 
 impl Position {
@@ -306,11 +309,15 @@ impl Position {
     fn set_sq(&mut self, sq: Square, pce: Piece) {
         self.pieces.set_sq(sq, pce);
         self.toggle_zobrist((pce, sq));
+        self.eval_early_game += piece_value_early(pce, sq);
+        self.eval_endgame += piece_value_endgame(pce, sq);
     }
 
     fn unset_sq(&mut self, sq: Square, pce: Piece) {
         self.pieces.unset_sq(sq);
         self.toggle_zobrist((pce, sq));
+        self.eval_early_game -= piece_value_early(pce, sq);
+        self.eval_endgame -= piece_value_endgame(pce, sq);
     }
 
     fn set_castling(&mut self, castling: CastlingRights) {
@@ -363,6 +370,13 @@ impl Position {
         Ok(self.zobrist == other.zobrist
             && self.ply_clock == other.ply_clock
             && self.move_number == other.move_number)
+    }
+
+    /// A number between 0 and 26, representing whether we are in the opening (26) or endgame (0).
+    #[inline]
+    pub fn game_phase(&self) -> i32 {
+        // If there are less than 6 pieces on the board, we are in the endgame
+        self.pieces.count().saturating_sub(6) as i32
     }
 }
 

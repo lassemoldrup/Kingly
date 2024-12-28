@@ -37,14 +37,14 @@ fn test_parse_isready() {
 
 #[test]
 fn test_parse_setoption_hash() {
-    let input = "setoption Hash 1024";
+    let input = "setoption name Hash value 1024";
     let expected = Command::SetOption(UciOption::Hash(1024));
     assert_eq!(input.parse::<Command>(), Ok(expected));
 }
 
 #[test]
 fn test_parse_setoption_unsupported() {
-    let input = "setoption Unsupported";
+    let input = "setoption name Unsupported";
     let expected = ParseCommandError::UsupportedOption("Unsupported".into());
     assert_eq!(input.parse::<Command>(), Err(expected));
 }
@@ -52,7 +52,7 @@ fn test_parse_setoption_unsupported() {
 #[test]
 fn test_parse_setoption_missing_option() {
     let input = "setoption";
-    let expected = ParseCommandError::MissingOption;
+    let expected = ParseCommandError::MissingNameKeyword;
     assert_eq!(input.parse::<Command>(), Err(expected));
 }
 

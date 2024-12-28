@@ -227,23 +227,25 @@ impl SearchJob {
                 tx.send(job).expect("worker channel shouldn't close");
             }
 
+            let mut iter_evaluation = None;
             for i in 0..num_threads {
                 let res = result_rx.recv().expect("result channel shouldn't close");
                 if let Some(e) = res.evaluation {
-                    result.evaluation = Some(e);
+                    iter_evaluation = Some(e);
                     kill_switch.store(true, Ordering::Relaxed);
                 }
                 result.stats = result.stats.combine(res.stats);
                 nodes[i] += res.stats.nodes;
             }
             kill_switch.store(false, Ordering::Relaxed);
-            let Some(evaluation) = result.evaluation.clone() else {
+            let Some(iter_evaulation) = iter_evaluation else {
                 break;
             };
+            result.evaluation = Some(iter_evaulation.clone());
 
             let hash_full = ((t_table.len() * 1000) / t_table.capacity()) as u32;
             let info = SearchInfo::new_depth(
-                evaluation,
+                iter_evaulation,
                 result.stats,
                 search_start,
                 iteration_start,
