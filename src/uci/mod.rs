@@ -68,7 +68,11 @@ impl<W: Write> Uci<W> {
                 }
                 recv(info_rx) -> info => {
                     let info = info.expect("sender is alive");
-                    self.print_info(info)?;
+                    self.print_info(&info)?;
+                    // Make sure that the engine is ready to search again
+                    if let SearchInfo::Finished(_) = info {
+                        self.thread_pool.wait();
+                    }
                 }
             }
         }
@@ -99,7 +103,7 @@ impl<W: Write> Uci<W> {
         }
     }
 
-    fn print_info(&mut self, info: SearchInfo) -> io::Result<()> {
+    fn print_info(&mut self, info: &SearchInfo) -> io::Result<()> {
         match info {
             SearchInfo::NewDepth {
                 depth,
