@@ -257,14 +257,13 @@ impl<E: Eval> SearchJob<E> {
     }
 
     fn reorder_moves(&self, mut moves: &mut [Move], best_move: Option<Move>) {
-        let Some(best_move) = best_move else {
-            return;
-        };
-        if let Some(i) = moves.iter().position(|&mv| mv == best_move) {
-            moves.swap(0, i);
-            moves = &mut moves[1..];
-        } else {
-            log::warn!("ttable move not found in move list");
+        if let Some(best_move) = best_move {
+            if let Some(i) = moves.iter().position(|&mv| mv == best_move) {
+                moves.swap(0, i);
+                moves = &mut moves[1..];
+            } else {
+                log::warn!("ttable move not found in move list");
+            }
         }
 
         // MVV-LVA ordering
