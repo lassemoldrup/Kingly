@@ -11,7 +11,7 @@ use itertools::Itertools;
 use transposition_table::Bound;
 
 use crate::collections::MoveList;
-use crate::eval::{Eval, StandardEval};
+use crate::eval::{piece_value, Eval, StandardEval};
 use crate::types::{value, IllegalMoveError, PseudoMove, Value};
 use crate::MoveGen;
 use crate::{types::Move, Position};
@@ -256,16 +256,26 @@ impl<E: Eval> SearchJob<E> {
         Some(best_score)
     }
 
-    fn reorder_moves(&self, moves: &mut [Move], best_move: Option<Move>) {
+    fn reorder_moves(&self, mut moves: &mut [Move], best_move: Option<Move>) {
         let Some(best_move) = best_move else {
             return;
         };
         if let Some(i) = moves.iter().position(|&mv| mv == best_move) {
-            // TODO: MVV-LVA
             moves.swap(0, i);
+            moves = &mut moves[1..];
         } else {
             log::warn!("ttable move not found in move list");
         }
+
+        // MVV-LVA ordering
+        moves.sort_unstable_by_key(|mv| {
+            if let Some(victim) = self.position.pieces.get(mv.to()) {
+                let attacker = self.position.pieces.get(mv.from()).unwrap();
+                piece_value(attacker.kind()) - piece_value(victim.kind())
+            } else {
+                0
+            }
+        });
     }
 
     fn gen_moves_and_check(&self) -> (MoveList, bool) {
