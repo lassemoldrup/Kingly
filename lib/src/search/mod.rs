@@ -232,8 +232,8 @@ impl<E: Eval> SearchJob<E> {
 
         let mut best_score = static_eval;
 
-        let moves = self.move_gen.gen_captures(&self.position);
-        // self.reorder_moves(&mut moves, None);
+        let mut moves = self.move_gen.gen_captures(&self.position);
+        self.reorder_moves(&mut moves, None);
         for mv in moves {
             self.position.make_move(mv);
             params.stats.nodes += 1;
