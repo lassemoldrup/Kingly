@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use crossbeam::channel::{self, Receiver, Sender};
 
 use crate::search::SearchStats;
-use crate::types::Move;
+use crate::types::{value, Move, Value};
 use crate::MoveGen;
 
 use super::{SearchEvaluation, SearchJob, SearchResult, TranspositionTable};
@@ -102,22 +102,17 @@ impl ThreadPool {
             return Err(SearchRunningError);
         }
 
-        let worker_txs = Arc::clone(&self.worker_txs);
-        let result_rx = self.result_rx.clone();
-        let kill_switch = Arc::clone(&self.kill_switch);
-        let t_table = Arc::clone(&self.t_table);
-        let num_threads = self.num_threads;
-        let runner = std::thread::spawn(move || {
-            job.search_threaded(
-                info_tx,
-                worker_txs,
-                result_rx,
-                kill_switch,
-                t_table,
-                num_threads,
-            )
-        });
-        self.runner_thread = Some(runner);
+        let runner = ThreadedRunner::new(
+            job,
+            info_tx,
+            Arc::clone(&self.worker_txs),
+            self.result_rx.clone(),
+            Arc::clone(&self.kill_switch),
+            Arc::clone(&self.t_table),
+            self.num_threads,
+        );
+        let runner_thread = std::thread::spawn(move || runner.run());
+        self.runner_thread = Some(runner_thread);
         Ok(())
     }
 
@@ -194,90 +189,160 @@ impl Drop for ThreadPool {
     }
 }
 
-impl SearchJob {
-    fn search_threaded(
-        self,
+struct ThreadedRunner {
+    job: SearchJob,
+    info_tx: InfoSender,
+    worker_txs: Arc<[Sender<WorkerJob>]>,
+    result_rx: Receiver<SearchResult>,
+    kill_switch: Arc<AtomicBool>,
+    t_table: Arc<TranspositionTable>,
+    num_threads: usize,
+    search_start: Instant,
+    result: SearchResult,
+    nodes: Vec<u64>,
+}
+
+impl ThreadedRunner {
+    fn new(
+        job: SearchJob,
         info_tx: InfoSender,
         worker_txs: Arc<[Sender<WorkerJob>]>,
         result_rx: Receiver<SearchResult>,
         kill_switch: Arc<AtomicBool>,
         t_table: Arc<TranspositionTable>,
         num_threads: usize,
-    ) -> SearchResult {
-        let search_start = Instant::now();
+    ) -> Self {
+        Self {
+            job,
+            info_tx,
+            worker_txs,
+            result_rx,
+            kill_switch,
+            t_table,
+            num_threads,
+            search_start: Instant::now(),
+            result: SearchResult::default(),
+            nodes: vec![0; num_threads],
+        }
+    }
 
-        log::info!("Starting search with {:?}", self.limits);
-        let max_depth = self.limits.depth.unwrap_or(i8::MAX);
+    fn run(mut self) -> SearchResult {
+        // TODO: Pretty print
+        log::info!("Starting search with {:?}", self.job.limits);
+        let max_depth = self.job.limits.depth.unwrap_or(i8::MAX);
 
-        let mut result = SearchResult::default();
-        let mut nodes = vec![0; num_threads];
         // Iterative deepening
         for depth in 1..=max_depth {
+            log::trace!("Starting iteration with depth {depth}");
             let iteration_start = Instant::now();
 
-            for (i, tx) in worker_txs.iter().enumerate() {
-                let mut search_job = self.clone();
-                search_job.limits.depth = Some(depth);
-                search_job.limits.nodes =
-                    search_job.limits.nodes.map(|n| n.saturating_sub(nodes[i]));
-                let job = WorkerJob {
-                    search_job,
-                    search_start,
-                };
-                tx.send(job).expect("worker channel shouldn't close");
-            }
+            // Aspiration window search
+            let evaluation = if let Some(entry) = self.t_table.get(&self.job.position) {
+                let mut delta = Value::centipawn(25);
+                let mut alpha = entry.score - delta;
+                let mut beta = entry.score + delta;
 
-            let mut iter_evaluation = None;
-            for i in 0..num_threads {
-                let res = result_rx.recv().expect("result channel shouldn't close");
-                if let Some(e) = res.evaluation {
-                    iter_evaluation = Some(e);
-                    kill_switch.store(true, Ordering::Relaxed);
+                loop {
+                    log::trace!("Attempting aspiration window ({alpha:?}, {beta:?})");
+                    let evaluation = self.search_threaded(depth, alpha, beta);
+                    if let Some(e) = evaluation {
+                        delta *= 4;
+                        if e.score <= alpha {
+                            alpha = entry.score - delta;
+                        } else if e.score >= beta {
+                            beta = entry.score + delta;
+                        } else {
+                            break Some(e);
+                        }
+                    } else {
+                        break None;
+                    }
                 }
-                result.stats = result.stats.combine(res.stats);
-                nodes[i] += res.stats.nodes;
-            }
-            kill_switch.store(false, Ordering::Relaxed);
-            let Some(iter_evaulation) = iter_evaluation else {
+            } else {
+                self.search_threaded(depth, value::NEG_INF, value::INF)
+            };
+
+            let Some(evaluation) = evaluation else {
                 break;
             };
-            result.evaluation = Some(iter_evaulation.clone());
-
-            let hash_full = ((t_table.len() * 1000) / t_table.capacity()) as u32;
+            self.result.evaluation = Some(evaluation.clone());
+            let hash_full = ((self.t_table.len() * 1000) / self.t_table.capacity()) as u32;
             let info = SearchInfo::new_depth(
-                iter_evaulation,
-                result.stats,
-                search_start,
+                evaluation,
+                self.result.stats,
+                self.search_start,
                 iteration_start,
                 depth,
                 hash_full,
             );
-            if info_tx.send(info).is_err() {
+            if self.info_tx.send(info).is_err() {
                 log::warn!("Info channel closed.");
             }
         }
 
         log::info!("Search finished, clearing t-table.");
-        let best_move = result
+        let best_move = self
+            .result
             .evaluation
             .as_ref()
             .map(|r| r.pv[0])
             .unwrap_or_else(|| {
                 log::warn!("No best move found, returning first move.");
-                MoveGen::init().gen_all_moves(&self.position)[0]
+                MoveGen::init().gen_all_moves(&self.job.position)[0]
             });
         let info = SearchInfo::Finished(best_move);
-        if info_tx.send(info).is_err() {
+        if self.info_tx.send(info).is_err() {
             log::warn!("Info channel closed.");
         }
 
-        t_table.clear();
+        self.t_table.clear();
 
-        result
+        self.result
+    }
+
+    fn search_threaded(
+        &mut self,
+        depth: i8,
+        alpha: Value,
+        beta: Value,
+    ) -> Option<SearchEvaluation> {
+        for (i, tx) in self.worker_txs.iter().enumerate() {
+            let mut search_job = self.job.clone();
+            search_job.limits.depth = Some(depth);
+            search_job.limits.nodes = search_job
+                .limits
+                .nodes
+                .map(|n| n.saturating_sub(self.nodes[i]));
+            let job = WorkerJob {
+                alpha,
+                beta,
+                search_job,
+                search_start: self.search_start,
+            };
+            tx.send(job).expect("worker channel shouldn't close");
+        }
+
+        let mut iter_evaluation = None;
+        for i in 0..self.num_threads {
+            let res = self
+                .result_rx
+                .recv()
+                .expect("result channel shouldn't close");
+            if let Some(e) = res.evaluation {
+                iter_evaluation = Some(e);
+                self.kill_switch.store(true, Ordering::Relaxed);
+            }
+            self.result.stats = self.result.stats.combine(res.stats);
+            self.nodes[i] += res.stats.nodes;
+        }
+        self.kill_switch.store(false, Ordering::Relaxed);
+        iter_evaluation
     }
 }
 
 struct WorkerJob {
+    alpha: Value,
+    beta: Value,
     search_job: SearchJob,
     search_start: Instant,
 }
@@ -291,6 +356,8 @@ fn worker(
 ) {
     while let Ok(job) = job_rx.recv() {
         let res = job.search_job.search(
+            job.alpha,
+            job.beta,
             job.search_start,
             Arc::clone(&kill_switch),
             Arc::clone(&t_table),

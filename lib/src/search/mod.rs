@@ -59,6 +59,8 @@ impl<E: Eval> SearchJob<E> {
     /// depth is not set.
     fn search(
         mut self,
+        alpha: Value,
+        beta: Value,
         search_start: Instant,
         kill_switch: Arc<AtomicBool>,
         t_table: Arc<TranspositionTable>,
@@ -85,7 +87,7 @@ impl<E: Eval> SearchJob<E> {
             params.t_table.get(&self.position).map(|e| e.best_move),
         );
 
-        let score = self.search_moves(&moves, depth, value::NEG_INF, value::INF, &mut params);
+        let score = self.search_moves(&moves, depth, alpha, beta, &mut params);
         if let Some(score) = score {
             let pv = self.primary_variation(depth, &params.t_table);
             let result = SearchEvaluation { score, pv };
@@ -267,10 +269,9 @@ impl<E: Eval> SearchJob<E> {
         }
 
         // MVV-LVA ordering
-        moves.sort_unstable_by_key(|mv| {
+        moves.sort_by_key(|mv| {
             if let Some(victim) = self.position.pieces.get(mv.to()) {
-                let attacker = self.position.pieces.get(mv.from()).unwrap();
-                piece_value(attacker.kind()) - piece_value(victim.kind())
+                -piece_value(victim.kind())
             } else {
                 0
             }

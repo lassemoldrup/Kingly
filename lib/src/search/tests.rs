@@ -7,7 +7,7 @@ use crate::mv;
 use crate::position::Position;
 use crate::search::thread::SearchInfo;
 use crate::search::ThreadPool;
-use crate::types::Value;
+use crate::types::{value, Value};
 
 use super::{SearchEvaluation, SearchJob, TranspositionTable};
 
@@ -18,7 +18,13 @@ fn search(position: Position, depth: i8) -> SearchEvaluation {
         .position(position)
         .depth(depth)
         .build()
-        .search(Instant::now(), kill_switch, t_table)
+        .search(
+            value::NEG_INF,
+            value::INF,
+            Instant::now(),
+            kill_switch,
+            t_table,
+        )
         .evaluation
         .unwrap()
 }
@@ -30,7 +36,13 @@ fn search_material(position: Position, depth: i8) -> SearchEvaluation {
         .position(position)
         .depth(depth)
         .build()
-        .search(Instant::now(), kill_switch, t_table)
+        .search(
+            value::NEG_INF,
+            value::INF,
+            Instant::now(),
+            kill_switch,
+            t_table,
+        )
         .evaluation
         .unwrap()
 }

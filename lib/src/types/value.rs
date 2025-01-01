@@ -1,5 +1,5 @@
 use std::fmt::{self, Debug, Display, Formatter};
-use std::ops::{Mul, Neg, Range, RangeInclusive};
+use std::ops::{Add, Mul, MulAssign, Neg, Range, RangeInclusive, Sub};
 
 /// A value of positive infinity.
 pub const INF: Value = Value(i16::MAX);
@@ -17,8 +17,8 @@ pub struct Value(i16);
 impl Value {
     /// Creates a new `Value` from a centipawn value.
     #[inline]
-    pub fn centipawn(cp: i16) -> Self {
-        debug_assert!(CENTIPAWN_RANGE.contains(&cp));
+    pub const fn centipawn(cp: i16) -> Self {
+        debug_assert!(CENTIPAWN_RANGE.start <= cp && cp < CENTIPAWN_RANGE.end);
         Self(cp)
     }
 
@@ -56,7 +56,7 @@ impl Value {
 
     /// Returns a value with the mate-in-ply incremented by one.
     /// If the resulting value would overflow the mate range, it is clamped to
-    /// the maximum value..
+    /// the maximum value.
     #[inline]
     pub fn inc_mate(mut self) -> Self {
         if self.0 < NEG_INF.0 + MAX_MATE_PLY {
@@ -70,11 +70,11 @@ impl Value {
     /// Returns a value with the mate-in-ply decremented by one.
     /// If the resulting value would overflow the mate range, it is clamped to
     /// the minimum value.
-    #[inline]
+    #[inline(never)]
     pub fn dec_mate(mut self) -> Self {
-        if self.is_neg_mate() && self != NEG_INF {
+        if self.0 > NEG_INF.0 && self.0 <= NEG_INF.0 + MAX_MATE_PLY {
             self.0 -= 1;
-        } else if self.is_mate() && self != INF {
+        } else if self.0 < INF.0 && self.0 >= INF.0 - MAX_MATE_PLY {
             self.0 += 1;
         }
         self
@@ -95,6 +95,16 @@ impl Value {
         debug_assert_ne!(val, i16::MIN);
         Self(val)
     }
+
+    fn from_i32_saturating(val: i32) -> Self {
+        if val > i16::MAX as i32 {
+            INF
+        } else if val < i16::MIN as i32 + 1 {
+            NEG_INF
+        } else {
+            Value(val as i16)
+        }
+    }
 }
 
 impl Neg for Value {
@@ -111,7 +121,35 @@ impl Mul<i16> for Value {
 
     #[inline]
     fn mul(self, rhs: i16) -> Self::Output {
-        Self(self.0.saturating_mul(rhs))
+        let val = self.0 as i32 * rhs as i32;
+        Self::from_i32_saturating(val)
+    }
+}
+
+impl MulAssign<i16> for Value {
+    #[inline]
+    fn mul_assign(&mut self, rhs: i16) {
+        *self = *self * rhs;
+    }
+}
+
+impl Add for Value {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self::Output {
+        let val = self.0 as i32 + rhs.0 as i32;
+        Self::from_i32_saturating(val)
+    }
+}
+
+impl Sub for Value {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self::Output {
+        let val = self.0 as i32 - rhs.0 as i32;
+        Self::from_i32_saturating(val)
     }
 }
 
@@ -141,7 +179,7 @@ impl Debug for Value {
         } else if self.is_mate() {
             write!(f, "m{} (ply)", i16::MAX - self.0)
         } else {
-            write!(f, "{}.{:02}", self.0 / 100, (self.0 % 100).abs())
+            write!(f, "{:.2}", self.0 as f64 / 100.)
         }
     }
 }
