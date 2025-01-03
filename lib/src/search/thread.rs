@@ -238,9 +238,9 @@ impl ThreadedRunner {
 
             // Aspiration window search
             let evaluation = if let Some(entry) = self.t_table.get(&self.job.position) {
-                let mut delta = Value::centipawn(25);
-                let mut alpha = entry.score - delta;
-                let mut beta = entry.score + delta;
+                let mut delta = 25i32;
+                let mut alpha = entry.score - Value::centipawn(delta as i16);
+                let mut beta = entry.score + Value::centipawn(delta as i16);
 
                 loop {
                     log::trace!("Attempting aspiration window ({alpha:?}, {beta:?})");
@@ -248,9 +248,13 @@ impl ThreadedRunner {
                     if let Some(e) = evaluation {
                         delta *= 4;
                         if e.score <= alpha {
-                            alpha = entry.score - delta;
+                            log::trace!("Fail low: {:?}", e.score);
+                            alpha =
+                                Value::from_i32_saturating(entry.score.into_inner() as i32 - delta);
                         } else if e.score >= beta {
-                            beta = entry.score + delta;
+                            log::trace!("Fail high: {:?}", e.score);
+                            beta =
+                                Value::from_i32_saturating(entry.score.into_inner() as i32 + delta);
                         } else {
                             break Some(e);
                         }

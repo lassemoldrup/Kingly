@@ -96,7 +96,7 @@ impl Value {
         Self(val)
     }
 
-    fn from_i32_saturating(val: i32) -> Self {
+    pub fn from_i32_saturating(val: i32) -> Self {
         if val > i16::MAX as i32 {
             INF
         } else if val < i16::MIN as i32 + 1 {
@@ -122,7 +122,7 @@ impl Mul<i16> for Value {
     #[inline]
     fn mul(self, rhs: i16) -> Self::Output {
         let val = self.0 as i32 * rhs as i32;
-        Self::from_i32_saturating(val)
+        dbg!(Self::from_i32_saturating(dbg!(val)))
     }
 }
 
