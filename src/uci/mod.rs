@@ -215,11 +215,11 @@ impl<W: Write> Uci<W> {
                     builder = builder.time(time);
                 } else if self.position.to_move == Color::White {
                     if let Some(tc) = white_tc {
-                        builder = builder.time(tc.time_man());
+                        builder = builder.time(tc.time_man()).allow_early_stop(true);
                     }
                 } else {
                     if let Some(tc) = black_tc {
-                        builder = builder.time(tc.time_man());
+                        builder = builder.time(tc.time_man()).allow_early_stop(true);
                     }
                 }
 

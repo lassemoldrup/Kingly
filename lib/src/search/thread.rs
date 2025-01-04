@@ -249,10 +249,16 @@ impl ThreadedRunner {
                         delta *= 4;
                         if e.score <= alpha {
                             log::trace!("Fail low: {:?}", e.score);
+                            if alpha == value::NEG_INF {
+                                break Some(e);
+                            }
                             alpha =
                                 Value::from_i32_saturating(entry.score.into_inner() as i32 - delta);
                         } else if e.score >= beta {
                             log::trace!("Fail high: {:?}", e.score);
+                            if beta == value::INF {
+                                break Some(e);
+                            }
                             beta =
                                 Value::from_i32_saturating(entry.score.into_inner() as i32 + delta);
                         } else {
@@ -282,6 +288,24 @@ impl ThreadedRunner {
             if self.info_tx.send(info).is_err() {
                 log::warn!("Info channel closed.");
             }
+
+            // Decide if we should stop early
+            if self.job.limits.allow_early_stop {
+                let moves = MoveGen::init().gen_all_moves(&self.job.position);
+                if moves.len() == 1 {
+                    log::trace!("Only one move, stopping early.");
+                    break;
+                }
+                if self
+                    .job
+                    .limits
+                    .time
+                    .is_some_and(|d| self.search_start.elapsed() * 2 >= d)
+                {
+                    log::trace!("Unlikely to finish next iteration, stopping early.");
+                    break;
+                }
+            }
         }
 
         log::info!("Search finished, clearing t-table.");
@@ -300,7 +324,6 @@ impl ThreadedRunner {
         }
 
         self.t_table.clear();
-
         self.result
     }
 

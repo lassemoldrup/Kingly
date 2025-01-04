@@ -337,6 +337,7 @@ struct Limits {
     depth: Option<i8>,
     nodes: Option<u64>,
     time: Option<Duration>,
+    allow_early_stop: bool,
 }
 
 /// The evaluation according to a search, including the score and principal
@@ -426,6 +427,12 @@ impl<E> SearchJobBuilder<BuilderStateInit, E> {
     /// Sets the maximum time to search for.
     pub fn time(mut self, time: Duration) -> Self {
         self.limits.time = Some(time);
+        self
+    }
+
+    /// Sets whether to allow the search to stop early.
+    pub fn allow_early_stop(mut self, allow: bool) -> Self {
+        self.limits.allow_early_stop = allow;
         self
     }
 

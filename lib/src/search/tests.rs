@@ -84,6 +84,39 @@ fn test_resize_thread_pool_does_not_panic() {
 }
 
 #[test]
+fn stops_early_on_1_legal_move() {
+    let position = Position::from_fen("4kr2/8/4Q3/8/8/4K3/8/8 b - - 0 1").unwrap();
+    let job = SearchJob::default_builder()
+        .position(position.clone())
+        .depth(5)
+        .allow_early_stop(true)
+        .build();
+
+    let mut thread_pool = ThreadPool::new();
+    let rx = thread_pool.run(job).unwrap();
+    let new_depth_count = rx
+        .iter()
+        .filter(|info| matches!(info, SearchInfo::NewDepth { .. }))
+        .count();
+    assert_eq!(new_depth_count, 1);
+    assert_eq!(
+        thread_pool.wait().unwrap().evaluation.unwrap().pv[0],
+        mv!(E8 -> D8)
+    );
+
+    let job = SearchJob::default_builder()
+        .position(position)
+        .depth(5)
+        .build();
+    let rx = thread_pool.run(job).unwrap();
+    let new_depth_count = rx
+        .iter()
+        .filter(|info| matches!(info, SearchInfo::NewDepth { .. }))
+        .count();
+    assert_eq!(new_depth_count, 5);
+}
+
+#[test]
 fn queen_standoff_should_give_advantage_to_player_to_move() {
     let w_to_move_fen = "4k3/8/8/3q4/3Q4/8/8/4K3 w - - 0 1";
     let b_to_move_fen = "4k3/8/8/3q4/3Q4/8/8/4K3 b - - 0 1";
