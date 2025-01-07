@@ -85,6 +85,12 @@ impl MoveGen {
         self.gen_moves_and_check::<true>(position).0
     }
 
+    pub fn is_check(&self, position: &Position) -> bool {
+        let mut state = MoveGenState::new(position, self.tables);
+        state.set_danger_sqs();
+        state.danger_sqs.contains(state.king_sq)
+    }
+
     pub fn perft(&self, mut position: Position, depth: i8) -> u64 {
         if depth == 0 {
             return 1;

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
+use trace::{EmptyObserver, ReturnKind, SearchObserver};
 use transposition_table::Bound;
 
 use crate::collections::MoveList;
@@ -22,6 +23,7 @@ pub use thread::{info_channel, InfoReceiver, InfoSender, SearchInfo, ThreadPool}
 mod tests;
 mod transposition_table;
 pub use transposition_table::{Entry, TranspositionTable};
+pub mod trace;
 
 /// The result of a search.
 #[derive(Debug, Clone, Default)]
@@ -35,11 +37,13 @@ pub struct SearchResult {
 
 /// A search job that can be run by a [`ThreadPool`].
 #[derive(Clone)]
-pub struct SearchJob<E = StandardEval> {
+pub struct SearchJob<E = StandardEval, O = EmptyObserver> {
     position: Position,
     limits: Limits,
     move_gen: MoveGen,
     eval: E,
+    observer: O,
+    worker_id: usize,
 }
 
 impl<E: Eval> SearchJob<E> {
@@ -51,9 +55,12 @@ impl<E: Eval> SearchJob<E> {
             state: BuilderStateUninit,
             move_gen: MoveGen::init(),
             eval,
+            observer: EmptyObserver,
         }
     }
+}
 
+impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
     /// Starts a search to a given depth (without iterative deepening) and
     /// returns information about the pv and stats of the search. Panics if
     /// depth is not set.
@@ -66,6 +73,7 @@ impl<E: Eval> SearchJob<E> {
         t_table: Arc<TranspositionTable>,
     ) -> SearchResult {
         let depth = self.limits.depth.expect("depth should be set");
+        assert!(depth > 0, "search depth should be positive");
         let mut params = SearchParams {
             stats: SearchStats {
                 sel_depth: depth,
@@ -77,18 +85,12 @@ impl<E: Eval> SearchJob<E> {
             start_depth: depth,
         };
 
-        let mut moves = self
-            .limits
-            .moves
-            .clone()
-            .unwrap_or_else(|| self.move_gen.gen_all_moves(&self.position).to_vec());
-        self.reorder_moves(
-            &mut moves,
-            params.t_table.get(&self.position).map(|e| e.best_move),
-        );
-
-        let score = self.search_moves(&moves, depth, alpha, beta, &mut params);
-        if let Some(score) = score {
+        self.observer
+            .on_node_enter::<Root>(self.worker_id, alpha, beta, None, false);
+        let res = self.pvs::<Root>(depth, alpha, beta, &mut params);
+        if let Some((score, ret_kind)) = res {
+            self.observer
+                .on_node_exit::<Root>(self.worker_id, None, ret_kind, Some(score));
             let pv = self.primary_variation(depth, &params.t_table);
             let result = SearchEvaluation { score, pv };
             SearchResult {
@@ -96,6 +98,12 @@ impl<E: Eval> SearchJob<E> {
                 stats: params.stats,
             }
         } else {
+            self.observer.on_node_exit::<Root>(
+                self.worker_id,
+                None,
+                ReturnKind::Stopped.into(),
+                None,
+            );
             SearchResult {
                 evaluation: None,
                 stats: params.stats,
@@ -103,102 +111,149 @@ impl<E: Eval> SearchJob<E> {
         }
     }
 
-    fn alpha_beta(
+    fn pvs<N: NodeType>(
         &mut self,
         depth: i8,
         mut alpha: Value,
-        mut beta: Value,
+        beta: Value,
         params: &mut SearchParams,
-    ) -> Option<Value> {
+    ) -> Option<(Value, O::ReturnKind)> {
         if self.should_stop(params) {
             return None;
         }
 
-        let (mut moves, check) = self.gen_moves_and_check();
+        let (mut moves, check) = if N::IS_ROOT {
+            if let Some(moves) = self.limits.moves.take() {
+                (moves, self.move_gen.is_check(&self.position))
+            } else {
+                self.gen_moves_and_check()
+            }
+        } else {
+            self.gen_moves_and_check()
+        };
 
         if moves.is_empty() {
             // Checkmate
             return if check {
-                Some(Value::neg_mate_in_ply(0))
+                Some((Value::neg_mate_in_ply(0), ReturnKind::Checkmate.into()))
             // Stalemate
             } else {
-                Some(Value::centipawn(0))
+                Some((Value::centipawn(0), ReturnKind::Stalemate.into()))
             };
         }
 
         // Draw by threefold repetition or fifty-move rule
         if self.position.is_rule_draw() {
-            return Some(Value::centipawn(0));
+            return Some((Value::centipawn(0), ReturnKind::RuleDraw.into()));
         }
 
         if let Some(entry) = params.t_table.get(&self.position) {
-            if entry.depth >= depth {
+            // Don't use ttable move in PV nodes, as e.g. 50 move rule might
+            // not be detected
+            if !N::IS_PV && entry.depth >= depth {
                 match entry.bound {
-                    Bound::Exact => return Some(entry.score),
-                    Bound::Lower => alpha = alpha.max(entry.score),
-                    Bound::Upper => beta = beta.min(entry.score),
-                }
-
-                if alpha >= beta {
-                    return Some(entry.score);
+                    Bound::Exact => {
+                        return Some((entry.score, ReturnKind::TTExact(entry.best_move).into()))
+                    }
+                    Bound::Lower if entry.score >= beta => {
+                        return Some((entry.score, ReturnKind::TTLower(entry.best_move).into()))
+                    }
+                    Bound::Upper if entry.score <= alpha => {
+                        return Some((entry.score, ReturnKind::TTUpper(entry.best_move).into()))
+                    }
+                    _ => {}
                 }
             }
             self.reorder_moves(&mut moves, Some(entry.best_move));
         }
 
         if !check && depth <= 0 {
-            return self.quiesce(alpha, beta, params.start_depth - depth, params);
+            let score = self.quiesce(alpha, beta, params.start_depth - depth, params)?;
+            return Some((score, ReturnKind::Quiesce.into()));
         }
 
-        self.search_moves(&moves, depth, alpha, beta, params)
-    }
-
-    #[inline(always)]
-    fn search_moves(
-        &mut self,
-        moves: &[Move],
-        depth: i8,
-        alpha: Value,
-        beta: Value,
-        params: &mut SearchParams,
-    ) -> Option<Value> {
+        let original_alpha = alpha;
         let mut best_move = *moves.first()?;
         let mut best_score = value::NEG_INF;
-        let mut low = alpha;
 
-        for &mv in moves {
+        let mut moves = moves.iter().copied();
+
+        for mv in &mut moves {
             self.position.make_move(mv);
             params.stats.nodes += 1;
-            let res = self.alpha_beta(depth - 1, -beta.dec_mate(), -low.dec_mate(), params);
+            self.on_node_enter::<N::FirstChild>(-beta.dec_mate(), -alpha.dec_mate(), mv, false);
+            let res =
+                self.pvs::<N::FirstChild>(depth - 1, -beta.dec_mate(), -alpha.dec_mate(), params);
+            self.on_node_exit::<N::FirstChild>(mv, res.clone());
             self.position.unmake_move();
-            let score = -res?.inc_mate();
+            let score = -res?.0.inc_mate();
 
             if score >= beta {
                 let entry = Entry::new(score, mv, Bound::Lower, depth);
                 params.t_table.insert(&self.position, entry);
-                return Some(score);
+                return Some((score, ReturnKind::FailHigh(mv).into()));
             }
 
             if score > best_score {
                 best_move = mv;
                 best_score = score;
-                low = low.max(score);
+                if score > alpha {
+                    alpha = score;
+                    // Suspected PV move found, try searching the rest with null window
+                    break;
+                }
             }
         }
 
-        let bound = if best_score <= alpha {
-            Bound::Upper
+        for mv in moves {
+            self.position.make_move(mv);
+            params.stats.nodes += 1;
+            let new_alpha = -alpha.dec_mate() - Value::centipawn(1);
+            let new_beta = -alpha.dec_mate();
+            self.on_node_enter::<NonPv>(new_alpha, new_beta, mv, false);
+            let res = self.pvs::<NonPv>(depth - 1, new_alpha, new_beta, params);
+            self.on_node_exit::<NonPv>(mv, res.clone());
+            if res
+                .clone()
+                .map(|(s, _)| -s.inc_mate())
+                .is_some_and(|s| s > alpha)
+            {
+                self.on_node_enter::<Pv>(-beta.dec_mate(), -alpha.dec_mate(), mv, true);
+                let res = self.pvs::<Pv>(depth - 1, -beta.dec_mate(), -alpha.dec_mate(), params);
+                self.on_node_exit::<Pv>(mv, res.clone());
+                self.position.unmake_move();
+                let score = -res?.0.inc_mate();
+
+                if score >= beta {
+                    let entry = Entry::new(score, mv, Bound::Lower, depth);
+                    params.t_table.insert(&self.position, entry);
+                    return Some((score, ReturnKind::FailHigh(mv).into()));
+                }
+
+                best_score = score;
+                alpha = score;
+                best_move = mv;
+            } else {
+                self.position.unmake_move();
+                if res.is_none() {
+                    return None;
+                }
+            }
+        }
+
+        let (bound, ret) = if best_score <= original_alpha {
+            (Bound::Upper, ReturnKind::FailLow(best_move))
         } else {
-            Bound::Exact
+            (Bound::Exact, ReturnKind::Pv(best_move))
         };
         let entry = Entry::new(best_score, best_move, bound, depth);
         params.t_table.insert(&self.position, entry);
 
-        Some(best_score)
+        Some((best_score, ret.into()))
     }
 
     fn should_stop(&self, params: &SearchParams) -> bool {
-        // Only consider stopping every 2^11 = 2048 nodes
+        // Only consider stopping every 2^11 = 2048 nodes for peformance
         if params.stats.nodes & ((1 << 11) - 1) != 0 {
             return false;
         }
@@ -327,13 +382,41 @@ impl SearchJob {
             state: BuilderStateUninit,
             move_gen: MoveGen::init(),
             eval: StandardEval,
+            observer: EmptyObserver,
         }
     }
 }
 
+pub trait NodeType {
+    const IS_PV: bool;
+    const IS_ROOT: bool;
+    type FirstChild: NodeType;
+}
+
+pub struct Pv;
+impl NodeType for Pv {
+    const IS_PV: bool = true;
+    const IS_ROOT: bool = false;
+    type FirstChild = Pv;
+}
+
+pub struct NonPv;
+impl NodeType for NonPv {
+    const IS_PV: bool = false;
+    const IS_ROOT: bool = false;
+    type FirstChild = NonPv;
+}
+
+pub struct Root;
+impl NodeType for Root {
+    const IS_PV: bool = true;
+    const IS_ROOT: bool = true;
+    type FirstChild = Pv;
+}
+
 #[derive(Default, Clone, Debug)]
 struct Limits {
-    moves: Option<Vec<Move>>,
+    moves: Option<MoveList>,
     depth: Option<i8>,
     nodes: Option<u64>,
     time: Option<Duration>,
@@ -377,38 +460,40 @@ struct SearchParams {
 }
 
 /// A builder for a [`SearchJob`].
-pub struct SearchJobBuilder<S, E = StandardEval> {
+pub struct SearchJobBuilder<S, E = StandardEval, O = EmptyObserver> {
     limits: Limits,
     state: S,
     move_gen: MoveGen,
     eval: E,
+    observer: O,
 }
 
-impl<E> SearchJobBuilder<BuilderStateUninit, E> {
+impl<E, O> SearchJobBuilder<BuilderStateUninit, E, O> {
     /// Sets the position to search from.
-    pub fn position(self, position: Position) -> SearchJobBuilder<BuilderStateInit, E> {
+    pub fn position(self, position: Position) -> SearchJobBuilder<BuilderStateInit, E, O> {
         SearchJobBuilder {
             limits: self.limits,
             state: BuilderStateInit { position },
             move_gen: self.move_gen,
             eval: self.eval,
+            observer: self.observer,
         }
     }
 }
 
-impl<E> SearchJobBuilder<BuilderStateInit, E> {
+impl<E: Eval, O: SearchObserver> SearchJobBuilder<BuilderStateInit, E, O> {
     /// Search only the given moves.
     pub fn moves(
         mut self,
         moves: impl IntoIterator<Item = PseudoMove>,
     ) -> Result<Self, IllegalMoveError> {
         let legal_moves = self.move_gen.gen_all_moves(&self.state.position);
-        self.limits.moves = Some(
-            moves
-                .into_iter()
-                .map(|mv| mv.into_move(&legal_moves))
-                .try_collect()?,
-        );
+        let moves: MoveList = moves
+            .into_iter()
+            .map(|mv| mv.into_move(&legal_moves))
+            .try_collect()?;
+        assert_ne!(moves.len(), 0, "no moves given");
+        self.limits.moves = Some(moves);
         Ok(self)
     }
 
@@ -436,13 +521,28 @@ impl<E> SearchJobBuilder<BuilderStateInit, E> {
         self
     }
 
+    pub fn observer<O2: SearchObserver>(
+        self,
+        observer: O2,
+    ) -> SearchJobBuilder<BuilderStateInit, E, O2> {
+        SearchJobBuilder {
+            limits: self.limits,
+            state: self.state,
+            move_gen: self.move_gen,
+            eval: self.eval,
+            observer,
+        }
+    }
+
     /// Builds the search job.
-    pub fn build(self) -> SearchJob<E> {
+    pub fn build(self) -> SearchJob<E, O> {
         SearchJob {
             position: self.state.position,
             limits: self.limits,
             move_gen: self.move_gen,
             eval: self.eval,
+            observer: self.observer,
+            worker_id: 0,
         }
     }
 }

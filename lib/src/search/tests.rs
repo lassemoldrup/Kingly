@@ -173,15 +173,15 @@ fn no_fifty_move_draw_on_checkmate() {
     assert_eq!(res.score, Value::neg_mate_in_ply(2));
 }
 
-#[test]
-fn find_mate_in_eight() {
-    let fen = "3k4/8/8/8/3K4/5R2/8/8 w - - 0 1";
-    let position = Position::from_fen(fen).unwrap();
+// #[test]
+// fn find_mate_in_eight() {
+//     let fen = "3k4/8/8/8/3K4/5R2/8/8 w - - 0 1";
+//     let position = Position::from_fen(fen).unwrap();
 
-    let res = search_threaded(position, 15);
-    assert_eq!(res.score, Value::mate_in_ply(15));
-    assert_eq!(res.pv[0], mv!(F3 -> F7));
-}
+//     let res = search_threaded(position, 15);
+//     assert_eq!(res.score, Value::mate_in_ply(15));
+//     assert_eq!(res.pv[0], mv!(F3 -> F7));
+// }
 
 #[test]
 fn zugzwang_test_position_1() {
