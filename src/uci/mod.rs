@@ -163,7 +163,6 @@ impl<W: Write> Uci<W> {
             },
             Command::UciNewGame => {
                 // TODO: what to do here?
-                self.position.clear_repetitions();
             }
             Command::Position { fen, moves } => {
                 self.position.set_fen(&fen)?;
