@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
-use std::mem;
 
 use intmap::IntMap;
 
@@ -42,18 +41,10 @@ impl Position {
         Position::from_fen(STARTING_FEN).unwrap()
     }
 
-    /// Sets the position to the given FEN string without changing the
-    /// repetition history.
+    /// Sets the position to the given FEN string.
     pub fn set_fen(&mut self, fen: &str) -> Result<(), ParseFenError> {
-        let mut new_pos = Self::from_fen(fen)?;
-        mem::swap(&mut self.repetitions, &mut new_pos.repetitions);
-        *self = new_pos;
+        *self = Self::from_fen(fen)?;
         Ok(())
-    }
-
-    /// Clear the repetition history of the position.
-    pub fn clear_repetitions(&mut self) {
-        self.repetitions.clear();
     }
 
     /// Makes a move in the position.

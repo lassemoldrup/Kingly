@@ -377,7 +377,7 @@ pub struct ZobristRandoms {
 impl ZobristRandoms {
     fn init() -> Self {
         // TODO: Test different seeds
-        let mut rng = ChaCha20Rng::from_seed([25; 32]);
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
         Self {
             pieces: rng.gen(),
             to_move: rng.gen(),

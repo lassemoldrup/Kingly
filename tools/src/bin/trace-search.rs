@@ -142,7 +142,7 @@ impl SearchObserver for Forest {
         alpha: Value,
         beta: Value,
         mv: Option<Move>,
-        pvs_re_search: bool,
+        _pvs_re_search: bool,
     ) {
         let node = self.nodes.len();
         if let Some(&parent) = self.node_stack.last() {
@@ -161,7 +161,6 @@ impl SearchObserver for Forest {
             alpha,
             beta,
             node_kind,
-            pvs_re_search,
         });
         self.children.push(Vec::new());
         self.expanded.push(false);
@@ -181,7 +180,6 @@ impl SearchObserver for Forest {
             alpha,
             beta,
             node_kind,
-            pvs_re_search,
         } = &node_data
         else {
             panic!("{node} was not partial");
@@ -191,7 +189,6 @@ impl SearchObserver for Forest {
             beta: *beta,
             node_kind: *node_kind,
             return_kind: ret,
-            pvs_re_search: *pvs_re_search,
             score,
         };
     }
@@ -202,14 +199,12 @@ enum NodeData {
         alpha: Value,
         beta: Value,
         node_kind: NodeKind,
-        pvs_re_search: bool,
     },
     Node {
         alpha: Value,
         beta: Value,
         node_kind: NodeKind,
         return_kind: ReturnKind,
-        pvs_re_search: bool,
         score: Option<Value>,
     },
 }
@@ -223,7 +218,6 @@ impl Display for NodeData {
                 beta,
                 node_kind: NodeKind::Root,
                 return_kind,
-                pvs_re_search: _,
                 score,
             } => {
                 write!(f, "Asp. ({alpha:?}, {beta:?}) -> ")?;
@@ -234,7 +228,6 @@ impl Display for NodeData {
                 beta,
                 node_kind: NodeKind::Pv(mv),
                 return_kind,
-                pvs_re_search: _,
                 score,
             } => {
                 write!(f, "{mv} PV ({alpha:?}, {beta:?}) -> ")?;
@@ -245,7 +238,6 @@ impl Display for NodeData {
                 beta,
                 node_kind: NodeKind::NonPv(mv),
                 return_kind,
-                pvs_re_search: _,
                 score,
             } => {
                 assert!(*beta == *alpha + Value::centipawn(1));

@@ -290,6 +290,7 @@ where
                     }
                 }
             } else {
+                log::trace!("No t-table entry, searching with full width");
                 self.search_threaded(depth, value::NEG_INF, value::INF)
             };
             // let evaluation = self.search_threaded(depth, value::NEG_INF, value::INF);
