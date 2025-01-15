@@ -164,7 +164,10 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
                     _ => {}
                 }
             }
+
             self.reorder_moves(&mut moves, Some(entry.best_move));
+        } else {
+            self.reorder_moves(&mut moves, None);
         }
 
         if !check && depth <= 0 {
