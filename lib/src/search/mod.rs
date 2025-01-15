@@ -179,36 +179,30 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
         let mut best_move = *moves.first()?;
         let mut best_score = value::NEG_INF;
 
-        let mut moves = moves.iter().copied();
+        // Search first move with full window
+        self.position.make_move(best_move);
+        params.stats.nodes += 1;
+        self.on_node_enter::<N::FirstChild>(-beta.dec_mate(), -alpha.dec_mate(), best_move, false);
+        let res = self.pvs::<N::FirstChild>(depth - 1, -beta.dec_mate(), -alpha.dec_mate(), params);
+        self.on_node_exit::<N::FirstChild>(best_move, res.clone());
+        self.position.unmake_move();
+        let score = -res?.0.inc_mate();
 
-        for mv in &mut moves {
-            self.position.make_move(mv);
-            params.stats.nodes += 1;
-            self.on_node_enter::<N::FirstChild>(-beta.dec_mate(), -alpha.dec_mate(), mv, false);
-            let res =
-                self.pvs::<N::FirstChild>(depth - 1, -beta.dec_mate(), -alpha.dec_mate(), params);
-            self.on_node_exit::<N::FirstChild>(mv, res.clone());
-            self.position.unmake_move();
-            let score = -res?.0.inc_mate();
+        if score >= beta {
+            let entry = Entry::new(score, best_move, Bound::Lower, depth);
+            params.t_table.insert(&self.position, entry);
+            return Some((score, ReturnKind::FailHigh(best_move).into()));
+        }
 
-            if score >= beta {
-                let entry = Entry::new(score, mv, Bound::Lower, depth);
-                params.t_table.insert(&self.position, entry);
-                return Some((score, ReturnKind::FailHigh(mv).into()));
-            }
-
-            if score > best_score {
-                best_move = mv;
-                best_score = score;
-                if score > alpha {
-                    alpha = score;
-                    // Suspected PV move found, try searching the rest with null window
-                    break;
-                }
+        if score > best_score {
+            best_score = score;
+            if score > alpha {
+                alpha = score;
             }
         }
 
-        for mv in moves {
+        // Search remaining moves with null window
+        for &mv in &moves[1..] {
             self.position.make_move(mv);
             params.stats.nodes += 1;
             let new_alpha = -alpha.dec_mate() - Value::centipawn(1);
