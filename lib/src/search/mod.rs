@@ -210,11 +210,20 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
             self.on_node_enter::<NonPv>(new_alpha, new_beta, mv, false);
             let res = self.pvs::<NonPv>(depth - 1, new_alpha, new_beta, params);
             self.on_node_exit::<NonPv>(mv, res.clone());
-            if res
-                .clone()
-                .map(|(s, _)| -s.inc_mate())
-                .is_some_and(|s| s > alpha)
-            {
+
+            let Some(score) = res.map(|(s, _)| -s.inc_mate()) else {
+                self.position.unmake_move();
+                return None;
+            };
+
+            if score >= beta {
+                self.position.unmake_move();
+                let entry = Entry::new(score, mv, Bound::Lower, depth);
+                params.t_table.insert(&self.position, entry);
+                return Some((score, ReturnKind::FailHigh(mv).into()));
+            }
+
+            if N::IS_PV && score > alpha {
                 self.on_node_enter::<Pv>(-beta.dec_mate(), -alpha.dec_mate(), mv, true);
                 let res = self.pvs::<Pv>(depth - 1, -beta.dec_mate(), -alpha.dec_mate(), params);
                 self.on_node_exit::<Pv>(mv, res.clone());
@@ -232,8 +241,12 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
                 best_move = mv;
             } else {
                 self.position.unmake_move();
-                if res.is_none() {
-                    return None;
+                if score > best_score {
+                    best_score = score;
+                    best_move = mv;
+                    if score > alpha {
+                        alpha = score;
+                    }
                 }
             }
         }
