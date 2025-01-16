@@ -70,7 +70,7 @@ impl Value {
     /// Returns a value with the mate-in-ply decremented by one.
     /// If the resulting value would overflow the mate range, it is clamped to
     /// the minimum value.
-    #[inline(never)]
+    #[inline]
     pub fn dec_mate(mut self) -> Self {
         if self.0 > NEG_INF.0 && self.0 <= NEG_INF.0 + MAX_MATE_PLY {
             self.0 -= 1;
@@ -78,6 +78,18 @@ impl Value {
             self.0 += 1;
         }
         self
+    }
+
+    pub fn inc(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    pub fn dec(self) -> Self {
+        if self.0 <= NEG_INF.0 {
+            self
+        } else {
+            Self(self.0 - 1)
+        }
     }
 
     /// Returns the inner `i16` representation of the value.
