@@ -147,33 +147,34 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
             return Some((Value::centipawn(0), ReturnKind::RuleDraw.into()));
         }
 
+        let mut best_move = None;
         if let Some(entry) = params.t_table.get(&self.position) {
             // Don't use ttable move in PV nodes, as e.g. 50 move rule might
             // not be detected
             if !N::IS_PV && entry.depth >= depth {
                 match entry.bound {
                     Bound::Exact => {
-                        return Some((entry.score, ReturnKind::TTExact(entry.best_move).into()))
+                        return Some((entry.score, ReturnKind::TTExact(entry.best_move).into()));
                     }
                     Bound::Lower if entry.score >= beta => {
-                        return Some((entry.score, ReturnKind::TTLower(entry.best_move).into()))
+                        return Some((entry.score, ReturnKind::TTLower(entry.best_move).into()));
                     }
                     Bound::Upper if entry.score <= alpha => {
-                        return Some((entry.score, ReturnKind::TTUpper(entry.best_move).into()))
+                        return Some((entry.score, ReturnKind::TTUpper(entry.best_move).into()));
                     }
                     _ => {}
                 }
             }
 
-            self.reorder_moves(&mut moves, Some(entry.best_move));
-        } else {
-            self.reorder_moves(&mut moves, None);
+            best_move = Some(entry.best_move);
         }
 
         if !check && depth <= 0 {
             let score = self.quiesce(alpha, beta, params.start_depth - depth, params)?;
             return Some((score, ReturnKind::Quiesce.into()));
         }
+
+        self.reorder_moves(&mut moves, best_move);
 
         let original_alpha = alpha;
         let mut best_move = *moves.first()?;
