@@ -46,6 +46,7 @@ impl Position {
         *self = Self::from_fen(fen)?;
         Ok(())
     }
+
     /// Makes a move in the position.
     ///
     /// # Panics

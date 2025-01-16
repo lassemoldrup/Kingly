@@ -4,10 +4,12 @@ use std::time::{Duration, Instant};
 
 use crossbeam::channel::{self, Receiver, Sender};
 
+use crate::eval::{Eval, StandardEval};
 use crate::search::SearchStats;
 use crate::types::{value, Move, Value};
 use crate::MoveGen;
 
+use super::trace::{EmptyObserver, SearchObserver};
 use super::{SearchEvaluation, SearchJob, SearchResult, TranspositionTable};
 
 /// The sending side of a channel that sends search info.
@@ -23,7 +25,8 @@ pub fn info_channel() -> (InfoSender, InfoReceiver) {
 /// The default number of threads to use for the search.
 pub const DEFAULT_THREADS: usize = 6;
 
-/// A thread pool for running search jobs.
+/// A thread pool for running search jobs. Dropping the thread pool will stop
+/// the currently running search, and block until it finishes.
 ///
 /// # Example
 /// ```
@@ -41,10 +44,10 @@ pub const DEFAULT_THREADS: usize = 6;
 /// let res = thread_pool.wait().expect("search is running");
 /// assert!(res.evaluation.is_some());
 /// ```
-pub struct ThreadPool {
+pub struct ThreadPool<E = StandardEval, O = EmptyObserver> {
     runner_thread: Option<std::thread::JoinHandle<SearchResult>>,
     worker_threads: Vec<std::thread::JoinHandle<()>>,
-    worker_txs: Arc<[Sender<WorkerJob>]>,
+    worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
     result_rx: Receiver<SearchResult>,
     result_tx: Sender<SearchResult>,
     kill_switch: Arc<AtomicBool>,
@@ -52,7 +55,30 @@ pub struct ThreadPool {
     num_threads: usize,
 }
 
-impl ThreadPool {
+impl<E, O> ThreadPool<E, O> {
+    /// Stop the currently running job and return the result of the search.
+    /// Returns `None` if no search is running.
+    pub fn stop(&mut self) -> Option<SearchResult> {
+        self.kill_switch.store(true, Ordering::Relaxed);
+        let res = self.wait();
+        self.kill_switch.store(false, Ordering::Relaxed);
+        res
+    }
+
+    /// Wait for the currently running job to finish and return the result of
+    /// the search. Returns `None` if no search is running.
+    pub fn wait(&mut self) -> Option<SearchResult> {
+        self.runner_thread
+            .take()
+            .map(|h| h.join().expect("runner thread shouldn't panic"))
+    }
+}
+
+impl<E, O> ThreadPool<E, O>
+where
+    E: Eval + 'static,
+    O: SearchObserver + Clone + Send + 'static,
+{
     /// Create a new thread pool, spawning threads.
     pub fn new() -> Self {
         let num_threads = num_cpus::get().min(DEFAULT_THREADS);
@@ -85,7 +111,7 @@ impl ThreadPool {
 
     /// Try to spawn threads to run a search job. Returns an error if a search
     /// is already running.
-    pub fn run(&mut self, job: SearchJob) -> Result<InfoReceiver, SearchRunningError> {
+    pub fn run(&mut self, job: SearchJob<E, O>) -> Result<InfoReceiver, SearchRunningError> {
         let (tx, rx) = info_channel();
         self.run_with_channel(job, tx)?;
         Ok(rx)
@@ -95,7 +121,7 @@ impl ThreadPool {
     /// channel. Returns an error if a search is already running.
     pub fn run_with_channel(
         &mut self,
-        job: SearchJob,
+        job: SearchJob<E, O>,
         info_tx: InfoSender,
     ) -> Result<(), SearchRunningError> {
         if self.is_running() {
@@ -114,23 +140,6 @@ impl ThreadPool {
         let runner_thread = std::thread::spawn(move || runner.run());
         self.runner_thread = Some(runner_thread);
         Ok(())
-    }
-
-    /// Stop the currently running job and return the result of the search.
-    /// Returns `None` if no search is running.
-    pub fn stop(&mut self) -> Option<SearchResult> {
-        self.kill_switch.store(true, Ordering::Relaxed);
-        let res = self.wait();
-        self.kill_switch.store(false, Ordering::Relaxed);
-        res
-    }
-
-    /// Wait for the currently running job to finish and return the result of
-    /// the search. Returns `None` if no search is running.
-    pub fn wait(&mut self) -> Option<SearchResult> {
-        self.runner_thread
-            .take()
-            .map(|h| h.join().expect("runner thread shouldn't panic"))
     }
 
     /// Sets the size of the transposition table in MB. This can only be done
@@ -183,16 +192,22 @@ impl ThreadPool {
     }
 }
 
-impl Drop for ThreadPool {
+impl<E, O> Drop for ThreadPool<E, O> {
     fn drop(&mut self) {
         self.stop();
     }
 }
 
-struct ThreadedRunner {
-    job: SearchJob,
+impl Default for ThreadPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+struct ThreadedRunner<E, O> {
+    job: SearchJob<E, O>,
     info_tx: InfoSender,
-    worker_txs: Arc<[Sender<WorkerJob>]>,
+    worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
     result_rx: Receiver<SearchResult>,
     kill_switch: Arc<AtomicBool>,
     t_table: Arc<TranspositionTable>,
@@ -202,11 +217,15 @@ struct ThreadedRunner {
     nodes: Vec<u64>,
 }
 
-impl ThreadedRunner {
+impl<E, O> ThreadedRunner<E, O>
+where
+    E: Eval,
+    O: SearchObserver + Clone + Send + 'static,
+{
     fn new(
-        job: SearchJob,
+        job: SearchJob<E, O>,
         info_tx: InfoSender,
-        worker_txs: Arc<[Sender<WorkerJob>]>,
+        worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
         result_rx: Receiver<SearchResult>,
         kill_switch: Arc<AtomicBool>,
         t_table: Arc<TranspositionTable>,
@@ -235,6 +254,7 @@ impl ThreadedRunner {
         for depth in 1..=max_depth {
             log::trace!("Starting iteration with depth {depth}");
             let iteration_start = Instant::now();
+            self.job.observer.on_depth(depth);
 
             // Aspiration window search
             let evaluation = if let Some(entry) = self.t_table.get(&self.job.position) {
@@ -244,6 +264,7 @@ impl ThreadedRunner {
 
                 loop {
                     log::trace!("Attempting aspiration window ({alpha:?}, {beta:?})");
+                    self.job.observer.on_aspiration_window(alpha, beta);
                     let evaluation = self.search_threaded(depth, alpha, beta);
                     if let Some(e) = evaluation {
                         delta *= 4;
@@ -269,8 +290,10 @@ impl ThreadedRunner {
                     }
                 }
             } else {
+                log::trace!("No t-table entry, searching with full width");
                 self.search_threaded(depth, value::NEG_INF, value::INF)
             };
+            // let evaluation = self.search_threaded(depth, value::NEG_INF, value::INF);
 
             let Some(evaluation) = evaluation else {
                 break;
@@ -340,6 +363,7 @@ impl ThreadedRunner {
                 .limits
                 .nodes
                 .map(|n| n.saturating_sub(self.nodes[i]));
+            search_job.worker_id = i;
             let job = WorkerJob {
                 alpha,
                 beta,
@@ -367,20 +391,23 @@ impl ThreadedRunner {
     }
 }
 
-struct WorkerJob {
+struct WorkerJob<E, O> {
     alpha: Value,
     beta: Value,
-    search_job: SearchJob,
+    search_job: SearchJob<E, O>,
     search_start: Instant,
 }
 
-fn worker(
-    job_rx: Receiver<WorkerJob>,
+fn worker<E, O>(
+    job_rx: Receiver<WorkerJob<E, O>>,
     result_tx: Sender<SearchResult>,
     kill_switch: Arc<AtomicBool>,
     t_table: Arc<TranspositionTable>,
     id: usize,
-) {
+) where
+    E: Eval,
+    O: SearchObserver,
+{
     while let Ok(job) = job_rx.recv() {
         let res = job.search_job.search(
             job.alpha,

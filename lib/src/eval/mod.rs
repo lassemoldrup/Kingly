@@ -9,7 +9,7 @@ pub use piece_square_tables::{piece_value_early, piece_value_endgame};
 
 /// A NegaMax (i.e. positive values represent the side to move) evaluator of
 /// positions.
-pub trait Eval {
+pub trait Eval: Clone + Send + 'static {
     fn eval(&self, position: &Position) -> Value;
 }
 
