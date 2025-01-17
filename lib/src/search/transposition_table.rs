@@ -61,6 +61,7 @@ impl TranspositionTable {
         // do not need to worry about the key and entry being out of sync.
         match Entry::from_u64(packed_entry) {
             Some(e) => {
+                // TODO: Test other replacement startegies
                 if entry.entry_score() > e.entry_score() {
                     let new_entry = entry.to_u64();
                     key_cell.store(key ^ new_entry, Ordering::Relaxed);

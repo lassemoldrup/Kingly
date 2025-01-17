@@ -345,14 +345,15 @@ impl Position {
 
     /// Returns a heuristic of whether a null move can be made
     /// without risking missing zugzwang.
-    #[inline]
-    pub fn null_move_heuristic(&self) -> bool {
+    pub(crate) fn null_move_heuristic(&self) -> bool {
         // Null moves are not considered if the player to move only has king and pawns
-        let total_pieces = self.pieces.occupied_for(self.to_move).len();
+        let our_pieces = self.pieces.occupied_for(self.to_move);
         let pawn_pce = Piece(PieceKind::Pawn, self.to_move);
-        let pawns = self.pieces.get_bb(pawn_pce).len();
+        let our_pawns = self.pieces.get_bb(pawn_pce);
+        let king_pce = Piece(PieceKind::King, self.to_move);
+        let our_king = self.pieces.get_bb(king_pce);
 
-        total_pieces - pawns > 1
+        our_pieces != our_pawns | our_king
     }
 
     /// Returns `true` if the current position matches all the fields of `fen`.

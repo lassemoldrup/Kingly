@@ -174,6 +174,25 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
             return Some((score, ReturnKind::Quiesce.into()));
         }
 
+        // Null move pruning
+        const NULL_MOVE_DEPTH: i8 = 3;
+        if !check && depth >= NULL_MOVE_DEPTH && !N::IS_PV && self.position.null_move_heuristic() {
+            self.position.make_move(Move::NULL);
+            params.stats.nodes += 1;
+            // TODO: dec mate or not?
+            let new_alpha = -beta.dec_mate();
+            let new_beta = (-beta.dec_mate()).inc();
+            self.on_node_enter::<NonPv>(new_alpha, new_beta, Move::NULL, false);
+            let res = self.pvs::<NonPv>(depth - NULL_MOVE_DEPTH, new_alpha, new_beta, params);
+            self.on_node_exit::<NonPv>(Move::NULL, res.clone());
+            self.position.unmake_move();
+            let score = -res?.0.inc_mate();
+
+            if score >= beta {
+                return Some((score, ReturnKind::NullMove.into()));
+            }
+        }
+
         self.reorder_moves(&mut moves, best_move);
 
         let original_alpha = alpha;
