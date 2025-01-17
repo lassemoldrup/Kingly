@@ -174,9 +174,16 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
             return Some((score, ReturnKind::Quiesce.into()));
         }
 
+        let static_eval = self.static_eval();
+
         // Null move pruning
         const NULL_MOVE_DEPTH: i8 = 3;
-        if !check && depth >= NULL_MOVE_DEPTH && !N::IS_PV && self.position.null_move_heuristic() {
+        if !check
+            && depth >= NULL_MOVE_DEPTH
+            && !N::IS_PV
+            && static_eval >= beta
+            && self.position.null_move_heuristic()
+        {
             self.position.make_move(Move::NULL);
             params.stats.nodes += 1;
             // TODO: dec mate or not?
