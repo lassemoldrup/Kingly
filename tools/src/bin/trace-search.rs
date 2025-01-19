@@ -63,7 +63,7 @@ fn show_input(
         let label = ui.label("FEN: ");
         ui.text_edit_singleline(fen).labelled_by(label.id);
     });
-    ui.add(egui::Slider::new(depth, 1..=6).text("depth"));
+    ui.add(egui::Slider::new(depth, 1..=8).text("depth"));
     if ui.button("Trace").clicked() {
         let fen = fen.trim().to_string();
         trace(&fen, *depth, thread_pool, forest)?;

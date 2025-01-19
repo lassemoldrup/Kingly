@@ -60,13 +60,13 @@ impl TranspositionTable {
         // Concurrency: The fact that the key cell is stored as `key ^ entry` means we
         // do not need to worry about the key and entry being out of sync.
         match Entry::from_u64(packed_entry) {
-            Some(e) => {
+            Some(_e) => {
                 // TODO: Test other replacement startegies
-                if entry.entry_score() > e.entry_score() {
-                    let new_entry = entry.to_u64();
-                    key_cell.store(key ^ new_entry, Ordering::Relaxed);
-                    entry_cell.store(new_entry, Ordering::Relaxed);
-                }
+                // if entry.entry_score() > e.entry_score() {
+                let new_entry = entry.to_u64();
+                key_cell.store(key ^ new_entry, Ordering::Relaxed);
+                entry_cell.store(new_entry, Ordering::Relaxed);
+                // }
             }
             None => {
                 let new_entry = entry.to_u64();
@@ -132,6 +132,7 @@ impl Default for TranspositionTable {
         Self::new()
     }
 }
+
 /// An entry in the transposition table.
 #[derive(Clone, Copy)]
 pub struct Entry {
@@ -178,7 +179,7 @@ impl Entry {
         res
     }
 
-    fn entry_score(&self) -> i8 {
+    fn _entry_score(&self) -> i8 {
         self.depth
             + match self.bound {
                 Bound::Exact => 1,
