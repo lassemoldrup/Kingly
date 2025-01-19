@@ -1,3 +1,4 @@
+use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -145,11 +146,38 @@ where
     /// Sets the size of the transposition table in MB. This can only be done
     /// when no search is running. Returns an error if a search is running.
     pub fn set_hash_size(&mut self, size: usize) -> Result<(), SearchRunningError> {
-        let Some(t_table) = Arc::get_mut(&mut self.t_table) else {
+        if self.is_running() {
             return Err(SearchRunningError);
-        };
-        assert!(self.runner_thread.is_none());
+        }
+        // Stop all workers
+        let num_threads = self.num_threads;
+        self.stop_workers();
+
+        let t_table = Arc::get_mut(&mut self.t_table).expect("all workers are stopped");
         *t_table = TranspositionTable::with_hash_size(size);
+
+        // Restart workers
+        self.set_num_threads(num_threads)
+            .expect("search is not running");
+        Ok(())
+    }
+
+    /// Clears the transposition table. This can only be done when no search is
+    /// running. Returns an error if a search is running.
+    pub fn clear_t_table(&mut self) -> Result<(), SearchRunningError> {
+        if self.is_running() {
+            return Err(SearchRunningError);
+        }
+        // Stop all workers
+        let num_threads = self.num_threads;
+        self.stop_workers();
+
+        let t_table = Arc::get_mut(&mut self.t_table).expect("all workers are stopped");
+        t_table.clear();
+
+        // Restart workers
+        self.set_num_threads(num_threads)
+            .expect("search is not running");
         Ok(())
     }
 
@@ -189,6 +217,14 @@ where
             .as_ref()
             .map(|h| !h.is_finished())
             .unwrap_or(false)
+    }
+
+    fn stop_workers(&mut self) {
+        self.worker_txs = Vec::new().into();
+        for worker in mem::take(&mut self.worker_threads) {
+            worker.join().expect("worker thread shouldn't panic");
+        }
+        self.num_threads = 0;
     }
 }
 
@@ -346,7 +382,6 @@ where
             log::warn!("Info channel closed.");
         }
 
-        self.t_table.clear();
         self.result
     }
 

@@ -162,7 +162,10 @@ impl<W: Write> Uci<W> {
                 }
             },
             Command::UciNewGame => {
-                // TODO: what to do here?
+                if self.thread_pool.clear_t_table().is_err() {
+                    self.print_debug("Search is running")?;
+                }
+                self.position.set_fen(STARTING_FEN)?;
             }
             Command::Position { fen, moves } => {
                 self.position.set_fen(&fen)?;

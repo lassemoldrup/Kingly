@@ -7,7 +7,7 @@ authors = ["Lasse Møldrup <lasse.moeldrup@gmail.com>"]
 
 [workspace]
 members = [".", "lib", "tools"]
-default-members = ["."]
+default-members = [".", "lib"]
 
 [dependencies]
 kingly-lib = { path = "lib" }
