@@ -98,9 +98,12 @@ impl TranspositionTable {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.data
-            .fill_with(|| (AtomicU64::new(0), AtomicU64::new(0)));
+    pub fn clear(&self) {
+        for (key, entry) in &self.data {
+            key.store(0, Ordering::Relaxed);
+            entry.store(0, Ordering::Relaxed);
+        }
+        self.count.store(0, Ordering::Relaxed);
     }
 
     #[inline]
