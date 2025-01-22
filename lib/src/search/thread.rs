@@ -1,8 +1,8 @@
-use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwap;
 use crossbeam::channel::{self, Receiver, Sender};
 
 use crate::eval::{Eval, StandardEval};
@@ -52,7 +52,7 @@ pub struct ThreadPool<E = StandardEval, O = EmptyObserver> {
     result_rx: Receiver<SearchResult>,
     result_tx: Sender<SearchResult>,
     kill_switch: Arc<AtomicBool>,
-    t_table: Arc<TranspositionTable>,
+    t_table: Arc<ArcSwap<TranspositionTable>>,
     num_threads: usize,
 }
 
@@ -84,7 +84,7 @@ where
     pub fn new() -> Self {
         let num_threads = num_cpus::get().min(DEFAULT_THREADS);
         let kill_switch = Arc::new(AtomicBool::new(false));
-        let t_table = Arc::new(TranspositionTable::new());
+        let t_table = Arc::new(ArcSwap::from_pointee(TranspositionTable::new()));
         let (result_tx, result_rx) = channel::unbounded();
         let mut worker_txs = Vec::with_capacity(num_threads);
         let mut worker_threads = Vec::with_capacity(num_threads);
@@ -149,16 +149,8 @@ where
         if self.is_running() {
             return Err(SearchRunningError);
         }
-        // Stop all workers
-        let num_threads = self.num_threads;
-        self.stop_workers();
 
-        let t_table = Arc::get_mut(&mut self.t_table).expect("all workers are stopped");
-        *t_table = TranspositionTable::with_hash_size(size);
-
-        // Restart workers
-        self.set_num_threads(num_threads)
-            .expect("search is not running");
+        self.t_table.store(Arc::new(TranspositionTable::with_hash_size(size)));
         Ok(())
     }
 
@@ -168,16 +160,8 @@ where
         if self.is_running() {
             return Err(SearchRunningError);
         }
-        // Stop all workers
-        let num_threads = self.num_threads;
-        self.stop_workers();
 
-        let t_table = Arc::get_mut(&mut self.t_table).expect("all workers are stopped");
-        t_table.clear();
-
-        // Restart workers
-        self.set_num_threads(num_threads)
-            .expect("search is not running");
+        self.t_table.load().clear();
         Ok(())
     }
 
@@ -218,14 +202,6 @@ where
             .map(|h| !h.is_finished())
             .unwrap_or(false)
     }
-
-    fn stop_workers(&mut self) {
-        self.worker_txs = Vec::new().into();
-        for worker in mem::take(&mut self.worker_threads) {
-            worker.join().expect("worker thread shouldn't panic");
-        }
-        self.num_threads = 0;
-    }
 }
 
 impl<E, O> Drop for ThreadPool<E, O> {
@@ -246,7 +222,7 @@ struct ThreadedRunner<E, O> {
     worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
     result_rx: Receiver<SearchResult>,
     kill_switch: Arc<AtomicBool>,
-    t_table: Arc<TranspositionTable>,
+    t_table: Arc<ArcSwap<TranspositionTable>>,
     num_threads: usize,
     search_start: Instant,
     result: SearchResult,
@@ -264,7 +240,7 @@ where
         worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
         result_rx: Receiver<SearchResult>,
         kill_switch: Arc<AtomicBool>,
-        t_table: Arc<TranspositionTable>,
+        t_table: Arc<ArcSwap<TranspositionTable>>,
         num_threads: usize,
     ) -> Self {
         Self {
@@ -285,6 +261,7 @@ where
         // TODO: Pretty print
         log::info!("Starting search with {:?}", self.job.limits);
         let max_depth = self.job.limits.depth.unwrap_or(i8::MAX);
+        let t_table = self.t_table.load_full();
 
         // Iterative deepening
         for depth in 1..=max_depth {
@@ -293,7 +270,7 @@ where
             self.job.observer.on_depth(depth);
 
             // Aspiration window search
-            let evaluation = if let Some(entry) = self.t_table.get(&self.job.position) {
+            let evaluation = if let Some(entry) = t_table.get(&self.job.position) {
                 let mut delta = 25i32;
                 let mut alpha = entry.score - Value::centipawn(delta as i16);
                 let mut beta = entry.score + Value::centipawn(delta as i16);
@@ -335,7 +312,7 @@ where
                 break;
             };
             self.result.evaluation = Some(evaluation.clone());
-            let hash_full = ((self.t_table.len() * 1000) / self.t_table.capacity()) as u32;
+            let hash_full = ((t_table.len() * 1000) / t_table.capacity()) as u32;
             let info = SearchInfo::new_depth(
                 evaluation,
                 self.result.stats,
@@ -437,7 +414,7 @@ fn worker<E, O>(
     job_rx: Receiver<WorkerJob<E, O>>,
     result_tx: Sender<SearchResult>,
     kill_switch: Arc<AtomicBool>,
-    t_table: Arc<TranspositionTable>,
+    t_table: Arc<ArcSwap<TranspositionTable>>,
     id: usize,
 ) where
     E: Eval,
@@ -449,7 +426,7 @@ fn worker<E, O>(
             job.beta,
             job.search_start,
             Arc::clone(&kill_switch),
-            Arc::clone(&t_table),
+            t_table.load_full()
         );
         let Ok(()) = result_tx.send(res) else {
             log::info!("Result channel closed, stopping worker {id}.");
