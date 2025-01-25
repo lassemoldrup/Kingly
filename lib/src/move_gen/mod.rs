@@ -41,7 +41,10 @@ impl MoveGen {
             let checkers = state.checkers();
 
             if checkers.len() == 2 {
-                state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
+                // Safety: The move list is freshly initialized
+                unsafe {
+                    state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
+                }
             } else {
                 state.set_pin_rays();
                 let checking_sq = checkers.into_iter().next().unwrap();
@@ -52,21 +55,28 @@ impl MoveGen {
                     self.tables.ray_to[state.king_sq][checking_sq] | checkers
                 };
 
-                state.gen_pawn_moves::<ONLY_CAPTURES>(blocking_sqs);
-                for kind in [Knight, Bishop, Rook, Queen] {
-                    state.gen_non_pawn_moves::<ONLY_CAPTURES>(kind, blocking_sqs);
+                // Safety: The move list is freshly initialized
+                unsafe {
+                    state.gen_pawn_moves::<ONLY_CAPTURES>(blocking_sqs);
+
+                    for kind in [Knight, Bishop, Rook, Queen] {
+                        state.gen_non_pawn_moves::<ONLY_CAPTURES>(kind, blocking_sqs);
+                    }
+                    state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
                 }
-                state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
             }
         } else {
             state.set_pin_rays();
-            state.gen_pawn_moves::<ONLY_CAPTURES>(!bb!());
-            for kind in [Knight, Bishop, Rook, Queen] {
-                state.gen_non_pawn_moves::<ONLY_CAPTURES>(kind, !bb!());
-            }
-            state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
-            if !ONLY_CAPTURES {
-                state.gen_castling_moves();
+            // Safety: The move list is freshly initialized
+            unsafe {
+                state.gen_pawn_moves::<ONLY_CAPTURES>(!bb!());
+                for kind in [Knight, Bishop, Rook, Queen] {
+                    state.gen_non_pawn_moves::<ONLY_CAPTURES>(kind, !bb!());
+                }
+                state.gen_non_pawn_moves::<ONLY_CAPTURES>(King, !bb!());
+                if !ONLY_CAPTURES {
+                    state.gen_castling_moves();
+                }
             }
         }
 
@@ -140,8 +150,11 @@ impl<'p> MoveGenState<'p> {
     }
 
     /// Generates all non-pawn moves for the given `PieceKind` `kind`, except
-    /// castling moves
-    fn gen_non_pawn_moves<const ONLY_CAPTURES: bool>(
+    /// castling moves.
+    ///
+    /// # Safety
+    /// The move list must have space for the added moves.
+    unsafe fn gen_non_pawn_moves<const ONLY_CAPTURES: bool>(
         &mut self,
         kind: PieceKind,
         blocking_sqs: Bitboard,
@@ -165,19 +178,23 @@ impl<'p> MoveGenState<'p> {
             }
 
             for to in legal_atks & opp_occ {
-                self.moves.push(mv!(from x to));
+                self.moves.push_unchecked(mv!(from x to));
             }
 
             if !ONLY_CAPTURES {
                 let own_occ = self.position.pieces.occupied_for(self.position.to_move);
                 for to in legal_atks & !own_occ & !opp_occ {
-                    self.moves.push(mv!(from -> to));
+                    self.moves.push_unchecked(mv!(from -> to));
                 }
             }
         }
     }
 
-    fn gen_pawn_moves<const ONLY_CAPTURES: bool>(&mut self, blocking_sqs: Bitboard) {
+    /// Generates all pawn moves, including en passant, for the current position
+    ///
+    /// # Safety
+    /// The move list must have space for the added moves.
+    unsafe fn gen_pawn_moves<const ONLY_CAPTURES: bool>(&mut self, blocking_sqs: Bitboard) {
         let pawns = self
             .position
             .pieces
@@ -226,7 +243,7 @@ impl<'p> MoveGenState<'p> {
         macro_rules! add_regulars {
             ( $bb:expr => $dir:expr, $capture:expr ) => {
                 add_moves!($bb => $dir, |from, to| {
-                    self.moves.push(Move::new_regular(from, to, $capture));
+                    self.moves.push_unchecked(Move::new_regular(from, to, $capture));
                 });
             };
         }
@@ -234,10 +251,10 @@ impl<'p> MoveGenState<'p> {
         macro_rules! add_promos {
             ( $bb:expr => $dir:expr, $capture:expr ) => {
                 add_moves!($bb => $dir, |from, to| {
-                    self.moves.push(Move::new_promotion(from, to, PieceKind::Queen, $capture));
-                    self.moves.push(Move::new_promotion(from, to, PieceKind::Knight, $capture));
-                    self.moves.push(Move::new_promotion(from, to, PieceKind::Rook, $capture));
-                    self.moves.push(Move::new_promotion(from, to, PieceKind::Bishop, $capture));
+                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Queen, $capture));
+                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Knight, $capture));
+                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Rook, $capture));
+                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Bishop, $capture));
                 });
             };
         }
@@ -263,7 +280,7 @@ impl<'p> MoveGenState<'p> {
                     return;
                 }
 
-                self.moves.push(mv!(from ep $to));
+                self.moves.push_unchecked(mv!(from ep $to));
             };
         }
 
@@ -278,7 +295,7 @@ impl<'p> MoveGenState<'p> {
             add_regulars!(fwd_no_promo => up, false);
             add_promos!(fwd_promo => up, false);
             add_moves!(fwd2 => 2 * up, |from, to| {
-                self.moves.push(mv!(from -> to));
+                self.moves.push_unchecked(mv!(from -> to));
             });
         }
 
@@ -326,7 +343,11 @@ impl<'p> MoveGenState<'p> {
         }
     }
 
-    fn gen_castling_moves(&mut self) {
+    /// Generates castling moves for the current position
+    ///
+    /// # Safety
+    /// The move list must have space for the added moves.
+    unsafe fn gen_castling_moves(&mut self) {
         let mut gen_castling_move = |side| {
             if !self.position.castling.get(self.position.to_move, side) {
                 return;
@@ -342,7 +363,8 @@ impl<'p> MoveGenState<'p> {
             if ((castling_sqs & self.danger_sqs) | (no_occ_sqs & self.occupied)).is_empty() {
                 let king_sq = Square::king_starting(self.position.to_move);
                 let castling_sq = Square::king_castling_dest(self.position.to_move, side);
-                self.moves.push(Move::new_castling(king_sq, castling_sq));
+                self.moves
+                    .push_unchecked(Move::new_castling(king_sq, castling_sq));
             }
         };
 

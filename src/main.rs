@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
             let mut thread_pool = ThreadPool::new();
             let job = SearchJob::default_builder()
                 .position(Position::new())
-                .depth(7)
+                .depth(8)
                 .build();
             thread_pool
                 .set_num_threads(1)

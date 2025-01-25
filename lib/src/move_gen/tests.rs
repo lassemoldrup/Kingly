@@ -54,7 +54,9 @@ fn correct_pawn_moves_in_starting_position() {
     let position = Position::new();
     let mut state = get_and_init_state(&position);
 
-    state.gen_pawn_moves::<false>(!bb!());
+    unsafe {
+        state.gen_pawn_moves::<false>(!bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(A2 -> A4)));
@@ -70,7 +72,9 @@ fn correct_forward_pawn_moves_for_black() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_pawn_moves::<false>(!bb!());
+    unsafe {
+        state.gen_pawn_moves::<false>(!bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(A7 -> A5)));
@@ -86,7 +90,9 @@ fn correct_pawn_captures_for_white() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_pawn_moves::<false>(!bb!());
+    unsafe {
+        state.gen_pawn_moves::<false>(!bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(A4 x B5)));
@@ -101,7 +107,9 @@ fn correct_pawn_captures_for_black() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_pawn_moves::<false>(!bb!());
+    unsafe {
+        state.gen_pawn_moves::<false>(!bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(B5 x A4)));
@@ -116,7 +124,9 @@ fn correct_en_passant() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_pawn_moves::<false>(!bb!());
+    unsafe {
+        state.gen_pawn_moves::<false>(!bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(C5 ep D6)));
@@ -130,7 +140,9 @@ fn correct_promotions() {
         Position::from_fen("r1bqk2r/pP2bpPp/2n1p3/8/8/3P1P2/PPP4P/RNBQKBNR w KQ - 1 11").unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_pawn_moves::<false>(!bb!());
+    unsafe {
+        state.gen_pawn_moves::<false>(!bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(B7 x A8 n)));
@@ -147,7 +159,9 @@ fn correct_knight_moves_for_white() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::Knight, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::Knight, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(B1 -> A3)));
@@ -164,7 +178,9 @@ fn correct_knight_moves_for_black() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::Knight, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::Knight, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(C6 -> B8)));
@@ -181,7 +197,9 @@ fn correct_non_castling_king_moves_for_white() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::King, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::King, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(D3 x E3)));
@@ -196,7 +214,9 @@ fn correct_non_castling_king_moves_for_black() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::King, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::King, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(E6 -> D5)));
@@ -213,7 +233,9 @@ fn both_sides_castling_moves() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_castling_moves();
+    unsafe {
+        state.gen_castling_moves();
+    }
     let moves = state.moves;
 
     let king_side_count = moves.iter().filter(|&&m| m == mv!(O-O w)).count();
@@ -229,7 +251,9 @@ fn no_castling_through_pieces() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_castling_moves();
+    unsafe {
+        state.gen_castling_moves();
+    }
     let moves = state.moves;
 
     let king_side_count = moves.iter().filter(|&&m| m == mv!(O-O b)).count();
@@ -244,7 +268,9 @@ fn no_castling_through_attacks() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_castling_moves();
+    unsafe {
+        state.gen_castling_moves();
+    }
     let moves = state.moves;
 
     let queen_side_count = moves.iter().filter(|&&m| m == mv!(O-O-O w)).count();
@@ -259,7 +285,9 @@ fn no_castling_when_in_check() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_castling_moves();
+    unsafe {
+        state.gen_castling_moves();
+    }
     let moves = state.moves;
 
     assert!(!moves.contains(mv!(O-O b)));
@@ -272,7 +300,9 @@ fn correct_bishop_moves() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::Bishop, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::Bishop, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(C1 -> B2)));
@@ -290,7 +320,9 @@ fn correct_rook_moves() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::Rook, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::Rook, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(D5 -> D6)));
@@ -308,7 +340,9 @@ fn correct_queen_moves() {
     let position = Position::from_fen(fen).unwrap();
     let mut state = get_and_init_state(&position);
 
-    state.gen_non_pawn_moves::<false>(PieceKind::Queen, !bb!());
+    unsafe {
+        state.gen_non_pawn_moves::<false>(PieceKind::Queen, !bb!());
+    }
     let moves = state.moves;
 
     assert!(moves.contains(mv!(D4 -> D5)));

@@ -14,10 +14,11 @@ impl MoveList {
     }
 
     pub fn push(&mut self, m: Move) {
-        /*unsafe {
-            self.0.push_unchecked(m);
-        }*/
         self.0.push(m);
+    }
+
+    pub unsafe fn push_unchecked(&mut self, m: Move) {
+        self.0.push_unchecked(m);
     }
 
     pub fn contains(&self, m: Move) -> bool {
