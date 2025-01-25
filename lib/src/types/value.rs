@@ -134,7 +134,7 @@ impl Mul<i16> for Value {
     #[inline]
     fn mul(self, rhs: i16) -> Self::Output {
         let val = self.0 as i32 * rhs as i32;
-        dbg!(Self::from_i32_saturating(dbg!(val)))
+        Self::from_i32_saturating(val)
     }
 }
 

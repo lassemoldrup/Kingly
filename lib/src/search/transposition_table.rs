@@ -10,6 +10,8 @@ use crate::types::{Move, Value};
 
 type KeyAndEntry = (AtomicU64, AtomicU64);
 
+pub const DEFAULT_HASH_SIZE: usize = 256;
+
 /// Fixed size hash table for transpositions between positions.
 pub struct TranspositionTable {
     data: Vec<KeyAndEntry>,
@@ -18,9 +20,9 @@ pub struct TranspositionTable {
 }
 
 impl TranspositionTable {
-    /// Creates a table with 16 MB of space.
+    /// Creates a table with 256 MB of space.
     pub fn new() -> Self {
-        Self::with_hash_size(16)
+        Self::with_hash_size(DEFAULT_HASH_SIZE)
     }
 
     /// Creates a table with a given `hash_size` in MB

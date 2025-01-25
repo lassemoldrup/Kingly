@@ -18,11 +18,11 @@ use crate::MoveGen;
 use crate::{types::Move, Position};
 
 mod thread;
-pub use thread::{info_channel, InfoReceiver, InfoSender, SearchInfo, ThreadPool};
+pub use thread::{info_channel, InfoReceiver, InfoSender, SearchInfo, ThreadPool, DEFAULT_THREADS};
 #[cfg(test)]
 mod tests;
 mod transposition_table;
-pub use transposition_table::{Entry, TranspositionTable};
+pub use transposition_table::{Entry, TranspositionTable, DEFAULT_HASH_SIZE};
 pub mod trace;
 
 /// The result of a search.
@@ -175,6 +175,15 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
         }
 
         let static_eval = self.static_eval();
+
+        // Reverse futility pruning
+        const MAX_RFP_DEPTH: i8 = 3;
+        const RFP_MARGIN: Value = Value::centipawn(150);
+        if !check && depth > 0 && depth <= MAX_RFP_DEPTH && !N::IS_PV {
+            if static_eval >= beta + RFP_MARGIN * depth as i16 {
+                return Some((static_eval, ReturnKind::ReverseFutilityPruning.into()));
+            }
+        }
 
         // Null move pruning
         const NULL_MOVE_DEPTH: i8 = 3;

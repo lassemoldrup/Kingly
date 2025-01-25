@@ -6,7 +6,9 @@ use std::{panic, process, thread};
 
 use crossbeam::channel::{self, Receiver, Sender};
 use kingly_lib::position::{ParseFenError, STARTING_FEN};
-use kingly_lib::search::{info_channel, InfoSender, SearchInfo, SearchJob, ThreadPool};
+use kingly_lib::search::{
+    info_channel, InfoSender, SearchInfo, SearchJob, ThreadPool, DEFAULT_HASH_SIZE, DEFAULT_THREADS,
+};
 use kingly_lib::tables::Tables;
 use kingly_lib::time_mananger::TimeControl;
 use kingly_lib::types::{Color, IllegalMoveError, PseudoMove};
@@ -84,11 +86,13 @@ impl<W: Write> Uci<W> {
         // TODO: Add constant for max value.
         writeln!(
             self.write_handle,
-            "option name Hash type spin default 16 min 1 max 1048576"
+            "option name Hash type spin default {} min 1 max 1048576",
+            DEFAULT_HASH_SIZE
         )?;
         writeln!(
             self.write_handle,
-            "option name Threads type spin default 6 min 1 max 64"
+            "option name Threads type spin default {} min 1 max 64",
+            DEFAULT_THREADS
         )?;
         writeln!(self.write_handle, "uciok")?;
         self.write_handle.flush()

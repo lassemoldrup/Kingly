@@ -22,9 +22,8 @@ pub fn info_channel() -> (InfoSender, InfoReceiver) {
     channel::unbounded()
 }
 
-// Right now it seems that more than 6 threads is detrimental.
 /// The default number of threads to use for the search.
-pub const DEFAULT_THREADS: usize = 6;
+pub const DEFAULT_THREADS: usize = 1;
 
 /// A thread pool for running search jobs. Dropping the thread pool will stop
 /// the currently running search, and block until it finishes.
@@ -150,7 +149,8 @@ where
             return Err(SearchRunningError);
         }
 
-        self.t_table.store(Arc::new(TranspositionTable::with_hash_size(size)));
+        self.t_table
+            .store(Arc::new(TranspositionTable::with_hash_size(size)));
         Ok(())
     }
 
@@ -426,7 +426,7 @@ fn worker<E, O>(
             job.beta,
             job.search_start,
             Arc::clone(&kill_switch),
-            t_table.load_full()
+            t_table.load_full(),
         );
         let Ok(()) = result_tx.send(res) else {
             log::info!("Result channel closed, stopping worker {id}.");
