@@ -179,10 +179,12 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
         // Reverse futility pruning
         const MAX_RFP_DEPTH: i8 = 3;
         const RFP_MARGIN: Value = Value::centipawn(150);
-        if !check && depth > 0 && depth <= MAX_RFP_DEPTH && !N::IS_PV {
-            if static_eval >= beta + RFP_MARGIN * depth as i16 {
-                return Some((static_eval, ReturnKind::ReverseFutilityPruning.into()));
-            }
+        if !check
+            && depth <= MAX_RFP_DEPTH
+            && !N::IS_PV
+            && static_eval >= beta + RFP_MARGIN * depth as i16
+        {
+            return Some((static_eval, ReturnKind::ReverseFutilityPruning.into()));
         }
 
         // Null move pruning
