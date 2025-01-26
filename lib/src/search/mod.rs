@@ -3,7 +3,7 @@
 //! The main way to start a search is to create a [`ThreadPool`] and give it a
 //! [`SearchJob`] to run.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
