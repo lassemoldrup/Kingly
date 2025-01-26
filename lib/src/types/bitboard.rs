@@ -10,7 +10,7 @@ use super::{BoardVector, File, Rank, Square};
 macro_rules! bb {
     ( $( $sq:expr ),* $(,)? ) => { {
         #[allow(unused_imports)]
-        use Square::*;
+        use $crate::types::Square::*;
         $crate::types::Bitboard::new() $(.with_sq($sq) )*
     }};
 }
@@ -287,8 +287,6 @@ impl FusedIterator for Iter {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn sub_test() {
         assert_eq!(bb!(A1, A2) - bb!(A1, H8), bb!(A2));

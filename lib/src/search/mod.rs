@@ -3,7 +3,7 @@
 //! The main way to start a search is to create a [`ThreadPool`] and give it a
 //! [`SearchJob`] to run.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -240,13 +240,16 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
         }
 
         // Search remaining moves with null window
-        for &mv in &moves[1..] {
+        for (idx, &mv) in moves[1..].iter().enumerate() {
+            let depth_reduction = self.late_move_reduction::<N>(mv, idx as u8, depth - 1, check);
+            let new_depth = depth - 1 - depth_reduction;
+
             self.position.make_move(mv);
             params.stats.nodes += 1;
             let new_alpha = -alpha.dec_mate() - Value::centipawn(1);
             let new_beta = -alpha.dec_mate();
             self.on_node_enter::<NonPv>(new_alpha, new_beta, mv, false);
-            let res = self.pvs::<NonPv>(depth - 1, new_alpha, new_beta, params);
+            let res = self.pvs::<NonPv>(new_depth, new_alpha, new_beta, params);
             self.on_node_exit::<NonPv>(mv, res.clone());
 
             let Some(score) = res.map(|(s, _)| -s.inc_mate()) else {
@@ -379,6 +382,24 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
                 0
             }
         });
+    }
+
+    fn late_move_reduction<N: NodeType>(&self, mv: Move, idx: u8, depth: i8, check: bool) -> i8 {
+        if depth <= 2 || idx == 0 {
+            return 0;
+        }
+
+        let res = if mv.capture() || mv.promotion().is_some() {
+            0.20 + (idx.ilog2() * depth.ilog2()) as f64 / 3.35
+        } else {
+            1.35 + (idx.ilog2() * depth.ilog2()) as f64 / 2.75
+        };
+
+        if N::IS_PV || check {
+            ((res - 1.) as i8).max(0)
+        } else {
+            res as i8
+        }
     }
 
     fn gen_moves_and_check(&self) -> (MoveList, bool) {

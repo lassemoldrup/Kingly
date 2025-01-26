@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::move_gen::MoveGenState;
 use crate::position::Position;
 use crate::tables::Tables;
-use crate::types::{PieceKind, Square};
+use crate::types::PieceKind;
 use crate::{bb, mv};
 
 use super::MoveGen;
