@@ -264,10 +264,15 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
                 return Some((score, ReturnKind::FailHigh(mv).into()));
             }
 
-            if N::IS_PV && score > alpha {
-                self.on_node_enter::<Pv>(-beta.dec_mate(), -alpha.dec_mate(), mv, true);
-                let res = self.pvs::<Pv>(depth - 1, -beta.dec_mate(), -alpha.dec_mate(), params);
-                self.on_node_exit::<Pv>(mv, res.clone());
+            if score > alpha {
+                self.on_node_enter::<N::FirstChild>(-beta.dec_mate(), -alpha.dec_mate(), mv, true);
+                let res = self.pvs::<N::FirstChild>(
+                    depth - 1,
+                    -beta.dec_mate(),
+                    -alpha.dec_mate(),
+                    params,
+                );
+                self.on_node_exit::<N::FirstChild>(mv, res.clone());
                 self.position.unmake_move();
                 let score = -res?.0.inc_mate();
 
@@ -285,9 +290,6 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
                 if score > best_score {
                     best_score = score;
                     best_move = mv;
-                    if score > alpha {
-                        alpha = score;
-                    }
                 }
             }
         }
