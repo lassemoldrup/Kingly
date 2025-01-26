@@ -391,16 +391,21 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
             return 0;
         }
 
-        let res = if mv.capture() || mv.promotion().is_some() {
-            0.20 + (idx.ilog2() * depth.ilog2()) as f64 / 3.35
-        } else {
-            1.35 + (idx.ilog2() * depth.ilog2()) as f64 / 2.75
-        };
+        // let res = if mv.capture() || mv.promotion().is_some() {
+        //     0.20 + (idx.ilog2() * depth.ilog2()) as f64 / 3.35
+        // } else {
+        //     1.35 + (idx.ilog2() * depth.ilog2()) as f64 / 2.75
+        // };
 
+        // if N::IS_PV || check {
+        //     ((res - 1.) as i8).max(0)
+        // } else {
+        //     res as i8
+        // }
         if N::IS_PV || check {
-            ((res - 1.) as i8).max(0)
+            0
         } else {
-            res as i8
+            1
         }
     }
 
