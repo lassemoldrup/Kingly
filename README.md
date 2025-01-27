@@ -1,6 +1,7 @@
 # Kingly
 
 Kingly is a UCI compliant chess engine written in Rust.
+You can play against it on [lichess](https://lichess.org/@/KinglyBot), where it is currently 2000-2100 rated.
 
 ## How to use
 
@@ -24,36 +25,30 @@ For a graphical experience, add Kingly to your favorite UCI compliant GUI, e.g. 
 
 **Move Generation**
 
-- PEXT sliding piece attacks
-- Option to only generate captures
+- PEXT/PDEP based sliding piece attacks
 
-**Search**: Fail-Soft NegaMax-based AlphaBeta
+**Search**: Fail-Soft Principal Variation Search
 
 **Search Enhancements**
 
 - Iterative deepening
 - Quiescence search
 - Transposition table
-- Aspiration windows
-- Lazy SMP parallelization
-- Null move pruning
 - Check extensions
 - Move reordering based on PV and MVV-LVA
+- Aspiration windows
+- Null move pruning
+- Reverse Futility Pruning
 
-**Evaluation**: Naive piece count + mobility
+**Evaluation**: Piece/Square Tables
 
 **Other**
 
 - Graphical search debugging tool
 
-## Remaining tasks for the first version
+## Coming Soon™
 
-These tasks will need to be completed before version 0.1.0 is ready.
-
-- Extensive documentation
-- More tests
-- Proper benchmarking
-- Better eval
-- Endgame improvements
-- Time management AI
-- Magic bitboards fallback
+- Eval improvements
+- Lazy SMP parallelization
+- More search enhancements
+- Magic Bitboard fallback for move generation
