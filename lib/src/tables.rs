@@ -12,7 +12,7 @@ use rand_chacha::ChaCha20Rng;
 
 use crate::collections::SquareMap;
 use crate::types::{Bitboard, BoardVector, Color, File, Piece, PieceKind, Rank, Square};
-use crate::{bb, Position};
+use crate::{Position, bb};
 
 lazy_static! {
     static ref TABLES: Tables = {
@@ -306,7 +306,7 @@ impl SliderAttacks {
             }
             // Safety: The pointer is valid
             bishop_attacks[sq] =
-                unsafe { (*ptr).bishop[num_bishop_init..num_bishop_init + count as usize].into() };
+                unsafe { (&*ptr).bishop[num_bishop_init..num_bishop_init + count as usize].into() };
             num_bishop_init += count;
 
             let count = 1 << rook_masks[sq].len();
@@ -322,7 +322,7 @@ impl SliderAttacks {
             }
             // Safety: The pointer is valid
             rook_attacks[sq] =
-                unsafe { (*ptr).rook[num_rook_init..num_rook_init + count as usize].into() };
+                unsafe { (&*ptr).rook[num_rook_init..num_rook_init + count as usize].into() };
             num_rook_init += count;
         }
         assert_eq!(num_bishop_init, NUM_BISHOP_ATTACKS);
@@ -379,10 +379,10 @@ impl ZobristRandoms {
         // TODO: Test different seeds
         let mut rng = ChaCha20Rng::seed_from_u64(42);
         Self {
-            pieces: rng.gen(),
-            to_move: rng.gen(),
-            castling: rng.gen(),
-            en_passant: rng.gen(),
+            pieces: rng.random(),
+            to_move: rng.random(),
+            castling: rng.random(),
+            en_passant: rng.random(),
         }
     }
 }

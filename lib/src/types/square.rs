@@ -49,7 +49,7 @@ impl Square {
     #[inline]
     pub const unsafe fn from_unchecked(index: u8) -> Self {
         debug_assert!(index < 64);
-        mem::transmute(index)
+        unsafe { mem::transmute(index) }
     }
 
     #[inline]

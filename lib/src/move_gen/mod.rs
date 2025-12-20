@@ -178,13 +178,17 @@ impl<'p> MoveGenState<'p> {
             }
 
             for to in legal_atks & opp_occ {
-                self.moves.push_unchecked(mv!(from x to));
+                unsafe {
+                    self.moves.push_unchecked(mv!(from x to));
+                }
             }
 
             if !ONLY_CAPTURES {
                 let own_occ = self.position.pieces.occupied_for(self.position.to_move);
                 for to in legal_atks & !own_occ & !opp_occ {
-                    self.moves.push_unchecked(mv!(from -> to));
+                    unsafe {
+                        self.moves.push_unchecked(mv!(from -> to));
+                    }
                 }
             }
         }
@@ -243,7 +247,9 @@ impl<'p> MoveGenState<'p> {
         macro_rules! add_regulars {
             ( $bb:expr => $dir:expr, $capture:expr ) => {
                 add_moves!($bb => $dir, |from, to| {
-                    self.moves.push_unchecked(Move::new_regular(from, to, $capture));
+                    unsafe {
+                        self.moves.push_unchecked(Move::new_regular(from, to, $capture));
+                    }
                 });
             };
         }
@@ -251,10 +257,12 @@ impl<'p> MoveGenState<'p> {
         macro_rules! add_promos {
             ( $bb:expr => $dir:expr, $capture:expr ) => {
                 add_moves!($bb => $dir, |from, to| {
-                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Queen, $capture));
-                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Knight, $capture));
-                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Rook, $capture));
-                    self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Bishop, $capture));
+                    unsafe {
+                        self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Queen, $capture));
+                        self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Knight, $capture));
+                        self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Rook, $capture));
+                        self.moves.push_unchecked(Move::new_promotion(from, to, PieceKind::Bishop, $capture));
+                    }
                 });
             };
         }
@@ -280,7 +288,9 @@ impl<'p> MoveGenState<'p> {
                     return;
                 }
 
-                self.moves.push_unchecked(mv!(from ep $to));
+                unsafe {
+                    self.moves.push_unchecked(mv!(from ep $to));
+                }
             };
         }
 
@@ -295,7 +305,9 @@ impl<'p> MoveGenState<'p> {
             add_regulars!(fwd_no_promo => up, false);
             add_promos!(fwd_promo => up, false);
             add_moves!(fwd2 => 2 * up, |from, to| {
-                self.moves.push_unchecked(mv!(from -> to));
+                unsafe {
+                    self.moves.push_unchecked(mv!(from -> to));
+                }
             });
         }
 
@@ -363,8 +375,10 @@ impl<'p> MoveGenState<'p> {
             if ((castling_sqs & self.danger_sqs) | (no_occ_sqs & self.occupied)).is_empty() {
                 let king_sq = Square::king_starting(self.position.to_move);
                 let castling_sq = Square::king_castling_dest(self.position.to_move, side);
-                self.moves
-                    .push_unchecked(Move::new_castling(king_sq, castling_sq));
+                unsafe {
+                    self.moves
+                        .push_unchecked(Move::new_castling(king_sq, castling_sq));
+                }
             }
         };
 

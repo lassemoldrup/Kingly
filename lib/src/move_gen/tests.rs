@@ -42,7 +42,7 @@ fn test_perft() {
     println!("All Perft test positions passed")
 }
 
-fn get_and_init_state(position: &Position) -> MoveGenState {
+fn get_and_init_state(position: &Position) -> MoveGenState<'_> {
     let mut state = MoveGenState::new(position, Tables::get_or_init());
     state.set_pin_rays();
     state.set_danger_sqs();

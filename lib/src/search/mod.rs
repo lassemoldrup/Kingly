@@ -3,26 +3,26 @@
 //! The main way to start a search is to create a [`ThreadPool`] and give it a
 //! [`SearchJob`] to run.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
 use trace::{EmptyObserver, ReturnKind, SearchObserver};
 use transposition_table::Bound;
 
-use crate::collections::MoveList;
-use crate::eval::{piece_value, Eval, StandardEval};
-use crate::types::{value, IllegalMoveError, PseudoMove, Value};
 use crate::MoveGen;
-use crate::{types::Move, Position};
+use crate::collections::MoveList;
+use crate::eval::{Eval, StandardEval, piece_value};
+use crate::types::{IllegalMoveError, PseudoMove, Value, value};
+use crate::{Position, types::Move};
 
 mod thread;
-pub use thread::{info_channel, InfoReceiver, InfoSender, SearchInfo, ThreadPool, DEFAULT_THREADS};
+pub use thread::{DEFAULT_THREADS, InfoReceiver, InfoSender, SearchInfo, ThreadPool, info_channel};
 #[cfg(test)]
 mod tests;
 mod transposition_table;
-pub use transposition_table::{Entry, TranspositionTable, DEFAULT_HASH_SIZE};
+pub use transposition_table::{DEFAULT_HASH_SIZE, Entry, TranspositionTable};
 pub mod trace;
 
 /// The result of a search.
@@ -70,6 +70,7 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
         beta: Value,
         search_start: Instant,
         kill_switch: Arc<AtomicBool>,
+        ponder_hit: Arc<AtomicBool>,
         t_table: Arc<TranspositionTable>,
     ) -> SearchResult {
         let depth = self.limits.depth.expect("depth should be set");
@@ -81,6 +82,7 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
             },
             search_start,
             kill_switch,
+            ponder_hit,
             t_table,
             start_depth: depth,
         };
@@ -305,8 +307,14 @@ impl<E: Eval, O: SearchObserver> SearchJob<E, O> {
         if params.stats.nodes & ((1 << 11) - 1) != 0 {
             return false;
         }
-        params.kill_switch.load(Ordering::Relaxed)
-            || self.limits.nodes.is_some_and(|n| params.stats.nodes >= n)
+        if params.kill_switch.load(Ordering::Relaxed) {
+            return true;
+        }
+        if self.limits.ponder && !params.ponder_hit.load(Ordering::Relaxed) {
+            // While pondering, we must always keep searching
+            return false;
+        }
+        self.limits.nodes.is_some_and(|n| params.stats.nodes >= n)
             || self
                 .limits
                 .time
@@ -469,6 +477,7 @@ struct Limits {
     nodes: Option<u64>,
     time: Option<Duration>,
     allow_early_stop: bool,
+    ponder: bool,
 }
 
 /// The evaluation according to a search, including the score and principal
@@ -503,6 +512,7 @@ struct SearchParams {
     stats: SearchStats,
     search_start: Instant,
     kill_switch: Arc<AtomicBool>,
+    ponder_hit: Arc<AtomicBool>,
     t_table: Arc<TranspositionTable>,
     start_depth: i8,
 }
@@ -566,6 +576,13 @@ impl<E: Eval, O: SearchObserver> SearchJobBuilder<BuilderStateInit, E, O> {
     /// Sets whether to allow the search to stop early.
     pub fn allow_early_stop(mut self, allow: bool) -> Self {
         self.limits.allow_early_stop = allow;
+        self
+    }
+
+    /// Sets whether the search is a ponder search, which means it will not
+    /// stop until ponder_hit is called.
+    pub fn ponder(mut self, value: bool) -> Self {
+        self.limits.ponder = value;
         self
     }
 

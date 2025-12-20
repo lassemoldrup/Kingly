@@ -24,6 +24,7 @@ pub struct Uci<W> {
     // TODO: Switch to LazyCell, once DerefMut is stabilized
     position: Lazy<Position>,
     debug_mode: bool,
+    ponder: bool,
     thread_pool: Lazy<ThreadPool>,
 }
 
@@ -39,6 +40,7 @@ impl Uci<StdoutLock<'_>> {
             write_handle: io::stdout().lock(),
             position: Lazy::new(Position::new),
             debug_mode: false,
+            ponder: false,
             thread_pool: Lazy::new(ThreadPool::new),
         }
     }
@@ -72,7 +74,7 @@ impl<W: Write> Uci<W> {
                     let info = info.expect("sender is alive");
                     self.print_info(&info)?;
                     // Make sure that the engine is ready to search again
-                    if let SearchInfo::Finished(_) = info {
+                    if let SearchInfo::Finished{..} = info {
                         self.thread_pool.wait();
                     }
                 }
@@ -93,6 +95,10 @@ impl<W: Write> Uci<W> {
             self.write_handle,
             "option name Threads type spin default {} min 1 max 64",
             DEFAULT_THREADS
+        )?;
+        writeln!(
+            self.write_handle,
+            "option name Ponder type check default false"
         )?;
         writeln!(self.write_handle, "uciok")?;
         self.write_handle.flush()
@@ -127,8 +133,20 @@ impl<W: Write> Uci<W> {
                 }
                 writeln!(self.write_handle, " time {}", total_duration.as_millis())?;
             }
-            SearchInfo::Finished(best_mv) => {
-                writeln!(self.write_handle, "bestmove {}", best_mv)?;
+            SearchInfo::Finished {
+                best_move,
+                ponder_move: None,
+            } => {
+                writeln!(self.write_handle, "bestmove {best_move}")?;
+            }
+            SearchInfo::Finished {
+                best_move,
+                ponder_move: Some(ponder_move),
+            } => {
+                writeln!(
+                    self.write_handle,
+                    "bestmove {best_move} ponder {ponder_move}"
+                )?;
             }
         }
         self.write_handle.flush()
@@ -163,6 +181,9 @@ impl<W: Write> Uci<W> {
                     if self.thread_pool.set_num_threads(threads).is_err() {
                         self.print_debug("Cannot set threads while search is running")?;
                     }
+                }
+                UciOption::Ponder(value) => {
+                    self.ponder = value;
                 }
             },
             Command::UciNewGame => {
@@ -211,6 +232,9 @@ impl<W: Write> Uci<W> {
                             black_tc.get_or_insert_with(TimeControl::default).increment =
                                 Duration::from_millis(inc as u64);
                         }
+                        GoOption::Ponder => {
+                            builder = builder.ponder(true);
+                        }
                         _ => {
                             self.print_debug(format!("Unsupported option: {opt}"))?;
                         }
@@ -242,7 +266,9 @@ impl<W: Write> Uci<W> {
                 self.thread_pool.stop();
             }
             Command::PonderHit => {
-                self.print_debug("Unsupported command: ponderhit")?;
+                if self.thread_pool.ponder_hit().is_err() {
+                    self.print_debug("Search is not running")?;
+                }
             }
             Command::Quit => process::exit(0),
         }
@@ -287,6 +313,7 @@ enum Command {
 enum UciOption {
     Hash(usize),
     Threads(usize),
+    Ponder(bool),
 }
 
 impl Display for UciOption {
@@ -294,6 +321,7 @@ impl Display for UciOption {
         match self {
             UciOption::Hash(value) => write!(f, "Hash value {value}"),
             UciOption::Threads(value) => write!(f, "Threads value {value}"),
+            UciOption::Ponder(value) => write!(f, "Ponder value {value}"),
         }
     }
 }
@@ -352,6 +380,13 @@ impl FromStr for Command {
                         }
                         let value = parse_next_option(&mut opts)?;
                         Ok(Self::SetOption(UciOption::Threads(value)))
+                    }
+                    Some("Ponder") => {
+                        if opts.next() != Some("value") {
+                            return Err(ParseCommandError::MissingValueKeyword("Ponder".into()));
+                        }
+                        let value = parse_next_option(&mut opts)?;
+                        Ok(Self::SetOption(UciOption::Ponder(value)))
                     }
                     Some(name) => Err(ParseCommandError::UsupportedOption(name.into())),
                     None => Err(ParseCommandError::MissingOption),

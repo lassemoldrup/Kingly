@@ -1,18 +1,19 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use crate::eval::MaterialEval;
 use crate::mv;
 use crate::position::Position;
-use crate::search::thread::SearchInfo;
 use crate::search::ThreadPool;
-use crate::types::{value, Value};
+use crate::search::thread::SearchInfo;
+use crate::types::{Value, value};
 
 use super::{SearchEvaluation, SearchJob, TranspositionTable};
 
 fn search(position: Position, depth: i8) -> SearchEvaluation {
     let kill_switch = Arc::new(AtomicBool::new(false));
+    let ponder_hit = Arc::new(AtomicBool::new(false));
     let t_table = Arc::new(TranspositionTable::with_hash_size(1));
     SearchJob::default_builder()
         .position(position)
@@ -23,6 +24,7 @@ fn search(position: Position, depth: i8) -> SearchEvaluation {
             value::INF,
             Instant::now(),
             kill_switch,
+            ponder_hit,
             t_table,
         )
         .evaluation
@@ -31,6 +33,7 @@ fn search(position: Position, depth: i8) -> SearchEvaluation {
 
 fn search_material(position: Position, depth: i8) -> SearchEvaluation {
     let kill_switch = Arc::new(AtomicBool::new(false));
+    let ponder_hit = Arc::new(AtomicBool::new(false));
     let t_table = Arc::new(TranspositionTable::with_hash_size(1));
     SearchJob::builder(MaterialEval)
         .position(position)
@@ -41,6 +44,7 @@ fn search_material(position: Position, depth: i8) -> SearchEvaluation {
             value::INF,
             Instant::now(),
             kill_switch,
+            ponder_hit,
             t_table,
         )
         .evaluation
@@ -54,12 +58,12 @@ fn search_threaded(position: Position, depth: i8) -> SearchEvaluation {
         .depth(depth)
         .build();
     let rx = thread_pool.run(job).unwrap();
-    let SearchInfo::Finished(best_mv) = rx.iter().last().unwrap() else {
+    let SearchInfo::Finished { best_move, .. } = rx.iter().last().unwrap() else {
         panic!("Last search info was not Finished");
     };
     let result = thread_pool.wait().unwrap();
     let evaluation = result.evaluation.unwrap();
-    assert_eq!(evaluation.pv[0], best_mv);
+    assert_eq!(evaluation.pv[0], best_move);
     evaluation
 }
 

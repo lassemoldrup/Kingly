@@ -18,7 +18,9 @@ impl MoveList {
     }
 
     pub unsafe fn push_unchecked(&mut self, m: Move) {
-        self.0.push_unchecked(m);
+        unsafe {
+            self.0.push_unchecked(m);
+        }
     }
 
     pub fn contains(&self, m: Move) -> bool {
@@ -33,7 +35,7 @@ impl MoveList {
         self.0.is_empty()
     }
 
-    pub fn iter(&self) -> Iter<Move> {
+    pub fn iter(&self) -> Iter<'_, Move> {
         self.0.iter()
     }
 

@@ -1,7 +1,7 @@
 [package]
 name = "kingly-lib"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 crossbeam = "0.8"
@@ -12,8 +12,8 @@ itertools = "0.12"
 intmap = "2.0"
 lazy_static = "1.4"
 bitintr = "0.3"
-rand = { version = "0.8", features = ["min_const_gen"] }
-rand_chacha = "0.3"
+rand = { version = "0.9" }
+rand_chacha = "0.9"
 arrayvec = "0.7"
 log = "0.4"
 arc-swap = "1.7"

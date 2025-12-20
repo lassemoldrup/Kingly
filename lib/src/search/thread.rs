@@ -1,14 +1,15 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use crossbeam::channel::{self, Receiver, Sender};
+use crossbeam::sync::{Parker, Unparker};
 
+use crate::MoveGen;
 use crate::eval::{Eval, StandardEval};
 use crate::search::SearchStats;
-use crate::types::{value, Move, Value};
-use crate::MoveGen;
+use crate::types::{Move, Value, value};
 
 use super::trace::{EmptyObserver, SearchObserver};
 use super::{SearchEvaluation, SearchJob, SearchResult, TranspositionTable};
@@ -51,6 +52,10 @@ pub struct ThreadPool<E = StandardEval, O = EmptyObserver> {
     result_rx: Receiver<SearchResult>,
     result_tx: Sender<SearchResult>,
     kill_switch: Arc<AtomicBool>,
+    // While pondering, the search will not try to stop by itself. If the search is forced
+    // to end due to, e.g., mate, the thread will park, hence the unparker
+    ponder_hit: Arc<AtomicBool>,
+    ponder_hit_up: Option<Unparker>,
     t_table: Arc<ArcSwap<TranspositionTable>>,
     num_threads: usize,
 }
@@ -60,6 +65,9 @@ impl<E, O> ThreadPool<E, O> {
     /// Returns `None` if no search is running.
     pub fn stop(&mut self) -> Option<SearchResult> {
         self.kill_switch.store(true, Ordering::Relaxed);
+        if let Some(up) = self.ponder_hit_up.take() {
+            up.unpark();
+        }
         let res = self.wait();
         self.kill_switch.store(false, Ordering::Relaxed);
         res
@@ -72,6 +80,29 @@ impl<E, O> ThreadPool<E, O> {
             .take()
             .map(|h| h.join().expect("runner thread shouldn't panic"))
     }
+
+    /// Tell the running search that the search should now be treated as a
+    /// normal search. Only has an effect if the currently running job is a
+    /// ponder job. Returns an error, if no search is running.
+    pub fn ponder_hit(&mut self) -> Result<(), SearchNotRunningError> {
+        if let Some(up) = self.ponder_hit_up.take()
+            && self.is_running()
+        {
+            self.ponder_hit.store(true, Ordering::Relaxed);
+            up.unpark();
+            Ok(())
+        } else {
+            Err(SearchNotRunningError)
+        }
+    }
+
+    /// Returns true if a search is currently running.
+    pub fn is_running(&self) -> bool {
+        self.runner_thread
+            .as_ref()
+            .map(|h| !h.is_finished())
+            .unwrap_or(false)
+    }
 }
 
 impl<E, O> ThreadPool<E, O>
@@ -83,6 +114,7 @@ where
     pub fn new() -> Self {
         let num_threads = num_cpus::get().min(DEFAULT_THREADS);
         let kill_switch = Arc::new(AtomicBool::new(false));
+        let ponder_hit = Arc::new(AtomicBool::new(false));
         let t_table = Arc::new(ArcSwap::from_pointee(TranspositionTable::new()));
         let (result_tx, result_rx) = channel::unbounded();
         let mut worker_txs = Vec::with_capacity(num_threads);
@@ -92,9 +124,11 @@ where
             worker_txs.push(job_tx);
             let result_tx = result_tx.clone();
             let kill_switch = Arc::clone(&kill_switch);
+            let ponder_hit = Arc::clone(&ponder_hit);
             let t_table = Arc::clone(&t_table);
-            let worker =
-                std::thread::spawn(move || worker(job_rx, result_tx, kill_switch, t_table, id));
+            let worker = std::thread::spawn(move || {
+                worker(job_rx, result_tx, kill_switch, ponder_hit, t_table, id)
+            });
             worker_threads.push(worker);
         }
         Self {
@@ -104,6 +138,8 @@ where
             result_rx,
             result_tx,
             kill_switch,
+            ponder_hit,
+            ponder_hit_up: None,
             t_table,
             num_threads,
         }
@@ -128,17 +164,23 @@ where
             return Err(SearchRunningError);
         }
 
+        let ponder_hit_p = Parker::new();
+        let ponder_hit_up = ponder_hit_p.unparker().clone();
+        self.ponder_hit.store(false, Ordering::SeqCst);
         let runner = ThreadedRunner::new(
             job,
             info_tx,
             Arc::clone(&self.worker_txs),
             self.result_rx.clone(),
             Arc::clone(&self.kill_switch),
+            Arc::clone(&self.ponder_hit),
+            ponder_hit_p,
             Arc::clone(&self.t_table),
             self.num_threads,
         );
         let runner_thread = std::thread::spawn(move || runner.run());
         self.runner_thread = Some(runner_thread);
+        self.ponder_hit_up = Some(ponder_hit_up);
         Ok(())
     }
 
@@ -183,9 +225,11 @@ where
                 worker_txs.push(job_tx);
                 let result_tx = self.result_tx.clone();
                 let kill_switch = Arc::clone(&self.kill_switch);
+                let ponder_hit = Arc::clone(&self.ponder_hit);
                 let t_table = Arc::clone(&self.t_table);
-                let worker =
-                    std::thread::spawn(move || worker(job_rx, result_tx, kill_switch, t_table, id));
+                let worker = std::thread::spawn(move || {
+                    worker(job_rx, result_tx, kill_switch, ponder_hit, t_table, id)
+                });
                 self.worker_threads.push(worker);
             }
             self.worker_txs = worker_txs.into();
@@ -193,14 +237,6 @@ where
 
         self.num_threads = num_threads;
         Ok(())
-    }
-
-    /// Returns true if a search is currently running.
-    pub fn is_running(&self) -> bool {
-        self.runner_thread
-            .as_ref()
-            .map(|h| !h.is_finished())
-            .unwrap_or(false)
     }
 }
 
@@ -222,6 +258,8 @@ struct ThreadedRunner<E, O> {
     worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
     result_rx: Receiver<SearchResult>,
     kill_switch: Arc<AtomicBool>,
+    ponder_hit: Arc<AtomicBool>,
+    ponder_hit_p: Parker,
     t_table: Arc<ArcSwap<TranspositionTable>>,
     num_threads: usize,
     search_start: Instant,
@@ -240,6 +278,8 @@ where
         worker_txs: Arc<[Sender<WorkerJob<E, O>>]>,
         result_rx: Receiver<SearchResult>,
         kill_switch: Arc<AtomicBool>,
+        ponder_hit: Arc<AtomicBool>,
+        ponder_hit_p: Parker,
         t_table: Arc<ArcSwap<TranspositionTable>>,
         num_threads: usize,
     ) -> Self {
@@ -249,6 +289,8 @@ where
             worker_txs,
             result_rx,
             kill_switch,
+            ponder_hit,
+            ponder_hit_p,
             t_table,
             num_threads,
             search_start: Instant::now(),
@@ -326,7 +368,9 @@ where
             }
 
             // Decide if we should stop early
-            if self.job.limits.allow_early_stop {
+            if self.job.limits.allow_early_stop
+                && (!self.job.limits.ponder || self.ponder_hit.load(Ordering::Relaxed))
+            {
                 let moves = MoveGen::init().gen_all_moves(&self.job.position);
                 if moves.len() == 1 {
                     log::trace!("Only one move, stopping early.");
@@ -344,6 +388,10 @@ where
             }
         }
 
+        if self.job.limits.ponder {
+            self.ponder_hit_p.park();
+        }
+
         log::info!("Search finished, clearing t-table.");
         let best_move = self
             .result
@@ -354,7 +402,12 @@ where
                 log::warn!("No best move found, returning first move.");
                 MoveGen::init().gen_all_moves(&self.job.position)[0]
             });
-        let info = SearchInfo::Finished(best_move);
+        self.job.position.make_move(best_move);
+        let ponder_move = t_table.get(&self.job.position).map(|e| e.best_move);
+        let info = SearchInfo::Finished {
+            best_move,
+            ponder_move,
+        };
         if self.info_tx.send(info).is_err() {
             log::warn!("Info channel closed.");
         }
@@ -414,6 +467,7 @@ fn worker<E, O>(
     job_rx: Receiver<WorkerJob<E, O>>,
     result_tx: Sender<SearchResult>,
     kill_switch: Arc<AtomicBool>,
+    ponder_hit: Arc<AtomicBool>,
     t_table: Arc<ArcSwap<TranspositionTable>>,
     id: usize,
 ) where
@@ -426,6 +480,7 @@ fn worker<E, O>(
             job.beta,
             job.search_start,
             Arc::clone(&kill_switch),
+            Arc::clone(&ponder_hit),
             t_table.load_full(),
         );
         let Ok(()) = result_tx.send(res) else {
@@ -454,8 +509,12 @@ pub enum SearchInfo {
         /// The fullness of the hash table as a per mille value.
         hash_full: u32,
     },
-    /// The best move found by the search.
-    Finished(Move),
+    Finished {
+        /// The best move found by the search.
+        best_move: Move,
+        /// The move that the engine would like to ponder on.
+        ponder_move: Option<Move>,
+    },
 }
 
 impl SearchInfo {
@@ -485,3 +544,8 @@ impl SearchInfo {
 #[derive(Debug, thiserror::Error)]
 #[error("search is running")]
 pub struct SearchRunningError;
+
+/// An error indicating that a search is not running.
+#[derive(Debug, thiserror::Error)]
+#[error("search is not running")]
+pub struct SearchNotRunningError;
