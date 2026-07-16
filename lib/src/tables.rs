@@ -4,7 +4,6 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
-use bitintr::{Pdep, Pext};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use rand::{Rng, SeedableRng};
@@ -204,16 +203,30 @@ impl Tables {
 
     pub fn gen_bishop_attacks(&self, occ: Bitboard, sq: Square) -> Bitboard {
         let bishop_attacks = self.slider_attacks.bishop_attacks(sq);
-        let occ: u64 = occ.into();
-        let key = occ.pext(self.bishop_masks[sq].into()) as usize;
+        let key = self.occ_to_key(occ, self.bishop_masks[sq]);
         unsafe { *bishop_attacks.get_unchecked(key) }
     }
 
     pub fn gen_rook_attacks(&self, occ: Bitboard, sq: Square) -> Bitboard {
         let rook_attacks = self.slider_attacks.rook_attacks(sq);
-        let occ: u64 = occ.into();
-        let key = occ.pext(self.rook_masks[sq].into()) as usize;
+        let key = self.occ_to_key(occ, self.rook_masks[sq]);
         unsafe { *rook_attacks.get_unchecked(key) }
+    }
+
+    fn occ_to_key(&self, occ: Bitboard, attacks: Bitboard) -> usize {
+        let occ: u64 = occ.into();
+        let attacks: u64 = attacks.into();
+        let key = cfg_select! {
+            target_feature = "bmi2" => unsafe {
+                std::arch::x86_64::_pext_u64(occ, attacks) as usize
+            }
+            all(feature = "nightly", target_feature = "sve2-bitperm") => unsafe {
+                let sv_occ: svuint64_t = core::arch::aarch64::svdup_n_u64(occ);
+                let sv_key: svuint64_t = std::arch::aarch64::svbext_n_u64(sv_occ, attacks);
+                core::arch::aarch64::svlastb_u64(core::arch::aarch64::svpfalse_b(), sv_key) as usize
+            }
+        };
+        key
     }
 
     pub fn gen_attacks_from_sq(&self, occ: Bitboard, pce: Piece, sq: Square) -> Bitboard {
@@ -298,7 +311,7 @@ impl SliderAttacks {
             for key in 0..count as u64 {
                 // Place the occupancy bits of `key` on the squares that are relevant for a
                 // bishop on `sq`
-                let occ_bb = key.pdep(bishop_masks[sq].into()).into();
+                let occ_bb = key_to_occ(key, bishop_masks[sq].into());
                 let atk_bb = gen_bishop_attacks_slow(sq, occ_bb);
                 let idx = num_bishop_init + key as usize;
                 // Safety: The pointer is valid
@@ -314,7 +327,7 @@ impl SliderAttacks {
             for key in 0..count as u64 {
                 // Place the occupancy bits of `key` on the squares that are relevant for a rook
                 // on `sq`
-                let occ_bb = key.pdep(rook_masks[sq].into()).into();
+                let occ_bb = key_to_occ(key, rook_masks[sq]);
                 let atk_bb = gen_rook_attacks_slow(sq, occ_bb);
                 let idx = num_rook_init + key as usize;
                 // Safety: The pointer is valid
@@ -353,6 +366,21 @@ impl SliderAttacks {
         // correct slice
         unsafe { self.rook_attacks[sq].as_ref() }
     }
+}
+
+fn key_to_occ(key: u64, attacks: Bitboard) -> Bitboard {
+    let attacks: u64 = attacks.into();
+    let occ = cfg_select! {
+        target_feature = "bmi2" => unsafe {
+            std::arch::x86_64::_pdep_u64(key, attacks)
+        }
+        all(feature = "nightly", target_feature = "sve2-bitperm") => unsafe {
+            let sv_key: svuint64_t = core::arch::aarch64::svdup_n_u64(key);
+            let sv_occ: svuint64_t = std::arch::aarch64::svbdep_n_u64(sv_key, attacks);
+            core::arch::aarch64::svlastb_u64(core::arch::aarch64::svpfalse_b(), sv_occ)
+        }
+    };
+    occ.into()
 }
 
 // Safety: The API only allows for read-only access to the tables

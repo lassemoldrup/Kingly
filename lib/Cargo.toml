@@ -3,6 +3,9 @@ name = "kingly-lib"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+nightly = []
+
 [dependencies]
 crossbeam = "0.8"
 num_cpus = "1.16"
@@ -11,7 +14,6 @@ thiserror = "1.0"
 itertools = "0.12"
 intmap = "2.0"
 lazy_static = "1.4"
-bitintr = "0.3"
 rand = { version = "0.9" }
 rand_chacha = "0.9"
 arrayvec = "0.7"

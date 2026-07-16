@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "nightly", feature(stdarch_aarch64_sve))]
+
 pub mod collections;
 pub mod eval;
 pub mod move_gen;
