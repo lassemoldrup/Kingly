@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 use crossbeam::deque::{Injector, Stealer, Worker};
 use kingly_lib::types::{Bitboard, BoardVector, File, Rank, Square};
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 
 const ROOK_MAGIC_BITS: u64 = 11;
 const LANES: usize = 4;
@@ -33,8 +33,12 @@ struct App {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Randomly sample sparse magics across all cores until one works.
+    /// Randomly sample magics across all cores until one works, shaping each
+    /// candidate around the index-window structure (see `Sampler`).
     Random {
+        /// The number of extra random bits sprinkled into the index windows.
+        #[clap(long, default_value_t = 3)]
+        extra_bits: u32,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -53,7 +57,13 @@ fn main() {
     let precheck = Precheck::new(app.square);
 
     match app.command {
-        Command::Random { single_threaded } => run_random(&occ_sets, &precheck, single_threaded),
+        Command::Random {
+            extra_bits,
+            single_threaded,
+        } => {
+            let sampler = Sampler::new(app.square, extra_bits);
+            run_random(&occ_sets, &precheck, &sampler, single_threaded)
+        }
         Command::Dfs {
             max_bits,
             single_threaded,
@@ -61,7 +71,12 @@ fn main() {
     }
 }
 
-fn run_random(occ_sets: &[OccupancySet], precheck: &Precheck, single_threaded: bool) {
+fn run_random(
+    occ_sets: &[OccupancySet],
+    precheck: &Precheck,
+    sampler: &Sampler,
+    single_threaded: bool,
+) {
     let worker_count = if single_threaded {
         1
     } else {
@@ -79,7 +94,15 @@ fn run_random(occ_sets: &[OccupancySet], precheck: &Precheck, single_threaded: b
             let found = &found;
             let tried_counts = &tried_counts;
             scope.spawn(move || {
-                random_worker(worker_id, occ_sets, precheck, found, tried_counts, start);
+                random_worker(
+                    worker_id,
+                    occ_sets,
+                    precheck,
+                    sampler,
+                    found,
+                    tried_counts,
+                    start,
+                );
             });
         }
     });
@@ -89,6 +112,7 @@ fn random_worker(
     worker_id: usize,
     occ_sets: &[OccupancySet],
     precheck: &Precheck,
+    sampler: &Sampler,
     found: &AtomicBool,
     tried_counts: &[AtomicU64],
     start: Instant,
@@ -99,7 +123,7 @@ fn random_worker(
     let mut local_count = 0u64;
 
     while !found.load(Ordering::Relaxed) {
-        let magic = rng.next_u64() & rng.next_u64() & rng.next_u64();
+        let magic = sampler.sample(&mut rng);
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
@@ -289,9 +313,9 @@ fn try_magic(
     const SHIFT: SimdU64 = SimdU64::splat(64 - ROOK_MAGIC_BITS);
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
 
-    if !precheck.passes(magic) {
-        return 0;
-    }
+    // if !precheck.passes(magic) {
+    //     return 0;
+    // }
 
     let magic = SimdU64::splat(magic);
     idxs.fill(usize::MAX);
@@ -459,6 +483,117 @@ impl Bucket {
             .flat_map(move |chunk| self.extract(chunk, half).to_array())
             .take(self.len)
     }
+}
+
+/// The index windows `[53 - k, 63 - k]` of the magic (see [`Precheck`]) as
+/// `(low, length)` pairs, truncated at bit 0 for blocker bits above 53.
+fn index_windows(sq: Square) -> Vec<(u32, u32)> {
+    relevant_occupancy_squares(sq)
+        .into_iter()
+        .map(|bit| {
+            let k = u32::from(bit);
+            let low = (64 - ROOK_MAGIC_BITS as u32).saturating_sub(k);
+            (low, 64 - k - low)
+        })
+        .collect()
+}
+
+/// Samples candidate magics for the random search, shaped by the structure of
+/// the single-blocker index windows (see [`Precheck`]):
+///
+/// - Every window gets at least one bit, so no sample trivially collides with
+///   the empty board.
+/// - A window holding a single bit at in-window offset `e` has the power-of-two
+///   index `1 << e`, so two such windows with equal offsets conflict. Bits are
+///   therefore placed on pairwise-distinct offsets. Sharing one physical bit
+///   between overlapping windows stays possible and is safe, since the offsets
+///   differ by construction.
+/// - A corner square has more windows than there are distinct offsets, so a
+///   valid magic must hold at least two bits in some window; one randomly
+///   chosen window always gets two.
+/// - Extra bits are drawn from the union of the windows, since bits outside
+///   every window only act on the index through carries.
+struct Sampler {
+    /// The index windows as `(low, length)` pairs, shortest first so that the
+    /// greedy offset assignment in [`Self::sample`] serves the most
+    /// constrained (truncated) windows before the offsets run out.
+    windows: Vec<(u32, u32)>,
+    /// The bit positions covered by at least one window.
+    union_positions: Vec<u32>,
+    /// The number of extra bits sprinkled into random windows.
+    extra_bits: u32,
+}
+
+impl Sampler {
+    fn new(sq: Square, extra_bits: u32) -> Self {
+        let mut windows = index_windows(sq);
+        windows.sort_by_key(|&(_, len)| len);
+
+        let mut union_mask = 0u64;
+        for &(low, len) in &windows {
+            union_mask |= ((1 << len) - 1) << low;
+        }
+        let union_positions = (0..64).filter(|p| union_mask & (1 << p) != 0).collect();
+
+        Self {
+            windows,
+            union_positions,
+            extra_bits,
+        }
+    }
+
+    fn sample(&self, rng: &mut impl Rng) -> u64 {
+        const NUM_OFFSETS: u32 = ROOK_MAGIC_BITS as u32;
+
+        let mut magic = 0;
+        let doubled = rng.random_range(0..self.windows.len());
+        let mut used_offsets = 0u16;
+
+        for (i, &(low, len)) in self.windows.iter().enumerate() {
+            if i == doubled && len >= 2 {
+                // Two distinct bits; a multi-bit window sidesteps the
+                // power-of-two pigeonhole entirely, so it does not take part
+                // in the offset assignment.
+                let first = rng.random_range(0..len);
+                let mut second = rng.random_range(0..len - 1);
+                if second >= first {
+                    second += 1;
+                }
+                magic |= 1 << (low + first);
+                magic |= 1 << (low + second);
+                continue;
+            }
+
+            // A truncated window of length `len` only reaches the offsets
+            // `[NUM_OFFSETS - len, NUM_OFFSETS)`.
+            let min_offset = NUM_OFFSETS - len;
+            let feasible = !((1u16 << min_offset) - 1) & ((1u16 << NUM_OFFSETS) - 1);
+            let unused = feasible & !used_offsets;
+            let offset = if unused != 0 {
+                random_set_bit(rng, unused)
+            } else {
+                min_offset + rng.random_range(0..len)
+            };
+            used_offsets |= 1 << offset;
+            magic |= 1 << (low + offset - min_offset);
+        }
+
+        for _ in 0..self.extra_bits {
+            let position = self.union_positions[rng.random_range(0..self.union_positions.len())];
+            magic |= 1 << position;
+        }
+        magic
+    }
+}
+
+/// Picks a uniformly random set bit of `mask` and returns its index.
+fn random_set_bit(rng: &mut impl Rng, mask: u16) -> u32 {
+    let n = rng.random_range(0..mask.count_ones());
+    let mut remaining = mask;
+    for _ in 0..n {
+        remaining &= remaining - 1;
+    }
+    remaining.trailing_zeros()
 }
 
 /// The bit indices of the squares a rook on `sq` slides over, excluding the
@@ -702,6 +837,28 @@ mod tests {
                     naive(magic),
                     "magic {magic:#x} on {sq}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn test_sampler_covers_windows() {
+        let mut rng = SmallRng::seed_from_u64(42);
+
+        for sq in [Square::A1, Square::A4, Square::H8] {
+            let sampler = Sampler::new(sq, 3);
+            let squares = relevant_occupancy_squares(sq);
+            for _ in 0..1_000 {
+                let magic = sampler.sample(&mut rng);
+                let mut multi_bit_window = false;
+                for &bit in &squares {
+                    // Every single-blocker index is non-zero by construction.
+                    let index = (magic << bit) >> (64 - ROOK_MAGIC_BITS);
+                    assert_ne!(index, 0);
+                    multi_bit_window |= index.count_ones() >= 2;
+                }
+                // The doubled window guarantees a multi-bit index somewhere.
+                assert!(multi_bit_window);
             }
         }
     }
