@@ -16,9 +16,11 @@ use rand::{Rng, SeedableRng};
 
 const ROOK_MAGIC_BITS: u64 = 11;
 const LANES: usize = 4;
+const LANES_U32: usize = 2 * LANES;
 
 type SimdU64 = Simd<u64, LANES>;
 type SimdUsize = Simd<usize, LANES>;
+type SimdU32 = Simd<u32, LANES_U32>;
 
 #[derive(Parser)]
 struct App {
@@ -48,7 +50,7 @@ enum Command {
 fn main() {
     let app = App::parse();
     let occ_sets = rook_occupancy_sets(app.square);
-    let precheck = precheck_masks(app.square);
+    let precheck = Precheck::new(app.square);
 
     match app.command {
         Command::Random { single_threaded } => run_random(&occ_sets, &precheck, single_threaded),
@@ -59,7 +61,7 @@ fn main() {
     }
 }
 
-fn run_random(occ_sets: &[OccupancySet], precheck: &[SimdU64], single_threaded: bool) {
+fn run_random(occ_sets: &[OccupancySet], precheck: &Precheck, single_threaded: bool) {
     let worker_count = if single_threaded {
         1
     } else {
@@ -86,7 +88,7 @@ fn run_random(occ_sets: &[OccupancySet], precheck: &[SimdU64], single_threaded: 
 fn random_worker(
     worker_id: usize,
     occ_sets: &[OccupancySet],
-    precheck: &[SimdU64],
+    precheck: &Precheck,
     found: &AtomicBool,
     tried_counts: &[AtomicU64],
     start: Instant,
@@ -108,7 +110,7 @@ fn random_worker(
             return;
         }
 
-        if is_reporter && local_count % 100_000 == 0 {
+        if is_reporter && local_count % 1_000_000 == 0 {
             let count = tried_counts
                 .iter()
                 .map(|counter| counter.load(Ordering::Relaxed))
@@ -118,7 +120,7 @@ fn random_worker(
     }
 }
 
-fn run_dfs(occ_sets: &[OccupancySet], precheck: &[SimdU64], max_bits: u32, single_threaded: bool) {
+fn run_dfs(occ_sets: &[OccupancySet], precheck: &Precheck, max_bits: u32, single_threaded: bool) {
     let worker_count = if single_threaded {
         1
     } else {
@@ -177,7 +179,7 @@ fn dfs_worker(
     injector: &Injector<u64>,
     stealers: &[Stealer<u64>],
     occ_sets: &[OccupancySet],
-    precheck: &[SimdU64],
+    precheck: &Precheck,
     max_bits: u32,
     found: &AtomicBool,
     active: &AtomicUsize,
@@ -281,25 +283,17 @@ fn report(tried: u64, start: Instant) {
 fn try_magic(
     magic: u64,
     occ_sets: &[OccupancySet],
-    precheck: &[SimdU64],
+    precheck: &Precheck,
     idxs: &mut [usize; 1 << ROOK_MAGIC_BITS],
 ) -> usize {
     const SHIFT: SimdU64 = SimdU64::splat(64 - ROOK_MAGIC_BITS);
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
-    const ZERO: SimdU64 = SimdU64::splat(0);
-    let magic = SimdU64::splat(magic);
 
-    // Pre-check: every single-blocker occupancy has a different attack set than
-    // the empty board, which always hashes to index 0, so each must hash to a
-    // non-zero index. `precheck` holds one index-window mask per relevant
-    // square; if `magic` misses any window, that occupancy would collide with
-    // the empty board and the magic cannot work.
-    for &mask in precheck {
-        if (mask & magic).simd_eq(ZERO).any() {
-            return 0;
-        }
+    if !precheck.passes(magic) {
+        return 0;
     }
 
+    let magic = SimdU64::splat(magic);
     idxs.fill(usize::MAX);
 
     let mut hits = 0;
@@ -320,31 +314,151 @@ fn try_magic(
     hits
 }
 
-/// Builds the pre-check index-window masks for a rook on `sq`, packed into SIMD
-/// lanes. For a blocker on relevant square `k`, the hash index is the top
-/// `ROOK_MAGIC_BITS` bits of `magic << k`, which is non-zero iff `magic` has a
-/// bit set in the window `magic & (index_window >> k)`.
-fn precheck_masks(sq: Square) -> Vec<SimdU64> {
-    const SHIFT: u64 = 64 - ROOK_MAGIC_BITS;
-    let index_window = ((1u64 << ROOK_MAGIC_BITS) - 1) << SHIFT;
+/// A cheap necessary condition on a magic, checked before the full table test.
+///
+/// The empty board always hashes to index 0, and every single-blocker
+/// occupancy has an attack set that differs from the empty board *and* from
+/// every other single-blocker occupancy. Their indices must therefore be
+/// pairwise distinct and non-zero. A single-blocker product is carry-free
+/// (`(1 << k) * magic == magic << k`), so its index is the bit window
+/// `[53 - k, 63 - k]` of the magic itself, which can be extracted without
+/// running the table.
+///
+/// A window is at most `ROOK_MAGIC_BITS` bits wide, so it fits entirely in at
+/// least one of the 32-bit halves `[0, 31]`, `[32, 63]` or `[16, 47]` of the
+/// magic (a window crossing the 32-bit boundary spans at most `[22, 41]`).
+/// Grouping the windows by half lets us extract them with 32-bit lane shifts,
+/// twice as many per SIMD op as with 64-bit lanes.
+struct Precheck {
+    /// Windows within magic bits `[0, 31]`.
+    lo: Bucket,
+    /// Windows within magic bits `[32, 63]`.
+    hi: Bucket,
+    /// Windows within magic bits `[16, 47]`.
+    mid: Bucket,
+}
 
-    let mut masks: Vec<u64> = relevant_occupancy_squares(sq)
-        .into_iter()
-        .map(|bit| index_window >> bit)
-        .collect();
+impl Precheck {
+    fn new(sq: Square) -> Self {
+        const SHIFT: u64 = 64 - ROOK_MAGIC_BITS;
+        let index_window = ((1u64 << ROOK_MAGIC_BITS) - 1) << SHIFT;
 
-    // Pad to a whole number of lanes by repeating a real mask, so the SIMD tail
-    // re-checks an existing (necessary) condition instead of a bogus one.
-    while masks.len() % LANES != 0 {
-        masks.push(masks[0]);
+        let mut lo = Vec::new();
+        let mut hi = Vec::new();
+        let mut mid = Vec::new();
+        for bit in relevant_occupancy_squares(sq) {
+            let k = u64::from(bit);
+            let mask = index_window >> k;
+            // Each window gets a `(right, left)` shift pair such that its
+            // index value is `((half >> right) << left) & INDEX_MASK`.
+            if k > SHIFT {
+                // The window is truncated to `[0, 63 - k]`; the index has its
+                // low `k - 53` bits at zero.
+                debug_assert_eq!(mask & 0xFFFF_FFFF_0000_0000, 0);
+                lo.push((0, (k - SHIFT) as u32));
+            } else if mask & 0xFFFF_FFFF_0000_0000 == 0 {
+                lo.push(((SHIFT - k) as u32, 0));
+            } else if mask & 0x0000_0000_FFFF_FFFF == 0 {
+                hi.push(((SHIFT - k) as u32 - 32, 0));
+            } else {
+                debug_assert_eq!(mask & !(0xFFFF_FFFF << 16), 0);
+                mid.push(((SHIFT - k) as u32 - 16, 0));
+            }
+        }
+
+        Self {
+            lo: Bucket::new(lo),
+            hi: Bucket::new(hi),
+            mid: Bucket::new(mid),
+        }
     }
 
-    masks
-        .as_chunks::<LANES>()
-        .0
-        .iter()
-        .map(|&chunk| SimdU64::from_array(chunk))
-        .collect()
+    /// Returns false if `magic` cannot possibly be valid.
+    fn passes(&self, magic: u64) -> bool {
+        let lo = SimdU32::splat(magic as u32);
+        let hi = SimdU32::splat((magic >> 32) as u32);
+        let mid = SimdU32::splat((magic >> 16) as u32);
+
+        // Cheap gate first: every window must be non-zero, i.e. distinct from
+        // the empty board's reserved index 0. Only survivors pay for the
+        // conflict check below.
+        if !(self.hi.all_non_zero(hi) && self.mid.all_non_zero(mid) && self.lo.all_non_zero(lo)) {
+            return false;
+        }
+
+        // Conflict check: a repeated index means two single-blocker
+        // occupancies would collide despite having different attack sets.
+        // With at most 12 windows, brute-force pairwise comparison beats any
+        // set structure.
+        let mut values = [0; 16];
+        let mut count = 0;
+        let all_values = (self.hi.values(hi))
+            .chain(self.mid.values(mid))
+            .chain(self.lo.values(lo));
+        for value in all_values {
+            if values[..count].contains(&value) {
+                return false;
+            }
+            values[count] = value;
+            count += 1;
+        }
+        true
+    }
+}
+
+/// The pre-check windows contained in one 32-bit half of the magic, as
+/// SIMD-chunked lane shifts.
+struct Bucket {
+    right_shifts: Vec<SimdU32>,
+    left_shifts: Vec<SimdU32>,
+    /// The number of real windows, excluding padding lanes.
+    len: usize,
+}
+
+impl Bucket {
+    const INDEX_MASK: SimdU32 = SimdU32::splat((1 << ROOK_MAGIC_BITS) - 1);
+
+    fn new(mut shifts: Vec<(u32, u32)>) -> Self {
+        let len = shifts.len();
+        // Pad to a whole number of lanes by repeating a real shift pair, so
+        // the SIMD tail re-extracts an existing window. The duplicate values
+        // pass the non-zero gate iff the original does and are excluded from
+        // the conflict check by `len`.
+        if let Some(&first) = shifts.first() {
+            while shifts.len() % LANES_U32 != 0 {
+                shifts.push(first);
+            }
+        }
+        let (chunks, _rem) = shifts.as_chunks::<LANES_U32>();
+        Self {
+            right_shifts: chunks
+                .iter()
+                .map(|&chunk| SimdU32::from_array(chunk.map(|(right, _)| right)))
+                .collect(),
+            left_shifts: chunks
+                .iter()
+                .map(|&chunk| SimdU32::from_array(chunk.map(|(_, left)| left)))
+                .collect(),
+            len,
+        }
+    }
+
+    /// Extracts the window index values for one chunk.
+    fn extract(&self, chunk: usize, half: SimdU32) -> SimdU32 {
+        ((half >> self.right_shifts[chunk]) << self.left_shifts[chunk]) & Self::INDEX_MASK
+    }
+
+    fn all_non_zero(&self, half: SimdU32) -> bool {
+        const ZERO: SimdU32 = SimdU32::splat(0);
+        (0..self.right_shifts.len()).all(|chunk| self.extract(chunk, half).simd_ne(ZERO).all())
+    }
+
+    /// The window index values of the real (un-padded) windows.
+    fn values(&self, half: SimdU32) -> impl Iterator<Item = u32> + '_ {
+        (0..self.right_shifts.len())
+            .flat_map(move |chunk| self.extract(chunk, half).to_array())
+            .take(self.len)
+    }
 }
 
 /// The bit indices of the squares a rook on `sq` slides over, excluding the
@@ -547,20 +661,48 @@ mod tests {
     }
 
     #[test]
-    fn test_precheck_masks_match_old_a1() {
-        // The old hand-written A1 masks, as a reference for the general builder.
-        let old: std::collections::HashSet<u64> = [1, 2, 3, 4, 5, 6, 8, 16, 24, 32, 40, 48]
-            .into_iter()
-            .map(|s: u64| ((1u64 << ROOK_MAGIC_BITS) - 1) << (64 - ROOK_MAGIC_BITS) >> s)
-            .collect();
+    fn test_precheck_a1_buckets() {
+        // A1 has 8 high windows (blocker bits 1-6, 8, 16), 3 low (bits 32,
+        // 40, 48) and 1 crossing (a4's [29, 39]) — one chunk each after
+        // padding.
+        let precheck = Precheck::new(Square::A1);
+        assert_eq!(precheck.hi.len, 8);
+        assert_eq!(precheck.lo.len, 3);
+        assert_eq!(precheck.mid.len, 1);
+        assert_eq!(precheck.hi.right_shifts.len(), 1);
+        assert_eq!(precheck.lo.right_shifts.len(), 1);
+        assert_eq!(precheck.mid.right_shifts.len(), 1);
+    }
 
-        let masks: std::collections::HashSet<u64> = precheck_masks(Square::A1)
-            .iter()
-            .flat_map(|chunk| chunk.to_array())
-            .collect();
+    #[test]
+    fn test_precheck_matches_naive() {
+        let mut rng = SmallRng::seed_from_u64(0xC0FFEE);
 
-        // The general builder may repeat a mask to pad SIMD lanes, but the set
-        // of distinct windows must be exactly the old ones.
-        assert_eq!(masks, old);
+        // A4 puts six windows across the 32-bit boundary, H8 exercises the
+        // truncated windows above blocker bit 53.
+        for sq in [Square::A1, Square::A4, Square::E4, Square::H8] {
+            let precheck = Precheck::new(sq);
+            // The definition: the empty board's index 0 and all single-blocker
+            // indices must be pairwise distinct.
+            let naive = |magic: u64| {
+                let mut seen = std::collections::HashSet::from([0u64]);
+                relevant_occupancy_squares(sq)
+                    .into_iter()
+                    .all(|bit| seen.insert((magic << bit) >> (64 - ROOK_MAGIC_BITS)))
+            };
+
+            assert!(!precheck.passes(0));
+            // All-ones makes every non-truncated window equal — a conflict.
+            assert!(!precheck.passes(u64::MAX));
+            for _ in 0..10_000 {
+                // Sparse enough that both outcomes occur frequently.
+                let magic = rng.next_u64() & rng.next_u64();
+                assert_eq!(
+                    precheck.passes(magic),
+                    naive(magic),
+                    "magic {magic:#x} on {sq}"
+                );
+            }
+        }
     }
 }
