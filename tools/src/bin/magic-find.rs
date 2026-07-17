@@ -37,8 +37,16 @@ enum Command {
     /// candidate around the index-window structure (see `Sampler`).
     Random {
         /// The number of extra random bits sprinkled into the index windows.
-        #[clap(long, default_value_t = 3)]
+        #[clap(long, default_value_t = 0, conflicts_with = "runs")]
         extra_bits: u32,
+        /// Sample dense candidates built from this many runs of ones instead
+        /// of sparse window-based bits. Compressing squares need the carry
+        /// chains that runs provide.
+        #[clap(long)]
+        runs: Option<u32>,
+        /// The maximum length of each run of ones with --runs.
+        #[clap(long, default_value_t = 16, requires = "runs")]
+        max_run_len: u32,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -59,9 +67,18 @@ fn main() {
     match app.command {
         Command::Random {
             extra_bits,
+            runs,
+            max_run_len,
             single_threaded,
         } => {
-            let sampler = Sampler::new(app.square, extra_bits);
+            let style = match runs {
+                Some(count) => SampleStyle::Runs {
+                    count,
+                    max_len: max_run_len,
+                },
+                None => SampleStyle::Sparse { extra_bits },
+            };
+            let sampler = Sampler::new(app.square, style);
             run_random(&occ_sets, &precheck, &sampler, single_threaded)
         }
         Command::Dfs {
@@ -313,9 +330,9 @@ fn try_magic(
     const SHIFT: SimdU64 = SimdU64::splat(64 - ROOK_MAGIC_BITS);
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
 
-    // if !precheck.passes(magic) {
-    //     return 0;
-    // }
+    if !precheck.passes(magic) {
+        return 0;
+    }
 
     let magic = SimdU64::splat(magic);
     idxs.fill(usize::MAX);
@@ -498,34 +515,54 @@ fn index_windows(sq: Square) -> Vec<(u32, u32)> {
         .collect()
 }
 
+/// How [`Sampler`] shapes candidate magics.
+enum SampleStyle {
+    /// Sparse window-aware candidates, suited for squares whose index does
+    /// not compress the occupancies (an injective mapping exists):
+    ///
+    /// - Every window gets at least one bit, so no sample trivially collides
+    ///   with the empty board.
+    /// - A window holding a single bit at in-window offset `e` has the
+    ///   power-of-two index `1 << e`, so two such windows with equal offsets
+    ///   conflict. Bits are therefore placed on pairwise-distinct offsets.
+    ///   Sharing one physical bit between overlapping windows stays possible
+    ///   and is safe, since the offsets differ by construction.
+    /// - A corner square has more windows than there are distinct offsets, so a
+    ///   valid magic must hold at least two bits in some window; one randomly
+    ///   chosen window always gets two.
+    /// - Extra bits are drawn from the union of the windows, since bits outside
+    ///   every window only act on the index through carries.
+    Sparse { extra_bits: u32 },
+    /// Dense candidates: the OR of `count` runs of ones inside the live span.
+    ///
+    /// A compressing square (more occupancies than index slots) needs shadow
+    /// collisions: adding a far blocker behind a nearer one must leave the
+    /// index unchanged. Carry-free products change the index by the far
+    /// blocker's non-zero window contribution regardless of the other
+    /// blockers, so only carry chains can cancel it conditionally — and runs
+    /// of ones are carry fuel. Known reduced magics are dense runs within the
+    /// live span (~78% of it for h8).
+    Runs { count: u32, max_len: u32 },
+}
+
 /// Samples candidate magics for the random search, shaped by the structure of
-/// the single-blocker index windows (see [`Precheck`]):
-///
-/// - Every window gets at least one bit, so no sample trivially collides with
-///   the empty board.
-/// - A window holding a single bit at in-window offset `e` has the power-of-two
-///   index `1 << e`, so two such windows with equal offsets conflict. Bits are
-///   therefore placed on pairwise-distinct offsets. Sharing one physical bit
-///   between overlapping windows stays possible and is safe, since the offsets
-///   differ by construction.
-/// - A corner square has more windows than there are distinct offsets, so a
-///   valid magic must hold at least two bits in some window; one randomly
-///   chosen window always gets two.
-/// - Extra bits are drawn from the union of the windows, since bits outside
-///   every window only act on the index through carries.
+/// the single-blocker index windows (see [`Precheck`] and [`SampleStyle`]).
 struct Sampler {
     /// The index windows as `(low, length)` pairs, shortest first so that the
-    /// greedy offset assignment in [`Self::sample`] serves the most
+    /// greedy offset assignment in [`Self::sample_sparse`] serves the most
     /// constrained (truncated) windows before the offsets run out.
     windows: Vec<(u32, u32)>,
     /// The bit positions covered by at least one window.
     union_positions: Vec<u32>,
-    /// The number of extra bits sprinkled into random windows.
-    extra_bits: u32,
+    /// The contiguous live span `[low, high]` of the windows. Bits above it
+    /// are shifted out of every blocker's product and are completely inert;
+    /// bits below it only act through carries.
+    span: (u32, u32),
+    style: SampleStyle,
 }
 
 impl Sampler {
-    fn new(sq: Square, extra_bits: u32) -> Self {
+    fn new(sq: Square, style: SampleStyle) -> Self {
         let mut windows = index_windows(sq);
         windows.sort_by_key(|&(_, len)| len);
 
@@ -533,16 +570,39 @@ impl Sampler {
         for &(low, len) in &windows {
             union_mask |= ((1 << len) - 1) << low;
         }
-        let union_positions = (0..64).filter(|p| union_mask & (1 << p) != 0).collect();
+        let union_positions: Vec<u32> = (0..64).filter(|p| union_mask & (1 << p) != 0).collect();
+        let span = (union_mask.trailing_zeros(), 63 - union_mask.leading_zeros());
 
         Self {
             windows,
             union_positions,
-            extra_bits,
+            span,
+            style,
         }
     }
 
     fn sample(&self, rng: &mut impl Rng) -> u64 {
+        match self.style {
+            SampleStyle::Sparse { extra_bits } => self.sample_sparse(rng, extra_bits),
+            SampleStyle::Runs { count, max_len } => self.sample_runs(rng, count, max_len),
+        }
+    }
+
+    fn sample_runs(&self, rng: &mut impl Rng, count: u32, max_len: u32) -> u64 {
+        let (low, high) = self.span;
+        let mut magic = 0;
+        for _ in 0..count {
+            let len = rng.random_range(1..=max_len);
+            let start = rng.random_range(low..=high);
+            // Runs are clipped at the top of the span; bits above it would be
+            // dead weight.
+            let end = (start + len - 1).min(high);
+            magic |= (((1u128 << (end - start + 1)) - 1) as u64) << start;
+        }
+        magic
+    }
+
+    fn sample_sparse(&self, rng: &mut impl Rng, extra_bits: u32) -> u64 {
         const NUM_OFFSETS: u32 = ROOK_MAGIC_BITS as u32;
 
         let mut magic = 0;
@@ -578,7 +638,7 @@ impl Sampler {
             magic |= 1 << (low + offset - min_offset);
         }
 
-        for _ in 0..self.extra_bits {
+        for _ in 0..extra_bits {
             let position = self.union_positions[rng.random_range(0..self.union_positions.len())];
             magic |= 1 << position;
         }
@@ -846,7 +906,7 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(42);
 
         for sq in [Square::A1, Square::A4, Square::H8] {
-            let sampler = Sampler::new(sq, 3);
+            let sampler = Sampler::new(sq, SampleStyle::Sparse { extra_bits: 3 });
             let squares = relevant_occupancy_squares(sq);
             for _ in 0..1_000 {
                 let magic = sampler.sample(&mut rng);
@@ -859,6 +919,59 @@ mod tests {
                 }
                 // The doubled window guarantees a multi-bit index somewhere.
                 assert!(multi_bit_window);
+            }
+        }
+    }
+
+    #[test]
+    fn test_known_reduced_magics() {
+        // Known reduced-bit rook magics (11 index bits for a 12-bit premask)
+        // found by Grant Osborne, from
+        // https://www.chessprogramming.org/Best_Magics_so_far
+        for (sq, magic) in [
+            (Square::A8, 0xEBFFFFB9FF9FC526),
+            (Square::H8, 0x7645FFFECBFEA79E),
+        ] {
+            let occ_sets = rook_occupancy_sets(sq);
+            let precheck = Precheck::new(sq);
+            let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
+            assert_eq!(
+                try_magic(magic, &occ_sets, &precheck, &mut idxs),
+                occ_sets.len(),
+                "known magic {magic:#x} rejected for {sq}"
+            );
+
+            // Bits above the live span are shifted out of every blocker's
+            // product, so masking them off must leave the magic valid.
+            let (_, high) = Sampler::new(sq, SampleStyle::Sparse { extra_bits: 0 }).span;
+            let masked = magic & (u64::MAX >> (63 - high));
+            assert_ne!(masked, magic, "expected dead bits in the known magic");
+            assert_eq!(
+                try_magic(masked, &occ_sets, &precheck, &mut idxs),
+                occ_sets.len(),
+                "span-masked magic {masked:#x} rejected for {sq}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sample_runs_within_span() {
+        let mut rng = SmallRng::seed_from_u64(7);
+
+        for sq in [Square::A1, Square::H8] {
+            let sampler = Sampler::new(
+                sq,
+                SampleStyle::Runs {
+                    count: 8,
+                    max_len: 16,
+                },
+            );
+            let (low, high) = sampler.span;
+            let span_mask = (u64::MAX >> (63 - high)) & (u64::MAX << low);
+            for _ in 0..1_000 {
+                let magic = sampler.sample(&mut rng);
+                assert_ne!(magic, 0);
+                assert_eq!(magic & !span_mask, 0, "bits outside the live span");
             }
         }
     }
