@@ -236,7 +236,7 @@ fn dfs_worker(
             }
         }
 
-        if is_reporter && local_count % 100_000 == 0 {
+        if is_reporter && local_count % 1_000_000 == 0 {
             let count = tried_counts
                 .iter()
                 .map(|counter| counter.load(Ordering::Relaxed))
@@ -480,6 +480,8 @@ fn rook_occupancy_sets(sq: Square) -> Vec<OccupancySet> {
                 .map(|(n, s, e, w)| (u64::from(n | s | e | w), attack_set_index)),
         );
     }
+
+    occupancy_sets.sort_unstable_by_key(|&(bb, _)| bb.count_ones());
 
     assert!(
         occupancy_sets.len() % LANES == 0,
