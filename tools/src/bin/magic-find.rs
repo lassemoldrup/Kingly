@@ -1,17 +1,16 @@
 #![feature(portable_simd)]
 
+use std::io::{self, Write};
 use std::simd::cmp::SimdPartialEq;
 use std::simd::num::SimdUint;
 use std::simd::Simd;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::thread;
 use std::time::Instant;
-use std::{process, thread};
 
+use clap::{Parser, Subcommand};
+use crossbeam::deque::{Injector, Stealer, Worker};
 use kingly_lib::types::{Bitboard, BoardVector, File, Rank, Square};
-
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
@@ -21,147 +20,277 @@ const LANES: usize = 4;
 type SimdU64 = Simd<u64, LANES>;
 type SimdUsize = Simd<usize, LANES>;
 
+#[derive(Parser)]
+struct App {
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Randomly sample sparse magics across all cores until one works.
+    Random {
+        #[clap(long)]
+        single_threaded: bool,
+    },
+    /// Exhaustively search magics with at most `max_bits` bits set.
+    Dfs {
+        #[clap(long, default_value_t = 8)]
+        max_bits: u32,
+        #[clap(long)]
+        single_threaded: bool,
+    },
+}
+
 fn main() {
-    let single_threaded = std::env::args().any(|arg| arg == "--single-threaded");
-    let occ_sets = Arc::new(rook_occupancy_sets(Square::A1));
-    let found = Arc::new(AtomicBool::new(false));
-    let worker_count = thread::available_parallelism()
-        .map(|parallelism| parallelism.get())
-        .unwrap_or(1);
-    let tried_counts = Arc::new(
-        (0..worker_count)
-            .map(|_| AtomicU64::new(0))
-            .collect::<Vec<_>>(),
-    );
-    let near_miss_counts = Arc::new(
-        (0..worker_count)
-            .map(|_| AtomicU64::new(0))
-            .collect::<Vec<_>>(),
-    );
+    let app = App::parse();
+    let occ_sets = rook_occupancy_sets(Square::A1);
 
-    let start = Instant::now();
-
-    if single_threaded {
-        run_worker(
-            0,
-            Arc::clone(&occ_sets),
-            Arc::clone(&found),
-            Arc::clone(&tried_counts),
-            Arc::clone(&near_miss_counts),
-            start,
-        );
-    } else {
-        let mut workers = Vec::with_capacity(worker_count);
-        for worker_id in 0..worker_count {
-            let occ_sets = Arc::clone(&occ_sets);
-            let found = Arc::clone(&found);
-            let tried_counts = Arc::clone(&tried_counts);
-            let near_miss_counts = Arc::clone(&near_miss_counts);
-
-            workers.push(thread::spawn(move || {
-                run_worker(
-                    worker_id,
-                    occ_sets,
-                    found,
-                    tried_counts,
-                    near_miss_counts,
-                    start,
-                );
-            }));
-        }
-
-        for worker in workers {
-            worker.join().unwrap();
-        }
+    match app.command {
+        Command::Random { single_threaded } => run_random(&occ_sets, single_threaded),
+        Command::Dfs {
+            max_bits,
+            single_threaded,
+        } => run_dfs(&occ_sets, max_bits, single_threaded),
     }
 }
 
-fn run_worker(
+fn run_random(occ_sets: &[OccupancySet], single_threaded: bool) {
+    let worker_count = if single_threaded {
+        1
+    } else {
+        thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1)
+    };
+
+    let found = AtomicBool::new(false);
+    let tried_counts: Vec<AtomicU64> = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
+    let start = Instant::now();
+
+    thread::scope(|scope| {
+        for worker_id in 0..worker_count {
+            let found = &found;
+            let tried_counts = &tried_counts;
+            scope.spawn(move || {
+                random_worker(worker_id, occ_sets, found, tried_counts, start);
+            });
+        }
+    });
+}
+
+fn random_worker(
     worker_id: usize,
-    occ_sets: Arc<Vec<OccupancySet>>,
-    found: Arc<AtomicBool>,
-    tried_counts: Arc<Vec<AtomicU64>>,
-    near_miss_counts: Arc<Vec<AtomicU64>>,
+    occ_sets: &[OccupancySet],
+    found: &AtomicBool,
+    tried_counts: &[AtomicU64],
     start: Instant,
 ) {
     let mut rng = SmallRng::from_rng(&mut rand::rng());
-    let mut local_count = 0u64;
+    let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
     let is_reporter = worker_id == 0;
-    let mut magic = rng.next_u64() & rng.next_u64() & rng.next_u64();
+    let mut local_count = 0u64;
 
-    loop {
+    while !found.load(Ordering::Relaxed) {
+        let magic = rng.next_u64() & rng.next_u64() & rng.next_u64();
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        let hits = try_magic(magic, &occ_sets);
-        if hits == occ_sets.len() {
+        if try_magic(magic, occ_sets, &mut idxs) == occ_sets.len() {
             if !found.swap(true, Ordering::Relaxed) {
-                eprintln!("Found magic: {:#x}", magic);
+                eprintln!("\nFound magic: {:#x}", magic);
             }
-            break;
-        // } else if 25 * hits >= 24 * occ_sets.len() {
-        //     // really near miss, flip a few bits
-        //     near_miss_counts[worker_id].fetch_add(1, Ordering::Relaxed);
-        //     magic ^=
-        //         rng.next_u64() & rng.next_u64() & rng.next_u64() &
-        // rng.next_u64() & rng.next_u64(); } else if 9 * hits >= 8 *
-        // occ_sets.len() {     // close miss, flip a few bits
-        //     magic ^= rng.next_u64() & rng.next_u64() & rng.next_u64() &
-        // rng.next_u64(); } else if hits * 3 >= 2 * occ_sets.len() {
-        //     // near-ish miss, flip a few bits
-        //     magic ^= rng.next_u64() & rng.next_u64() & rng.next_u64();
-        // } else {
-        } else {
-            // generate a new magic
-            magic = rng.next_u64() & rng.next_u64() & rng.next_u64();
+            return;
         }
 
-        if is_reporter && local_count % 100000 == 0 {
+        if is_reporter && local_count % 100_000 == 0 {
             let count = tried_counts
                 .iter()
                 .map(|counter| counter.load(Ordering::Relaxed))
-                .sum::<u64>();
-            let near_misses = near_miss_counts
-                .iter()
-                .map(|counter| counter.load(Ordering::Relaxed))
-                .sum::<u64>();
-            let elapsed = start.elapsed();
-            let elapsed_secs = elapsed.as_secs_f64();
-            let rate = count as f64 / elapsed_secs;
-            let near_miss_rate = if count == 0 {
-                0.0
-            } else {
-                near_misses as f64 / count as f64
-            };
-            print!(
-                "\rTried {} magics in {:.2} seconds ({:.2} magics/sec, {} near misses, {:.2}% near-miss rate)",
-                count,
-                elapsed_secs,
-                rate,
-                near_misses,
-                near_miss_rate * 100.0
-            );
+                .sum();
+            report(count, start);
         }
     }
-
-    process::exit(0);
 }
 
-fn try_magic(magic: u64, occ_sets: &[OccupancySet]) -> usize {
+fn run_dfs(occ_sets: &[OccupancySet], max_bits: u32, single_threaded: bool) {
+    let worker_count = if single_threaded {
+        1
+    } else {
+        thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1)
+    };
+
+    // The frontier starts as a single node (the empty magic) in the shared
+    // injector; the first idle worker picks it up and fans it out locally.
+    let injector = Injector::new();
+    injector.push(0u64);
+    let deques: Vec<Worker<u64>> = (0..worker_count).map(|_| Worker::new_lifo()).collect();
+    let stealers: Vec<Stealer<u64>> = deques.iter().map(|deque| deque.stealer()).collect();
+
+    let found = AtomicBool::new(false);
+    // Number of workers still holding work; the search is done once it hits 0.
+    let active = AtomicUsize::new(worker_count);
+    let tried_counts: Vec<AtomicU64> = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
+    let start = Instant::now();
+
+    thread::scope(|scope| {
+        for (worker_id, local) in deques.into_iter().enumerate() {
+            let injector = &injector;
+            let stealers = &stealers;
+            let found = &found;
+            let active = &active;
+            let tried_counts = &tried_counts;
+            scope.spawn(move || {
+                dfs_worker(
+                    worker_id,
+                    local,
+                    injector,
+                    stealers,
+                    occ_sets,
+                    max_bits,
+                    found,
+                    active,
+                    tried_counts,
+                    start,
+                );
+            });
+        }
+    });
+
+    if !found.load(Ordering::Relaxed) {
+        eprintln!("\nExhausted search space up to {max_bits} bits, no magic found");
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dfs_worker(
+    worker_id: usize,
+    local: Worker<u64>,
+    injector: &Injector<u64>,
+    stealers: &[Stealer<u64>],
+    occ_sets: &[OccupancySet],
+    max_bits: u32,
+    found: &AtomicBool,
+    active: &AtomicUsize,
+    tried_counts: &[AtomicU64],
+    start: Instant,
+) {
+    let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
+    let is_reporter = worker_id == 0;
+    let mut local_count = 0u64;
+    let mut is_active = true;
+
+    loop {
+        if found.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let Some(magic) = find_task(&local, injector, stealers) else {
+            // No work right now: go idle, and only quit once every worker is
+            // idle, which means the whole frontier is drained.
+            if is_active {
+                active.fetch_sub(1, Ordering::SeqCst);
+                is_active = false;
+            }
+            if active.load(Ordering::SeqCst) == 0 {
+                break;
+            }
+            thread::yield_now();
+            continue;
+        };
+
+        if !is_active {
+            active.fetch_add(1, Ordering::SeqCst);
+            is_active = true;
+        }
+
+        local_count += 1;
+        tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
+
+        if try_magic(magic, occ_sets, &mut idxs) == occ_sets.len() {
+            if !found.swap(true, Ordering::Relaxed) {
+                eprintln!("\nFound magic: {:#x}", magic);
+            }
+            break;
+        }
+
+        if magic.count_ones() < max_bits {
+            // Only add higher bits so each magic is reached exactly once, and
+            // push onto the local deque to keep the frontier depth-first.
+            let next_bit = if magic == 0 {
+                0
+            } else {
+                64 - magic.leading_zeros()
+            };
+            for bit in next_bit..64 {
+                local.push(magic | (1 << bit));
+            }
+        }
+
+        if is_reporter && local_count % 100_000 == 0 {
+            let count = tried_counts
+                .iter()
+                .map(|counter| counter.load(Ordering::Relaxed))
+                .sum();
+            report(count, start);
+        }
+    }
+}
+
+fn find_task(
+    local: &Worker<u64>,
+    injector: &Injector<u64>,
+    stealers: &[Stealer<u64>],
+) -> Option<u64> {
+    // Fast path: our own deque. Otherwise pull a batch from the injector or
+    // steal one from a peer, retrying while any source reports contention.
+    local.pop().or_else(|| {
+        std::iter::repeat_with(|| {
+            injector.steal_batch_and_pop(local).or_else(|| {
+                stealers
+                    .iter()
+                    .map(|stealer| stealer.steal_batch_and_pop(local))
+                    .collect()
+            })
+        })
+        .find(|steal| !steal.is_retry())
+        .and_then(|steal| steal.success())
+    })
+}
+
+fn report(tried: u64, start: Instant) {
+    let elapsed = start.elapsed().as_secs_f64();
+    let rate = if elapsed > 0.0 {
+        tried as f64 / elapsed
+    } else {
+        0.0
+    };
+    print!("\rTried {tried} magics in {elapsed:.2} seconds ({rate:.2} magics/sec)");
+    io::stdout().flush().ok();
+}
+
+fn try_magic(
+    magic: u64,
+    occ_sets: &[OccupancySet],
+    idxs: &mut [usize; 1 << ROOK_MAGIC_BITS],
+) -> usize {
     const SHIFT: SimdU64 = SimdU64::splat(64 - ROOK_MAGIC_BITS);
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
     let magic = SimdU64::splat(magic);
 
-    let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
+    idxs.fill(usize::MAX);
+
     let mut hits = 0;
     for occ in occ_sets {
         let keys = ((occ.bitboards * magic) >> SHIFT).cast::<usize>();
-        let atk_sets = Simd::gather_or_default(&idxs, keys);
+        let atk_sets = Simd::gather_or_default(idxs, keys);
         // All non-empty entries in `atk_sets` must be equal to the attack set index for
         // this occupancy set.
         let hits_mask = atk_sets.simd_eq(EMPTY) | atk_sets.simd_eq(occ.attack_set_indices);
         if hits_mask.all() {
-            occ.attack_set_indices.scatter(&mut idxs, keys);
+            occ.attack_set_indices.scatter(idxs, keys);
             hits += 1;
         } else {
             break;
