@@ -10,7 +10,7 @@ use kingly_lib::search::{
     info_channel, InfoSender, SearchInfo, SearchJob, ThreadPool, DEFAULT_HASH_SIZE, DEFAULT_THREADS,
 };
 use kingly_lib::tables::Tables;
-use kingly_lib::time_mananger::TimeControl;
+use kingly_lib::time_manager::TimeControl;
 use kingly_lib::types::{Color, IllegalMoveError, PseudoMove};
 use kingly_lib::{MoveGen, Position};
 use once_cell::unsync::Lazy;
