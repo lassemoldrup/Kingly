@@ -22,6 +22,9 @@ type SimdUsize = Simd<usize, LANES>;
 
 #[derive(Parser)]
 struct App {
+    /// The square to find rook magics for, e.g. "a1" or "e4".
+    #[arg(long, global = true, default_value = "a1")]
+    square: Square,
     #[clap(subcommand)]
     command: Command,
 }
@@ -44,18 +47,19 @@ enum Command {
 
 fn main() {
     let app = App::parse();
-    let occ_sets = rook_occupancy_sets(Square::A1);
+    let occ_sets = rook_occupancy_sets(app.square);
+    let precheck = precheck_masks(app.square);
 
     match app.command {
-        Command::Random { single_threaded } => run_random(&occ_sets, single_threaded),
+        Command::Random { single_threaded } => run_random(&occ_sets, &precheck, single_threaded),
         Command::Dfs {
             max_bits,
             single_threaded,
-        } => run_dfs(&occ_sets, max_bits, single_threaded),
+        } => run_dfs(&occ_sets, &precheck, max_bits, single_threaded),
     }
 }
 
-fn run_random(occ_sets: &[OccupancySet], single_threaded: bool) {
+fn run_random(occ_sets: &[OccupancySet], precheck: &[SimdU64], single_threaded: bool) {
     let worker_count = if single_threaded {
         1
     } else {
@@ -73,7 +77,7 @@ fn run_random(occ_sets: &[OccupancySet], single_threaded: bool) {
             let found = &found;
             let tried_counts = &tried_counts;
             scope.spawn(move || {
-                random_worker(worker_id, occ_sets, found, tried_counts, start);
+                random_worker(worker_id, occ_sets, precheck, found, tried_counts, start);
             });
         }
     });
@@ -82,6 +86,7 @@ fn run_random(occ_sets: &[OccupancySet], single_threaded: bool) {
 fn random_worker(
     worker_id: usize,
     occ_sets: &[OccupancySet],
+    precheck: &[SimdU64],
     found: &AtomicBool,
     tried_counts: &[AtomicU64],
     start: Instant,
@@ -96,7 +101,7 @@ fn random_worker(
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        if try_magic(magic, occ_sets, &mut idxs) == occ_sets.len() {
+        if try_magic(magic, occ_sets, precheck, &mut idxs) == occ_sets.len() {
             if !found.swap(true, Ordering::Relaxed) {
                 eprintln!("\nFound magic: {:#x}", magic);
             }
@@ -113,7 +118,7 @@ fn random_worker(
     }
 }
 
-fn run_dfs(occ_sets: &[OccupancySet], max_bits: u32, single_threaded: bool) {
+fn run_dfs(occ_sets: &[OccupancySet], precheck: &[SimdU64], max_bits: u32, single_threaded: bool) {
     let worker_count = if single_threaded {
         1
     } else {
@@ -149,6 +154,7 @@ fn run_dfs(occ_sets: &[OccupancySet], max_bits: u32, single_threaded: bool) {
                     injector,
                     stealers,
                     occ_sets,
+                    precheck,
                     max_bits,
                     found,
                     active,
@@ -171,6 +177,7 @@ fn dfs_worker(
     injector: &Injector<u64>,
     stealers: &[Stealer<u64>],
     occ_sets: &[OccupancySet],
+    precheck: &[SimdU64],
     max_bits: u32,
     found: &AtomicBool,
     active: &AtomicUsize,
@@ -209,7 +216,7 @@ fn dfs_worker(
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        if try_magic(magic, occ_sets, &mut idxs) == occ_sets.len() {
+        if try_magic(magic, occ_sets, precheck, &mut idxs) == occ_sets.len() {
             if !found.swap(true, Ordering::Relaxed) {
                 eprintln!("\nFound magic: {:#x}", magic);
             }
@@ -274,24 +281,23 @@ fn report(tried: u64, start: Instant) {
 fn try_magic(
     magic: u64,
     occ_sets: &[OccupancySet],
+    precheck: &[SimdU64],
     idxs: &mut [usize; 1 << ROOK_MAGIC_BITS],
 ) -> usize {
     const SHIFT: SimdU64 = SimdU64::splat(64 - ROOK_MAGIC_BITS);
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
+    const ZERO: SimdU64 = SimdU64::splat(0);
     let magic = SimdU64::splat(magic);
 
-    // A1 pre-check
-    let a1_masks: [u64; 12] = [1, 2, 3, 4, 5, 6, 8, 16, 24, 32, 40, 48].map(|s| {
-        let base_mask = (1 << ROOK_MAGIC_BITS) - 1;
-        base_mask << (64 - ROOK_MAGIC_BITS) >> s
-    });
-    let (chunks, _) = a1_masks.as_chunks();
-    let a1_check = chunks
-        .iter()
-        .map(|&chunk| (SimdU64::from_array(chunk) & magic).simd_ne(SimdU64::splat(0)))
-        .all(|mask| mask.all());
-    if !a1_check {
-        return 0;
+    // Pre-check: every single-blocker occupancy has a different attack set than
+    // the empty board, which always hashes to index 0, so each must hash to a
+    // non-zero index. `precheck` holds one index-window mask per relevant
+    // square; if `magic` misses any window, that occupancy would collide with
+    // the empty board and the magic cannot work.
+    for &mask in precheck {
+        if (mask & magic).simd_eq(ZERO).any() {
+            return 0;
+        }
     }
 
     idxs.fill(usize::MAX);
@@ -312,6 +318,55 @@ fn try_magic(
     }
 
     hits
+}
+
+/// Builds the pre-check index-window masks for a rook on `sq`, packed into SIMD
+/// lanes. For a blocker on relevant square `k`, the hash index is the top
+/// `ROOK_MAGIC_BITS` bits of `magic << k`, which is non-zero iff `magic` has a
+/// bit set in the window `magic & (index_window >> k)`.
+fn precheck_masks(sq: Square) -> Vec<SimdU64> {
+    const SHIFT: u64 = 64 - ROOK_MAGIC_BITS;
+    let index_window = ((1u64 << ROOK_MAGIC_BITS) - 1) << SHIFT;
+
+    let mut masks: Vec<u64> = relevant_occupancy_squares(sq)
+        .into_iter()
+        .map(|bit| index_window >> bit)
+        .collect();
+
+    // Pad to a whole number of lanes by repeating a real mask, so the SIMD tail
+    // re-checks an existing (necessary) condition instead of a bogus one.
+    while masks.len() % LANES != 0 {
+        masks.push(masks[0]);
+    }
+
+    masks
+        .as_chunks::<LANES>()
+        .0
+        .iter()
+        .map(|&chunk| SimdU64::from_array(chunk))
+        .collect()
+}
+
+/// The bit indices of the squares a rook on `sq` slides over, excluding the
+/// board-edge squares, i.e. the relevant occupancy mask.
+fn relevant_occupancy_squares(sq: Square) -> Vec<u8> {
+    let dirs: [(BoardVector, fn(Square) -> bool); 4] = [
+        (BoardVector::NORTH, |s| s.rank() < Rank::Eighth),
+        (BoardVector::SOUTH, |s| s.rank() > Rank::First),
+        (BoardVector::EAST, |s| s.file() < File::H),
+        (BoardVector::WEST, |s| s.file() > File::A),
+    ];
+
+    let mut squares = Vec::new();
+    for (dir, can_step) in dirs {
+        let mut ray_sq = sq;
+        // Stop once the next square would be the edge, which is excluded.
+        while can_step(ray_sq) && can_step(ray_sq + dir) {
+            ray_sq = ray_sq + dir;
+            squares.push(ray_sq as u8);
+        }
+    }
+    squares
 }
 
 fn rook_attack_sets(sq: Square) -> Vec<Bitboard> {
@@ -462,13 +517,48 @@ mod tests {
     fn test_a1_occupancy_sets() {
         let sets = rook_occupancy_sets(Square::A1);
 
-        assert_eq!(sets.len(), (1usize << ROOK_MAGIC_BITS as usize) / LANES);
+        // A1 is a corner with 12 relevant squares, so there are 2^12 distinct
+        // occupancies, packed LANES per set.
+        let relevant = relevant_occupancy_squares(Square::A1).len();
+        assert_eq!(relevant, 12);
+        assert_eq!(sets.len(), (1usize << relevant) / LANES);
 
         let unique: std::collections::HashSet<_> = sets
             .iter()
             .flat_map(|set| set.bitboards.to_array())
             .collect();
 
-        assert_eq!(unique.len(), 1 << 12);
+        assert_eq!(unique.len(), 1 << relevant);
+    }
+
+    #[test]
+    fn test_relevant_occupancy_squares() {
+        use std::collections::HashSet;
+
+        let a1: HashSet<u8> = relevant_occupancy_squares(Square::A1).into_iter().collect();
+        assert_eq!(a1, HashSet::from([1, 2, 3, 4, 5, 6, 8, 16, 24, 32, 40, 48]));
+
+        // Corners have 12 relevant squares, edges 11, interior 10.
+        assert_eq!(relevant_occupancy_squares(Square::H8).len(), 12);
+        assert_eq!(relevant_occupancy_squares(Square::A4).len(), 11);
+        assert_eq!(relevant_occupancy_squares(Square::E4).len(), 10);
+    }
+
+    #[test]
+    fn test_precheck_masks_match_old_a1() {
+        // The old hand-written A1 masks, as a reference for the general builder.
+        let old: std::collections::HashSet<u64> = [1, 2, 3, 4, 5, 6, 8, 16, 24, 32, 40, 48]
+            .into_iter()
+            .map(|s: u64| ((1u64 << ROOK_MAGIC_BITS) - 1) << (64 - ROOK_MAGIC_BITS) >> s)
+            .collect();
+
+        let masks: std::collections::HashSet<u64> = precheck_masks(Square::A1)
+            .iter()
+            .flat_map(|chunk| chunk.to_array())
+            .collect();
+
+        // The general builder may repeat a mask to pad SIMD lanes, but the set
+        // of distinct windows must be exactly the old ones.
+        assert_eq!(masks, old);
     }
 }
