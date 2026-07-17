@@ -280,6 +280,20 @@ fn try_magic(
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
     let magic = SimdU64::splat(magic);
 
+    // A1 pre-check
+    let a1_masks: [u64; 12] = [1, 2, 3, 4, 5, 6, 8, 16, 24, 32, 40, 48].map(|s| {
+        let base_mask = (1 << ROOK_MAGIC_BITS) - 1;
+        base_mask << (64 - ROOK_MAGIC_BITS) >> s
+    });
+    let (chunks, _) = a1_masks.as_chunks();
+    let a1_check = chunks
+        .iter()
+        .map(|&chunk| (SimdU64::from_array(chunk) & magic).simd_ne(SimdU64::splat(0)))
+        .all(|mask| mask.all());
+    if !a1_check {
+        return 0;
+    }
+
     idxs.fill(usize::MAX);
 
     let mut hits = 0;
