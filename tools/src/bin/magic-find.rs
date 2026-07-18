@@ -44,12 +44,20 @@ enum Command {
         /// need the carry chains that dense magics provide.
         #[clap(long)]
         dense: bool,
-        /// The bit density at the lowest bit of the live span with --dense.
+        /// The bit density at bit 0 with --dense.
         #[clap(long, default_value_t = 0.75, requires = "dense")]
         density_low: f64,
-        /// The bit density at the highest bit of the live span with --dense.
+        /// The bit density at the highest live bit with --dense.
         #[clap(long, default_value_t = 0.75, requires = "dense")]
         density_high: f64,
+        /// A hex mask of bits to force on in every dense candidate,
+        /// overriding the gradient (a la Witek's per-square scaffolds).
+        #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
+        pin_ones: u64,
+        /// A hex mask of bits to force off in every dense candidate; pinned
+        /// ones win over pinned zeros.
+        #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
+        pin_zeros: u64,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -73,12 +81,16 @@ fn main() {
             dense,
             density_low,
             density_high,
+            pin_ones,
+            pin_zeros,
             single_threaded,
         } => {
             let style = if dense {
                 SampleStyle::Dense {
                     density_low: density_low.clamp(0.0, 1.0),
                     density_high: density_high.clamp(0.0, 1.0),
+                    pin_ones,
+                    pin_zeros,
                 }
             } else {
                 SampleStyle::Sparse { extra_bits }
@@ -539,8 +551,9 @@ enum SampleStyle {
     ///   every window only act on the index through carries.
     Sparse { extra_bits: u32 },
     /// Dense candidates with a per-bit density gradient: the density
-    /// interpolates linearly from `density_low` at the bottom of the live
-    /// span to `density_high` at its top.
+    /// interpolates linearly from `density_low` at bit 0 to `density_high` at
+    /// the top of the live span. `pin_ones`/`pin_zeros` force specific bits
+    /// on/off (ones win), overriding the gradient.
     ///
     /// A compressing square (more occupancies than index slots) needs shadow
     /// collisions: adding a far blocker behind a nearer one must leave the
@@ -549,14 +562,34 @@ enum SampleStyle {
     /// blockers, so only carry chains can cancel it conditionally — dense
     /// magics are carry fuel. Known reduced magics are ~78% dense within the
     /// live span, and the first-rank finds cluster their bits low: carries
-    /// propagate upward, so density low in the span radiates through all
-    /// windows above.
-    Dense { density_low: f64, density_high: f64 },
+    /// propagate upward, so density low radiates through all windows above.
+    ///
+    /// The gradient deliberately includes the carry-only bits *below* the
+    /// live span: they can only act through carries, but that is exactly the
+    /// mechanism — clearing bits 0-2 of Witek's d1 magic breaks it.
+    Dense {
+        density_low: f64,
+        density_high: f64,
+        pin_ones: u64,
+        pin_zeros: u64,
+    },
 }
 
 /// The number of bit-sliced threshold planes for dense sampling; densities
 /// are quantized to `1 / 2^DENSITY_PLANES` steps.
 const DENSITY_PLANES: usize = 8;
+
+/// The live span `[low, high]` of the index windows: the lowest and highest
+/// magic bits appearing in any window. Bits above `high` are shifted out of
+/// every blocker's product and are completely inert; bits below `low` only
+/// act through carries.
+fn live_span(sq: Square) -> (u32, u32) {
+    let mut union_mask = 0u64;
+    for (low, len) in index_windows(sq) {
+        union_mask |= ((1 << len) - 1) << low;
+    }
+    (union_mask.trailing_zeros(), 63 - union_mask.leading_zeros())
+}
 
 /// Samples candidate magics for the random search, shaped by the structure of
 /// the single-blocker index windows (see [`Precheck`] and [`SampleStyle`]).
@@ -567,15 +600,12 @@ struct Sampler {
     windows: Vec<(u32, u32)>,
     /// The bit positions covered by at least one window.
     union_positions: Vec<u32>,
-    /// The contiguous live span `[low, high]` of the windows. Bits above it
-    /// are shifted out of every blocker's product and are completely inert;
-    /// bits below it only act through carries.
-    span: (u32, u32),
     /// Bit-sliced density thresholds for [`Self::sample_dense`]: bit `p` of
     /// `density_planes[j]` is bit `j` of position `p`'s threshold, so that
     /// position `p` is set with probability `threshold(p) / 2^DENSITY_PLANES`.
-    /// Positions outside the live span have threshold 0. All zeros for the
-    /// sparse style.
+    /// Positions above the live span have threshold 0; positions below it are
+    /// carry-active and take part in the gradient. All zeros for the sparse
+    /// style.
     density_planes: [u64; DENSITY_PLANES],
     /// Positions with density exactly 1, which an 8-bit threshold cannot
     /// express.
@@ -593,21 +623,25 @@ impl Sampler {
             union_mask |= ((1 << len) - 1) << low;
         }
         let union_positions: Vec<u32> = (0..64).filter(|p| union_mask & (1 << p) != 0).collect();
-        let span = (union_mask.trailing_zeros(), 63 - union_mask.leading_zeros());
 
         let mut density_planes = [0; DENSITY_PLANES];
         let mut density_always = 0;
         if let SampleStyle::Dense {
             density_low,
             density_high,
+            pin_ones,
+            pin_zeros,
         } = style
         {
-            let (low, high) = span;
-            for position in low..=high {
-                let fraction = if high == low {
+            // The gradient runs from bit 0 (carry-only bits included — they
+            // act through carries, which is the point of dense magics) up to
+            // the top of the live span; everything above is dead.
+            let (_, high) = live_span(sq);
+            for position in 0..=high {
+                let fraction = if high == 0 {
                     0.0
                 } else {
-                    f64::from(position - low) / f64::from(high - low)
+                    f64::from(position) / f64::from(high)
                 };
                 let density = density_low + (density_high - density_low) * fraction;
                 let threshold = (density * f64::from(1u32 << DENSITY_PLANES)).round() as u64;
@@ -619,12 +653,18 @@ impl Sampler {
                     }
                 }
             }
+
+            // Fold the pins into the planes: a pinned bit costs nothing at
+            // sampling time. Pinned ones win over pinned zeros.
+            for bits in &mut density_planes {
+                *bits &= !(pin_zeros | pin_ones);
+            }
+            density_always = (density_always & !pin_zeros) | pin_ones;
         }
 
         Self {
             windows,
             union_positions,
-            span,
             density_planes,
             density_always,
             style,
@@ -696,6 +736,12 @@ impl Sampler {
         }
         magic
     }
+}
+
+/// Parses a hex mask, with or without a `0x` prefix.
+fn parse_hex(s: &str) -> Result<u64, std::num::ParseIntError> {
+    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+    u64::from_str_radix(s, 16)
 }
 
 /// Picks a uniformly random set bit of `mask` and returns its index.
@@ -977,13 +1023,22 @@ mod tests {
 
     #[test]
     fn test_known_reduced_magics() {
-        // Known reduced-bit rook magics (11 index bits for a 12-bit premask)
-        // found by Grant Osborne, from
-        // https://www.chessprogramming.org/Best_Magics_so_far
-        for (sq, magic) in [
-            (Square::A8, 0xEBFFFFB9FF9FC526),
-            (Square::H8, 0x7645FFFECBFEA79E),
-        ] {
+        // Known reduced-bit rook magics: Grant Osborne's from
+        // https://www.chessprogramming.org/Best_Magics_so_far and Witek's
+        // first/second-rank finds from
+        // https://www.talkchess.com/forum/viewtopic.php?t=64578
+        // Only the entries matching the compiled index width run.
+        let known: [(Square, u64, u64); 4] = [
+            (Square::A8, 0xEBFFFFB9FF9FC526, 11),
+            (Square::H8, 0x7645FFFECBFEA79E, 11),
+            (Square::D1, 0xc6000b13534dffff, 10),
+            (Square::C2, 0xcae2002cac99fffa, 9),
+        ];
+        for (sq, magic, _) in known
+            .iter()
+            .filter(|&&(_, _, bits)| bits == ROOK_MAGIC_BITS)
+        {
+            let (sq, magic) = (*sq, *magic);
             let occ_sets = rook_occupancy_sets(sq);
             let precheck = Precheck::new(sq);
             let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
@@ -994,8 +1049,10 @@ mod tests {
             );
 
             // Bits above the live span are shifted out of every blocker's
-            // product, so masking them off must leave the magic valid.
-            let (_, high) = Sampler::new(sq, SampleStyle::Sparse { extra_bits: 0 }).span;
+            // product, so masking them off must leave the magic valid. (Bits
+            // *below* the span are carry-active and must be kept: clearing
+            // d1's bits 0-2 breaks its magic.)
+            let (_, high) = live_span(sq);
             let masked = magic & (u64::MAX >> (63 - high));
             assert_ne!(masked, magic, "expected dead bits in the known magic");
             assert_eq!(
@@ -1007,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sample_dense_within_span() {
+    fn test_sample_dense_within_live_bits() {
         let mut rng = SmallRng::seed_from_u64(7);
 
         for sq in [Square::A1, Square::H8] {
@@ -1016,15 +1073,38 @@ mod tests {
                 SampleStyle::Dense {
                     density_low: 0.75,
                     density_high: 0.75,
+                    pin_ones: 0,
+                    pin_zeros: 0,
                 },
             );
-            let (low, high) = sampler.span;
-            let span_mask = (u64::MAX >> (63 - high)) & (u64::MAX << low);
+            let (_, high) = live_span(sq);
+            // Everything from bit 0 to the top of the live span may be set
+            // (low bits are carry-active); bits above are dead.
+            let live_mask = u64::MAX >> (63 - high);
             for _ in 0..1_000 {
                 let magic = sampler.sample(&mut rng);
                 assert_ne!(magic, 0);
-                assert_eq!(magic & !span_mask, 0, "bits outside the live span");
+                assert_eq!(magic & !live_mask, 0, "bits above the live span");
             }
+        }
+    }
+
+    #[test]
+    fn test_sample_dense_pins() {
+        let mut rng = SmallRng::seed_from_u64(13);
+        let sampler = Sampler::new(
+            Square::D1,
+            SampleStyle::Dense {
+                density_low: 0.75,
+                density_high: 0.75,
+                pin_ones: 0x7f0,
+                pin_zeros: 0x1e00_0000_0000,
+            },
+        );
+        for _ in 0..1_000 {
+            let magic = sampler.sample(&mut rng);
+            assert_eq!(magic & 0x7f0, 0x7f0, "pinned ones missing");
+            assert_eq!(magic & 0x1e00_0000_0000, 0, "pinned zeros set");
         }
     }
 
@@ -1036,21 +1116,23 @@ mod tests {
             SampleStyle::Dense {
                 density_low: 0.9,
                 density_high: 0.3,
+                pin_ones: 0,
+                pin_zeros: 0,
             },
         );
-        let (low, high) = sampler.span;
+        let (_, high) = live_span(Square::A1);
 
         let n = 10_000;
         let mut low_hits = 0u32;
         let mut high_hits = 0u32;
         for _ in 0..n {
             let magic = sampler.sample(&mut rng);
-            low_hits += (magic >> low & 1) as u32;
+            low_hits += (magic & 1) as u32;
             high_hits += (magic >> high & 1) as u32;
         }
 
-        // The lowest span bit should be set ~90% of the time, the highest
-        // ~30%; ±5% leaves lots of statistical slack.
+        // Bit 0 should be set ~90% of the time, the highest live bit ~30%;
+        // ±5% leaves lots of statistical slack.
         assert!((8_500..=9_500).contains(&low_hits), "low: {low_hits}");
         assert!((2_500..=3_500).contains(&high_hits), "high: {high_hits}");
     }
