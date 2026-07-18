@@ -14,7 +14,7 @@ use kingly_lib::types::{Bitboard, BoardVector, File, Rank, Square};
 use rand::rngs::SmallRng;
 use rand::{Rng, RngExt, SeedableRng};
 
-const ROOK_MAGIC_BITS: u64 = 11;
+const ROOK_MAGIC_BITS: u64 = 10;
 const LANES: usize = 4;
 const LANES_U32: usize = 2 * LANES;
 
@@ -37,16 +37,19 @@ enum Command {
     /// candidate around the index-window structure (see `Sampler`).
     Random {
         /// The number of extra random bits sprinkled into the index windows.
-        #[clap(long, default_value_t = 0, conflicts_with = "runs")]
+        #[clap(long, default_value_t = 0, conflicts_with = "dense")]
         extra_bits: u32,
-        /// Sample dense candidates built from this many runs of ones instead
-        /// of sparse window-based bits. Compressing squares need the carry
-        /// chains that runs provide.
+        /// Sample dense candidates with a per-bit density gradient across the
+        /// live span instead of sparse window-based bits. Compressing squares
+        /// need the carry chains that dense magics provide.
         #[clap(long)]
-        runs: Option<u32>,
-        /// The maximum length of each run of ones with --runs.
-        #[clap(long, default_value_t = 16, requires = "runs")]
-        max_run_len: u32,
+        dense: bool,
+        /// The bit density at the lowest bit of the live span with --dense.
+        #[clap(long, default_value_t = 0.75, requires = "dense")]
+        density_low: f64,
+        /// The bit density at the highest bit of the live span with --dense.
+        #[clap(long, default_value_t = 0.75, requires = "dense")]
+        density_high: f64,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -67,16 +70,18 @@ fn main() {
     match app.command {
         Command::Random {
             extra_bits,
-            runs,
-            max_run_len,
+            dense,
+            density_low,
+            density_high,
             single_threaded,
         } => {
-            let style = match runs {
-                Some(count) => SampleStyle::Runs {
-                    count,
-                    max_len: max_run_len,
-                },
-                None => SampleStyle::Sparse { extra_bits },
+            let style = if dense {
+                SampleStyle::Dense {
+                    density_low: density_low.clamp(0.0, 1.0),
+                    density_high: density_high.clamp(0.0, 1.0),
+                }
+            } else {
+                SampleStyle::Sparse { extra_bits }
             };
             let sampler = Sampler::new(app.square, style);
             run_random(&occ_sets, &precheck, &sampler, single_threaded)
@@ -533,17 +538,25 @@ enum SampleStyle {
     /// - Extra bits are drawn from the union of the windows, since bits outside
     ///   every window only act on the index through carries.
     Sparse { extra_bits: u32 },
-    /// Dense candidates: the OR of `count` runs of ones inside the live span.
+    /// Dense candidates with a per-bit density gradient: the density
+    /// interpolates linearly from `density_low` at the bottom of the live
+    /// span to `density_high` at its top.
     ///
     /// A compressing square (more occupancies than index slots) needs shadow
     /// collisions: adding a far blocker behind a nearer one must leave the
     /// index unchanged. Carry-free products change the index by the far
     /// blocker's non-zero window contribution regardless of the other
-    /// blockers, so only carry chains can cancel it conditionally — and runs
-    /// of ones are carry fuel. Known reduced magics are dense runs within the
-    /// live span (~78% of it for h8).
-    Runs { count: u32, max_len: u32 },
+    /// blockers, so only carry chains can cancel it conditionally — dense
+    /// magics are carry fuel. Known reduced magics are ~78% dense within the
+    /// live span, and the first-rank finds cluster their bits low: carries
+    /// propagate upward, so density low in the span radiates through all
+    /// windows above.
+    Dense { density_low: f64, density_high: f64 },
 }
+
+/// The number of bit-sliced threshold planes for dense sampling; densities
+/// are quantized to `1 / 2^DENSITY_PLANES` steps.
+const DENSITY_PLANES: usize = 8;
 
 /// Samples candidate magics for the random search, shaped by the structure of
 /// the single-blocker index windows (see [`Precheck`] and [`SampleStyle`]).
@@ -558,6 +571,15 @@ struct Sampler {
     /// are shifted out of every blocker's product and are completely inert;
     /// bits below it only act through carries.
     span: (u32, u32),
+    /// Bit-sliced density thresholds for [`Self::sample_dense`]: bit `p` of
+    /// `density_planes[j]` is bit `j` of position `p`'s threshold, so that
+    /// position `p` is set with probability `threshold(p) / 2^DENSITY_PLANES`.
+    /// Positions outside the live span have threshold 0. All zeros for the
+    /// sparse style.
+    density_planes: [u64; DENSITY_PLANES],
+    /// Positions with density exactly 1, which an 8-bit threshold cannot
+    /// express.
+    density_always: u64,
     style: SampleStyle,
 }
 
@@ -573,10 +595,38 @@ impl Sampler {
         let union_positions: Vec<u32> = (0..64).filter(|p| union_mask & (1 << p) != 0).collect();
         let span = (union_mask.trailing_zeros(), 63 - union_mask.leading_zeros());
 
+        let mut density_planes = [0; DENSITY_PLANES];
+        let mut density_always = 0;
+        if let SampleStyle::Dense {
+            density_low,
+            density_high,
+        } = style
+        {
+            let (low, high) = span;
+            for position in low..=high {
+                let fraction = if high == low {
+                    0.0
+                } else {
+                    f64::from(position - low) / f64::from(high - low)
+                };
+                let density = density_low + (density_high - density_low) * fraction;
+                let threshold = (density * f64::from(1u32 << DENSITY_PLANES)).round() as u64;
+                if threshold >= 1 << DENSITY_PLANES {
+                    density_always |= 1 << position;
+                } else {
+                    for (plane, bits) in density_planes.iter_mut().enumerate() {
+                        *bits |= ((threshold >> plane) & 1) << position;
+                    }
+                }
+            }
+        }
+
         Self {
             windows,
             union_positions,
             span,
+            density_planes,
+            density_always,
             style,
         }
     }
@@ -584,22 +634,24 @@ impl Sampler {
     fn sample(&self, rng: &mut impl Rng) -> u64 {
         match self.style {
             SampleStyle::Sparse { extra_bits } => self.sample_sparse(rng, extra_bits),
-            SampleStyle::Runs { count, max_len } => self.sample_runs(rng, count, max_len),
+            SampleStyle::Dense { .. } => self.sample_dense(rng),
         }
     }
 
-    fn sample_runs(&self, rng: &mut impl Rng, count: u32, max_len: u32) -> u64 {
-        let (low, high) = self.span;
-        let mut magic = 0;
-        for _ in 0..count {
-            let len = rng.random_range(1..=max_len);
-            let start = rng.random_range(low..=high);
-            // Runs are clipped at the top of the span; bits above it would be
-            // dead weight.
-            let end = (start + len - 1).min(high);
-            magic |= (((1u128 << (end - start + 1)) - 1) as u64) << start;
+    /// Draws an 8-bit uniform value per bit position (bit `j` of position
+    /// `p`'s value is bit `p` of the `j`-th random word) and sets the magic
+    /// bit wherever the value is below the position's density threshold. The
+    /// bit-sliced comparison, most significant plane first, resolves all 64
+    /// positions in parallel with a few bitwise ops per plane.
+    fn sample_dense(&self, rng: &mut impl Rng) -> u64 {
+        let mut less = 0;
+        let mut equal = u64::MAX;
+        for &plane in self.density_planes.iter().rev() {
+            let random = rng.next_u64();
+            less |= equal & !random & plane;
+            equal &= !(random ^ plane);
         }
-        magic
+        less | self.density_always
     }
 
     fn sample_sparse(&self, rng: &mut impl Rng, extra_bits: u32) -> u64 {
@@ -955,15 +1007,15 @@ mod tests {
     }
 
     #[test]
-    fn test_sample_runs_within_span() {
+    fn test_sample_dense_within_span() {
         let mut rng = SmallRng::seed_from_u64(7);
 
         for sq in [Square::A1, Square::H8] {
             let sampler = Sampler::new(
                 sq,
-                SampleStyle::Runs {
-                    count: 8,
-                    max_len: 16,
+                SampleStyle::Dense {
+                    density_low: 0.75,
+                    density_high: 0.75,
                 },
             );
             let (low, high) = sampler.span;
@@ -974,5 +1026,32 @@ mod tests {
                 assert_eq!(magic & !span_mask, 0, "bits outside the live span");
             }
         }
+    }
+
+    #[test]
+    fn test_sample_dense_gradient() {
+        let mut rng = SmallRng::seed_from_u64(11);
+        let sampler = Sampler::new(
+            Square::A1,
+            SampleStyle::Dense {
+                density_low: 0.9,
+                density_high: 0.3,
+            },
+        );
+        let (low, high) = sampler.span;
+
+        let n = 10_000;
+        let mut low_hits = 0u32;
+        let mut high_hits = 0u32;
+        for _ in 0..n {
+            let magic = sampler.sample(&mut rng);
+            low_hits += (magic >> low & 1) as u32;
+            high_hits += (magic >> high & 1) as u32;
+        }
+
+        // The lowest span bit should be set ~90% of the time, the highest
+        // ~30%; ±5% leaves lots of statistical slack.
+        assert!((8_500..=9_500).contains(&low_hits), "low: {low_hits}");
+        assert!((2_500..=3_500).contains(&high_hits), "high: {high_hits}");
     }
 }
