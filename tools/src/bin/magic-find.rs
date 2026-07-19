@@ -32,7 +32,7 @@ struct App {
     /// (injective, no compression), except for `climb` which defaults to one
     /// less (compression by one bit).
     #[arg(long, global = true)]
-    bits: Option<u32>,
+    shift: Option<u32>,
     #[clap(subcommand)]
     command: Command,
 }
@@ -50,33 +50,53 @@ struct SamplerArgs {
     #[clap(long)]
     dense: bool,
     /// The bit density at bit 0 with --dense.
-    #[clap(long, default_value_t = 0.75, requires = "dense")]
+    #[clap(
+        long,
+        default_value_t = 0.5,
+        requires = "dense",
+        conflicts_with = "density"
+    )]
     density_low: f64,
     /// The bit density at the highest live bit with --dense.
-    #[clap(long, default_value_t = 0.75, requires = "dense")]
+    #[clap(
+        long,
+        default_value_t = 0.5,
+        requires = "dense",
+        conflicts_with = "density"
+    )]
     density_high: f64,
-    /// A hex mask of bits to force on in every dense candidate, overriding
-    /// the gradient (a la Witek's per-square scaffolds).
-    #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
+    // The bit density across the live span with --dense.
+    #[clap(long, requires = "dense")]
+    density: Option<f64>,
+    /// A hex mask of bits to force on in every candidate (a la Witek's
+    /// per-square scaffolds).
+    #[clap(long, value_parser = parse_hex, default_value = "0")]
     pin_ones: u64,
-    /// A hex mask of bits to force off in every dense candidate; pinned ones
-    /// win over pinned zeros.
-    #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
+    /// A hex mask of bits to force off in every candidate; pinned ones win
+    /// over pinned zeros.
+    #[clap(long, value_parser = parse_hex, default_value = "0")]
     pin_zeros: u64,
 }
 
 impl SamplerArgs {
     fn style(&self) -> SampleStyle {
         if self.dense {
+            let (density_low, density_high) = if let Some(density) = self.density {
+                (density, density)
+            } else {
+                (self.density_low, self.density_high)
+            };
             SampleStyle::Dense {
-                density_low: self.density_low.clamp(0.0, 1.0),
-                density_high: self.density_high.clamp(0.0, 1.0),
+                density_low: density_low.clamp(0.0, 1.0),
+                density_high: density_high.clamp(0.0, 1.0),
                 pin_ones: self.pin_ones,
                 pin_zeros: self.pin_zeros,
             }
         } else {
             SampleStyle::Sparse {
                 extra_bits: self.extra_bits,
+                pin_ones: self.pin_ones,
+                pin_zeros: self.pin_zeros,
             }
         }
     }
@@ -133,7 +153,7 @@ fn main() {
             sampler,
             single_threaded,
         } => {
-            let bits = resolve_bits(app.bits, natural_bits);
+            let bits = resolve_bits(app.shift, natural_bits);
             eprintln!("searching {bits}-bit magics for {}", app.square);
             let precheck = Precheck::new(app.square, bits);
             let sampler = Sampler::new(app.square, sampler.style(), bits);
@@ -143,7 +163,7 @@ fn main() {
             max_bits,
             single_threaded,
         } => {
-            let bits = resolve_bits(app.bits, natural_bits);
+            let bits = resolve_bits(app.shift, natural_bits);
             eprintln!("searching {bits}-bit magics for {}", app.square);
             let precheck = Precheck::new(app.square, bits);
             run_dfs(&occ_sets, &precheck, max_bits, single_threaded)
@@ -155,8 +175,8 @@ fn main() {
             stagnation,
             single_threaded,
         } => {
-            let bits = resolve_bits(app.bits, natural_bits.saturating_sub(1));
-            let seed_bits = resolve_bits(seed_bits, bits + 1);
+            let bits = resolve_bits(app.shift, natural_bits.saturating_sub(1));
+            let seed_bits = resolve_bits(seed_bits, natural_bits);
             assert!(
                 seed_bits > bits,
                 "seed bits ({seed_bits}) must exceed target bits ({bits})"
@@ -247,7 +267,7 @@ fn random_worker(
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        if try_magic(magic, occ_sets, precheck, &mut idxs) == occ_sets.len() {
+        if try_magic(magic, occ_sets, precheck, &mut idxs, true) == occ_sets.len() {
             if !found.swap(true, Ordering::Relaxed) {
                 eprintln!("\nFound magic: {:#x}", magic);
             }
@@ -362,7 +382,7 @@ fn dfs_worker(
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        if try_magic(magic, occ_sets, precheck, &mut idxs) == occ_sets.len() {
+        if try_magic(magic, occ_sets, precheck, &mut idxs, true) == occ_sets.len() {
             if !found.swap(true, Ordering::Relaxed) {
                 eprintln!("\nFound magic: {:#x}", magic);
             }
@@ -497,7 +517,7 @@ fn climb_worker(w: ClimbWorker) {
     let count_eval = |local_count: &mut u64| {
         *local_count += 1;
         w.tried_counts[w.worker_id].fetch_add(1, Ordering::Relaxed);
-        if is_reporter && *local_count % 1_000_000 == 0 {
+        if is_reporter && *local_count % 100_000 == 0 {
             let count = w
                 .tried_counts
                 .iter()
@@ -516,12 +536,12 @@ fn climb_worker(w: ClimbWorker) {
             }
             let candidate = w.seed_sampler.sample(&mut rng);
             count_eval(&mut local_count);
-            if try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) == total {
+            if try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs, true) == total {
                 current = candidate;
                 break;
             }
         }
-        let mut score = try_magic(current, w.occ_sets, w.target_precheck, &mut idxs);
+        let mut score = try_magic(current, w.occ_sets, w.target_precheck, &mut idxs, false);
 
         // Stage B: climb at the target width until stagnation.
         let mut since_improvement = 0;
@@ -532,7 +552,8 @@ fn climb_worker(w: ClimbWorker) {
 
             let candidate = mutate(current, mutation_size(score, total), w.span_high, &mut rng);
             count_eval(&mut local_count);
-            let candidate_score = try_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs);
+            let candidate_score =
+                try_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs, false);
 
             if candidate_score == total {
                 // A valid target-width magic is automatically valid at the
@@ -546,7 +567,8 @@ fn climb_worker(w: ClimbWorker) {
             if candidate_score >= score {
                 // In ridge mode only accept moves that stay valid at the seed
                 // width, where every target-width magic provably lives.
-                if w.ridge && try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) != total
+                if w.ridge
+                    && try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs, false) != total
                 {
                     since_improvement += 1;
                     continue;
@@ -611,6 +633,7 @@ fn try_magic(
     occ_sets: &[OccupancySet],
     precheck: &Precheck,
     idxs: &mut [usize],
+    stop_early: bool,
 ) -> usize {
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
     let shift = SimdU64::splat(64 - u64::from(precheck.bits));
@@ -633,7 +656,7 @@ fn try_magic(
         if hits_mask.all() {
             occ.attack_set_indices.scatter(table, keys);
             hits += 1;
-        } else {
+        } else if stop_early {
             break;
         }
     }
@@ -823,7 +846,15 @@ enum SampleStyle {
     ///   chosen window always gets two.
     /// - Extra bits are drawn from the union of the windows, since bits outside
     ///   every window only act on the index through carries.
-    Sparse { extra_bits: u32 },
+    ///
+    /// `pin_ones`/`pin_zeros` force specific bits on/off (ones win): window
+    /// bits and extras are never placed on pinned-zero positions, and pinned
+    /// ones are added on top of the window placement.
+    Sparse {
+        extra_bits: u32,
+        pin_ones: u64,
+        pin_zeros: u64,
+    },
     /// Dense candidates with a per-bit density gradient: the density
     /// interpolates linearly from `density_low` at bit 0 to `density_high` at
     /// the top of the live span. `pin_ones`/`pin_zeros` force specific bits
@@ -872,7 +903,12 @@ struct Sampler {
     /// greedy offset assignment in [`Self::sample_sparse`] serves the most
     /// constrained (truncated) windows before the offsets run out.
     windows: Vec<(u32, u32)>,
-    /// The bit positions covered by at least one window.
+    /// Per window (parallel to `windows`), the offsets the sparse sampler may
+    /// place a bit on: the offsets reachable by the window's length, minus
+    /// positions pinned to zero.
+    window_offsets: Vec<u16>,
+    /// The bit positions covered by at least one window, minus positions
+    /// pinned to zero.
     union_positions: Vec<u32>,
     /// Bit-sliced density thresholds for [`Self::sample_dense`]: bit `p` of
     /// `density_planes[j]` is bit `j` of position `p`'s threshold, so that
@@ -894,11 +930,25 @@ impl Sampler {
         let mut windows = index_windows(sq, bits);
         windows.sort_by_key(|&(_, len)| len);
 
+        let (SampleStyle::Sparse { pin_zeros, .. } | SampleStyle::Dense { pin_zeros, .. }) = style;
+
         let mut union_mask = 0u64;
         for &(low, len) in &windows {
             union_mask |= ((1 << len) - 1) << low;
         }
-        let union_positions: Vec<u32> = (0..64).filter(|p| union_mask & (1 << p) != 0).collect();
+        let union_positions: Vec<u32> = (0..64)
+            .filter(|p| union_mask & !pin_zeros & (1 << p) != 0)
+            .collect();
+
+        let window_offsets = windows
+            .iter()
+            .map(|&(low, len)| {
+                let min_offset = bits - len;
+                (min_offset..bits)
+                    .filter(|&offset| pin_zeros & (1 << (low + offset - min_offset)) == 0)
+                    .fold(0u16, |mask, offset| mask | (1 << offset))
+            })
+            .collect();
 
         let mut density_planes = [0; DENSITY_PLANES];
         let mut density_always = 0;
@@ -940,6 +990,7 @@ impl Sampler {
 
         Self {
             windows,
+            window_offsets,
             union_positions,
             density_planes,
             density_always,
@@ -950,7 +1001,11 @@ impl Sampler {
 
     fn sample(&self, rng: &mut impl Rng) -> u64 {
         match self.style {
-            SampleStyle::Sparse { extra_bits } => self.sample_sparse(rng, extra_bits),
+            SampleStyle::Sparse {
+                extra_bits,
+                pin_ones,
+                pin_zeros,
+            } => self.sample_sparse(rng, extra_bits, pin_ones, pin_zeros),
             SampleStyle::Dense { .. } => self.sample_dense(rng),
         }
     }
@@ -971,47 +1026,56 @@ impl Sampler {
         less | self.density_always
     }
 
-    fn sample_sparse(&self, rng: &mut impl Rng, extra_bits: u32) -> u64 {
-        let num_offsets = self.bits;
-
+    fn sample_sparse(
+        &self,
+        rng: &mut impl Rng,
+        extra_bits: u32,
+        pin_ones: u64,
+        pin_zeros: u64,
+    ) -> u64 {
         let mut magic = 0;
         let doubled = rng.random_range(0..self.windows.len());
         let mut used_offsets = 0u16;
 
         for (i, &(low, len)) in self.windows.iter().enumerate() {
-            if i == doubled && len >= 2 {
-                // Two distinct bits; a multi-bit window sidesteps the
-                // power-of-two pigeonhole entirely, so it does not take part
-                // in the offset assignment.
-                let first = rng.random_range(0..len);
-                let mut second = rng.random_range(0..len - 1);
-                if second >= first {
-                    second += 1;
-                }
-                magic |= 1 << (low + first);
-                magic |= 1 << (low + second);
+            // A truncated window of length `len` only reaches the offsets
+            // `[bits - len, bits)`; positions pinned to zero are excluded.
+            let min_offset = self.bits - len;
+            let feasible = self.window_offsets[i];
+            if feasible == 0 {
+                // Fully pinned to zero; coverage must come from pinned ones.
                 continue;
             }
 
-            // A truncated window of length `len` only reaches the offsets
-            // `[num_offsets - len, num_offsets)`.
-            let min_offset = num_offsets - len;
-            let feasible = !((1u16 << min_offset) - 1) & ((1u16 << num_offsets) - 1);
+            if i == doubled && feasible.count_ones() >= 2 {
+                // Two distinct bits; a multi-bit window sidesteps the
+                // power-of-two pigeonhole entirely, so it does not take part
+                // in the offset assignment.
+                let first = random_set_bit(rng, feasible);
+                let second = random_set_bit(rng, feasible & !(1 << first));
+                magic |= 1 << (low + first - min_offset);
+                magic |= 1 << (low + second - min_offset);
+                continue;
+            }
+
             let unused = feasible & !used_offsets;
             let offset = if unused != 0 {
                 random_set_bit(rng, unused)
             } else {
-                min_offset + rng.random_range(0..len)
+                random_set_bit(rng, feasible)
             };
             used_offsets |= 1 << offset;
             magic |= 1 << (low + offset - min_offset);
         }
 
-        for _ in 0..extra_bits {
-            let position = self.union_positions[rng.random_range(0..self.union_positions.len())];
-            magic |= 1 << position;
+        if !self.union_positions.is_empty() {
+            for _ in 0..extra_bits {
+                let position =
+                    self.union_positions[rng.random_range(0..self.union_positions.len())];
+                magic |= 1 << position;
+            }
         }
-        magic
+        (magic & !pin_zeros) | pin_ones
     }
 }
 
@@ -1286,7 +1350,15 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(42);
 
         for sq in [Square::A1, Square::A4, Square::H8] {
-            let sampler = Sampler::new(sq, SampleStyle::Sparse { extra_bits: 3 }, TEST_BITS);
+            let sampler = Sampler::new(
+                sq,
+                SampleStyle::Sparse {
+                    extra_bits: 3,
+                    pin_ones: 0,
+                    pin_zeros: 0,
+                },
+                TEST_BITS,
+            );
             let squares = relevant_occupancy_squares(sq);
             for _ in 0..1_000 {
                 let magic = sampler.sample(&mut rng);
@@ -1320,7 +1392,7 @@ mod tests {
             let precheck = Precheck::new(sq, bits);
             let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
             assert_eq!(
-                try_magic(magic, &occ_sets, &precheck, &mut idxs),
+                try_magic(magic, &occ_sets, &precheck, &mut idxs, true),
                 occ_sets.len(),
                 "known magic {magic:#x} rejected for {sq}"
             );
@@ -1333,7 +1405,7 @@ mod tests {
             let masked = magic & (u64::MAX >> (63 - high));
             assert_ne!(masked, magic, "expected dead bits in the known magic");
             assert_eq!(
-                try_magic(masked, &occ_sets, &precheck, &mut idxs),
+                try_magic(masked, &occ_sets, &precheck, &mut idxs, true),
                 occ_sets.len(),
                 "span-masked magic {masked:#x} rejected for {sq}"
             );
@@ -1363,6 +1435,31 @@ mod tests {
                 let magic = sampler.sample(&mut rng);
                 assert_ne!(magic, 0);
                 assert_eq!(magic & !live_mask, 0, "bits above the live span");
+            }
+        }
+    }
+
+    #[test]
+    fn test_sample_sparse_pins() {
+        let mut rng = SmallRng::seed_from_u64(17);
+        let sampler = Sampler::new(
+            Square::A1,
+            SampleStyle::Sparse {
+                extra_bits: 3,
+                pin_ones: 0x30,
+                pin_zeros: 0xf00,
+            },
+            TEST_BITS,
+        );
+        let squares = relevant_occupancy_squares(Square::A1);
+        for _ in 0..1_000 {
+            let magic = sampler.sample(&mut rng);
+            assert_eq!(magic & 0x30, 0x30, "pinned ones missing");
+            assert_eq!(magic & 0xf00, 0, "pinned zeros set");
+            // Window coverage survives the pins: placement avoids pinned-zero
+            // positions instead of losing bits to them.
+            for &bit in &squares {
+                assert_ne!((magic << bit) >> (64 - TEST_BITS), 0);
             }
         }
     }
