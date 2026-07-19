@@ -14,7 +14,8 @@ use kingly_lib::types::{Bitboard, BoardVector, File, Rank, Square};
 use rand::rngs::SmallRng;
 use rand::{Rng, RngExt, SeedableRng};
 
-const ROOK_MAGIC_BITS: u64 = 10;
+/// The largest supported index width; tables are sized for this.
+const MAX_MAGIC_BITS: usize = 13;
 const LANES: usize = 4;
 const LANES_U32: usize = 2 * LANES;
 
@@ -27,8 +28,58 @@ struct App {
     /// The square to find rook magics for, e.g. "a1" or "e4".
     #[arg(long, global = true, default_value = "a1")]
     square: Square,
+    /// The index bits of the magic to find. Defaults to the premask size
+    /// (injective, no compression), except for `climb` which defaults to one
+    /// less (compression by one bit).
+    #[arg(long, global = true)]
+    bits: Option<u32>,
     #[clap(subcommand)]
     command: Command,
+}
+
+/// Flags shaping how candidate magics are sampled; shared between `random`
+/// (the search candidates) and `climb` (the seed candidates).
+#[derive(clap::Args)]
+struct SamplerArgs {
+    /// The number of extra random bits sprinkled into the index windows.
+    #[clap(long, default_value_t = 0, conflicts_with = "dense")]
+    extra_bits: u32,
+    /// Sample dense candidates with a per-bit density gradient across the
+    /// live span instead of sparse window-based bits. Compressing squares
+    /// need the carry chains that dense magics provide.
+    #[clap(long)]
+    dense: bool,
+    /// The bit density at bit 0 with --dense.
+    #[clap(long, default_value_t = 0.75, requires = "dense")]
+    density_low: f64,
+    /// The bit density at the highest live bit with --dense.
+    #[clap(long, default_value_t = 0.75, requires = "dense")]
+    density_high: f64,
+    /// A hex mask of bits to force on in every dense candidate, overriding
+    /// the gradient (a la Witek's per-square scaffolds).
+    #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
+    pin_ones: u64,
+    /// A hex mask of bits to force off in every dense candidate; pinned ones
+    /// win over pinned zeros.
+    #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
+    pin_zeros: u64,
+}
+
+impl SamplerArgs {
+    fn style(&self) -> SampleStyle {
+        if self.dense {
+            SampleStyle::Dense {
+                density_low: self.density_low.clamp(0.0, 1.0),
+                density_high: self.density_high.clamp(0.0, 1.0),
+                pin_ones: self.pin_ones,
+                pin_zeros: self.pin_zeros,
+            }
+        } else {
+            SampleStyle::Sparse {
+                extra_bits: self.extra_bits,
+            }
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -36,28 +87,8 @@ enum Command {
     /// Randomly sample magics across all cores until one works, shaping each
     /// candidate around the index-window structure (see `Sampler`).
     Random {
-        /// The number of extra random bits sprinkled into the index windows.
-        #[clap(long, default_value_t = 0, conflicts_with = "dense")]
-        extra_bits: u32,
-        /// Sample dense candidates with a per-bit density gradient across the
-        /// live span instead of sparse window-based bits. Compressing squares
-        /// need the carry chains that dense magics provide.
-        #[clap(long)]
-        dense: bool,
-        /// The bit density at bit 0 with --dense.
-        #[clap(long, default_value_t = 0.75, requires = "dense")]
-        density_low: f64,
-        /// The bit density at the highest live bit with --dense.
-        #[clap(long, default_value_t = 0.75, requires = "dense")]
-        density_high: f64,
-        /// A hex mask of bits to force on in every dense candidate,
-        /// overriding the gradient (a la Witek's per-square scaffolds).
-        #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
-        pin_ones: u64,
-        /// A hex mask of bits to force off in every dense candidate; pinned
-        /// ones win over pinned zeros.
-        #[clap(long, value_parser = parse_hex, default_value = "0", requires = "dense")]
-        pin_zeros: u64,
+        #[clap(flatten)]
+        sampler: SamplerArgs,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -68,41 +99,96 @@ enum Command {
         #[clap(long)]
         single_threaded: bool,
     },
+    /// Hill-climb from seed magics found at a higher (easier) index width
+    /// toward a reduced-bit magic. Every valid `bits`-bit magic is also valid
+    /// at `bits + 1`, so the seeds live in a provable superset of the target.
+    /// The sampler flags configure the seed search.
+    Climb {
+        #[clap(flatten)]
+        sampler: SamplerArgs,
+        /// The index width to find seeds at; defaults to one more than the
+        /// target bits.
+        #[clap(long)]
+        seed_bits: Option<u32>,
+        /// Reject mutations that break seed-width validity, confining the
+        /// walk to the superset that provably contains every target magic.
+        #[clap(long)]
+        ridge: bool,
+        /// Evaluations without improvement before restarting from a fresh
+        /// seed.
+        #[clap(long, default_value_t = 100_000)]
+        stagnation: u64,
+        #[clap(long)]
+        single_threaded: bool,
+    },
 }
 
 fn main() {
     let app = App::parse();
     let occ_sets = rook_occupancy_sets(app.square);
-    let precheck = Precheck::new(app.square);
+    let natural_bits = relevant_occupancy_squares(app.square).len() as u32;
 
     match app.command {
         Command::Random {
-            extra_bits,
-            dense,
-            density_low,
-            density_high,
-            pin_ones,
-            pin_zeros,
+            sampler,
             single_threaded,
         } => {
-            let style = if dense {
-                SampleStyle::Dense {
-                    density_low: density_low.clamp(0.0, 1.0),
-                    density_high: density_high.clamp(0.0, 1.0),
-                    pin_ones,
-                    pin_zeros,
-                }
-            } else {
-                SampleStyle::Sparse { extra_bits }
-            };
-            let sampler = Sampler::new(app.square, style);
+            let bits = resolve_bits(app.bits, natural_bits);
+            eprintln!("searching {bits}-bit magics for {}", app.square);
+            let precheck = Precheck::new(app.square, bits);
+            let sampler = Sampler::new(app.square, sampler.style(), bits);
             run_random(&occ_sets, &precheck, &sampler, single_threaded)
         }
         Command::Dfs {
             max_bits,
             single_threaded,
-        } => run_dfs(&occ_sets, &precheck, max_bits, single_threaded),
+        } => {
+            let bits = resolve_bits(app.bits, natural_bits);
+            eprintln!("searching {bits}-bit magics for {}", app.square);
+            let precheck = Precheck::new(app.square, bits);
+            run_dfs(&occ_sets, &precheck, max_bits, single_threaded)
+        }
+        Command::Climb {
+            sampler,
+            seed_bits,
+            ridge,
+            stagnation,
+            single_threaded,
+        } => {
+            let bits = resolve_bits(app.bits, natural_bits.saturating_sub(1));
+            let seed_bits = resolve_bits(seed_bits, bits + 1);
+            assert!(
+                seed_bits > bits,
+                "seed bits ({seed_bits}) must exceed target bits ({bits})"
+            );
+            eprintln!(
+                "climbing from {seed_bits}-bit seeds toward {bits}-bit magics for {}{}",
+                app.square,
+                if ridge { " (ridge mode)" } else { "" },
+            );
+            run_climb(
+                &occ_sets,
+                app.square,
+                bits,
+                seed_bits,
+                sampler.style(),
+                ridge,
+                stagnation,
+                single_threaded,
+            )
+        }
     }
+}
+
+/// Resolves an optional bit-count argument against a default, validating the
+/// supported range.
+fn resolve_bits(bits: Option<u32>, default: u32) -> u32 {
+    let bits = bits.unwrap_or(default);
+    assert!(
+        (1..=MAX_MAGIC_BITS as u32).contains(&bits),
+        "index bits must be in [1, {MAX_MAGIC_BITS}]"
+    );
+    bits
 }
 
 fn run_random(
@@ -152,7 +238,7 @@ fn random_worker(
     start: Instant,
 ) {
     let mut rng = SmallRng::from_rng(&mut rand::rng());
-    let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
+    let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
     let is_reporter = worker_id == 0;
     let mut local_count = 0u64;
 
@@ -244,7 +330,7 @@ fn dfs_worker(
     tried_counts: &[AtomicU64],
     start: Instant,
 ) {
-    let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
+    let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
     let is_reporter = worker_id == 0;
     let mut local_count = 0u64;
     let mut is_active = true;
@@ -327,6 +413,188 @@ fn find_task(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_climb(
+    occ_sets: &[OccupancySet],
+    sq: Square,
+    bits: u32,
+    seed_bits: u32,
+    seed_style: SampleStyle,
+    ridge: bool,
+    stagnation: u64,
+    single_threaded: bool,
+) {
+    let worker_count = if single_threaded {
+        1
+    } else {
+        thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1)
+    };
+
+    let target_precheck = Precheck::new(sq, bits);
+    let seed_precheck = Precheck::new(sq, seed_bits);
+    let seed_sampler = Sampler::new(sq, seed_style, seed_bits);
+    let (_, span_high) = live_span(sq, bits);
+
+    let found = AtomicBool::new(false);
+    let best_score = AtomicU64::new(0);
+    let tried_counts: Vec<AtomicU64> = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
+    let start = Instant::now();
+
+    thread::scope(|scope| {
+        for worker_id in 0..worker_count {
+            let target_precheck = &target_precheck;
+            let seed_precheck = &seed_precheck;
+            let seed_sampler = &seed_sampler;
+            let found = &found;
+            let best_score = &best_score;
+            let tried_counts = &tried_counts;
+            scope.spawn(move || {
+                climb_worker(ClimbWorker {
+                    worker_id,
+                    occ_sets,
+                    target_precheck,
+                    seed_precheck,
+                    seed_sampler,
+                    span_high,
+                    ridge,
+                    stagnation,
+                    found,
+                    best_score,
+                    tried_counts,
+                    start,
+                });
+            });
+        }
+    });
+}
+
+struct ClimbWorker<'a> {
+    worker_id: usize,
+    occ_sets: &'a [OccupancySet],
+    target_precheck: &'a Precheck,
+    seed_precheck: &'a Precheck,
+    seed_sampler: &'a Sampler,
+    /// The top of the target-width live span; mutations stay within
+    /// `[0, span_high]`.
+    span_high: u32,
+    ridge: bool,
+    stagnation: u64,
+    found: &'a AtomicBool,
+    best_score: &'a AtomicU64,
+    tried_counts: &'a [AtomicU64],
+    start: Instant,
+}
+
+fn climb_worker(w: ClimbWorker) {
+    let mut rng = SmallRng::from_rng(&mut rand::rng());
+    let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
+    let is_reporter = w.worker_id == 0;
+    let mut local_count = 0u64;
+    let total = w.occ_sets.len();
+
+    let count_eval = |local_count: &mut u64| {
+        *local_count += 1;
+        w.tried_counts[w.worker_id].fetch_add(1, Ordering::Relaxed);
+        if is_reporter && *local_count % 1_000_000 == 0 {
+            let count = w
+                .tried_counts
+                .iter()
+                .map(|counter| counter.load(Ordering::Relaxed))
+                .sum();
+            report(count, w.start);
+        }
+    };
+
+    'restart: while !w.found.load(Ordering::Relaxed) {
+        // Stage A: find a seed that is valid at the (easier) seed width.
+        let mut current;
+        loop {
+            if w.found.load(Ordering::Relaxed) {
+                return;
+            }
+            let candidate = w.seed_sampler.sample(&mut rng);
+            count_eval(&mut local_count);
+            if try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) == total {
+                current = candidate;
+                break;
+            }
+        }
+        let mut score = try_magic(current, w.occ_sets, w.target_precheck, &mut idxs);
+
+        // Stage B: climb at the target width until stagnation.
+        let mut since_improvement = 0;
+        while since_improvement < w.stagnation {
+            if w.found.load(Ordering::Relaxed) {
+                return;
+            }
+
+            let candidate = mutate(current, mutation_size(score, total), w.span_high, &mut rng);
+            count_eval(&mut local_count);
+            let candidate_score = try_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs);
+
+            if candidate_score == total {
+                // A valid target-width magic is automatically valid at the
+                // seed width, so ridge mode needs no extra check here.
+                if !w.found.swap(true, Ordering::Relaxed) {
+                    eprintln!("\nFound magic: {candidate:#x}");
+                }
+                return;
+            }
+
+            if candidate_score >= score {
+                // In ridge mode only accept moves that stay valid at the seed
+                // width, where every target-width magic provably lives.
+                if w.ridge && try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) != total
+                {
+                    since_improvement += 1;
+                    continue;
+                }
+                if candidate_score > score {
+                    since_improvement = 0;
+                    let previous = w
+                        .best_score
+                        .fetch_max(candidate_score as u64, Ordering::Relaxed);
+                    if (candidate_score as u64) > previous {
+                        eprintln!("\nnew best {candidate_score}/{total}: {candidate:#x}");
+                    }
+                } else {
+                    since_improvement += 1;
+                }
+                current = candidate;
+                score = candidate_score;
+            } else {
+                since_improvement += 1;
+            }
+        }
+        continue 'restart;
+    }
+}
+
+/// The number of bits to flip, scaled to fitness: careful steps near the
+/// summit, big jumps in the flatlands.
+fn mutation_size(score: usize, total: usize) -> u32 {
+    if 25 * score >= 24 * total {
+        1
+    } else if 9 * score >= 8 * total {
+        2
+    } else if 3 * score >= 2 * total {
+        3
+    } else {
+        4
+    }
+}
+
+/// Flips `flips` random bits of `magic` within `[0, span_high]`.
+fn mutate(magic: u64, flips: u32, span_high: u32, rng: &mut impl Rng) -> u64 {
+    let mut mutated = magic;
+    for _ in 0..flips {
+        mutated ^= 1 << rng.random_range(0..=span_high);
+    }
+    mutated
+}
+
 fn report(tried: u64, start: Instant) {
     let elapsed = start.elapsed().as_secs_f64();
     let rate = if elapsed > 0.0 {
@@ -342,27 +610,28 @@ fn try_magic(
     magic: u64,
     occ_sets: &[OccupancySet],
     precheck: &Precheck,
-    idxs: &mut [usize; 1 << ROOK_MAGIC_BITS],
+    idxs: &mut [usize],
 ) -> usize {
-    const SHIFT: SimdU64 = SimdU64::splat(64 - ROOK_MAGIC_BITS);
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
+    let shift = SimdU64::splat(64 - u64::from(precheck.bits));
 
     if !precheck.passes(magic) {
         return 0;
     }
 
     let magic = SimdU64::splat(magic);
-    idxs.fill(usize::MAX);
+    let table = &mut idxs[..1 << precheck.bits];
+    table.fill(usize::MAX);
 
     let mut hits = 0;
     for occ in occ_sets {
-        let keys = ((occ.bitboards * magic) >> SHIFT).cast::<usize>();
-        let atk_sets = Simd::gather_or_default(idxs, keys);
+        let keys = ((occ.bitboards * magic) >> shift).cast::<usize>();
+        let atk_sets = Simd::gather_or_default(table, keys);
         // All non-empty entries in `atk_sets` must be equal to the attack set index for
         // this occupancy set.
         let hits_mask = atk_sets.simd_eq(EMPTY) | atk_sets.simd_eq(occ.attack_set_indices);
         if hits_mask.all() {
-            occ.attack_set_indices.scatter(idxs, keys);
+            occ.attack_set_indices.scatter(table, keys);
             hits += 1;
         } else {
             break;
@@ -382,11 +651,11 @@ fn try_magic(
 /// `[53 - k, 63 - k]` of the magic itself, which can be extracted without
 /// running the table.
 ///
-/// A window is at most `ROOK_MAGIC_BITS` bits wide, so it fits entirely in at
-/// least one of the 32-bit halves `[0, 31]`, `[32, 63]` or `[16, 47]` of the
-/// magic (a window crossing the 32-bit boundary spans at most `[22, 41]`).
-/// Grouping the windows by half lets us extract them with 32-bit lane shifts,
-/// twice as many per SIMD op as with 64-bit lanes.
+/// A window is at most `bits` wide, so it fits entirely in at least one of
+/// the 32-bit halves `[0, 31]`, `[32, 63]` or `[16, 47]` of the magic (a
+/// window crossing the 32-bit boundary spans at most `[19, 44]` for 13-bit
+/// windows). Grouping the windows by half lets us extract them with 32-bit
+/// lane shifts, twice as many per SIMD op as with 64-bit lanes.
 struct Precheck {
     /// Windows within magic bits `[0, 31]`.
     lo: Bucket,
@@ -394,12 +663,14 @@ struct Precheck {
     hi: Bucket,
     /// Windows within magic bits `[16, 47]`.
     mid: Bucket,
+    /// The index width this pre-check (and its windows) is built for.
+    bits: u32,
 }
 
 impl Precheck {
-    fn new(sq: Square) -> Self {
-        const SHIFT: u64 = 64 - ROOK_MAGIC_BITS;
-        let index_window = ((1u64 << ROOK_MAGIC_BITS) - 1) << SHIFT;
+    fn new(sq: Square, bits: u32) -> Self {
+        let shift = 64 - u64::from(bits);
+        let index_window = ((1u64 << bits) - 1) << shift;
 
         let mut lo = Vec::new();
         let mut hi = Vec::new();
@@ -408,26 +679,27 @@ impl Precheck {
             let k = u64::from(bit);
             let mask = index_window >> k;
             // Each window gets a `(right, left)` shift pair such that its
-            // index value is `((half >> right) << left) & INDEX_MASK`.
-            if k > SHIFT {
+            // index value is `((half >> right) << left) & index_mask`.
+            if k > shift {
                 // The window is truncated to `[0, 63 - k]`; the index has its
-                // low `k - 53` bits at zero.
+                // low `k - shift` bits at zero.
                 debug_assert_eq!(mask & 0xFFFF_FFFF_0000_0000, 0);
-                lo.push((0, (k - SHIFT) as u32));
+                lo.push((0, (k - shift) as u32));
             } else if mask & 0xFFFF_FFFF_0000_0000 == 0 {
-                lo.push(((SHIFT - k) as u32, 0));
+                lo.push(((shift - k) as u32, 0));
             } else if mask & 0x0000_0000_FFFF_FFFF == 0 {
-                hi.push(((SHIFT - k) as u32 - 32, 0));
+                hi.push(((shift - k) as u32 - 32, 0));
             } else {
                 debug_assert_eq!(mask & !(0xFFFF_FFFF << 16), 0);
-                mid.push(((SHIFT - k) as u32 - 16, 0));
+                mid.push(((shift - k) as u32 - 16, 0));
             }
         }
 
         Self {
-            lo: Bucket::new(lo),
-            hi: Bucket::new(hi),
-            mid: Bucket::new(mid),
+            lo: Bucket::new(lo, bits),
+            hi: Bucket::new(hi, bits),
+            mid: Bucket::new(mid, bits),
+            bits,
         }
     }
 
@@ -471,12 +743,12 @@ struct Bucket {
     left_shifts: Vec<SimdU32>,
     /// The number of real windows, excluding padding lanes.
     len: usize,
+    /// `2^bits - 1`, splatted.
+    index_mask: SimdU32,
 }
 
 impl Bucket {
-    const INDEX_MASK: SimdU32 = SimdU32::splat((1 << ROOK_MAGIC_BITS) - 1);
-
-    fn new(mut shifts: Vec<(u32, u32)>) -> Self {
+    fn new(mut shifts: Vec<(u32, u32)>, bits: u32) -> Self {
         let len = shifts.len();
         // Pad to a whole number of lanes by repeating a real shift pair, so
         // the SIMD tail re-extracts an existing window. The duplicate values
@@ -498,12 +770,13 @@ impl Bucket {
                 .map(|&chunk| SimdU32::from_array(chunk.map(|(_, left)| left)))
                 .collect(),
             len,
+            index_mask: SimdU32::splat((1 << bits) - 1),
         }
     }
 
     /// Extracts the window index values for one chunk.
     fn extract(&self, chunk: usize, half: SimdU32) -> SimdU32 {
-        ((half >> self.right_shifts[chunk]) << self.left_shifts[chunk]) & Self::INDEX_MASK
+        ((half >> self.right_shifts[chunk]) << self.left_shifts[chunk]) & self.index_mask
     }
 
     fn all_non_zero(&self, half: SimdU32) -> bool {
@@ -519,14 +792,15 @@ impl Bucket {
     }
 }
 
-/// The index windows `[53 - k, 63 - k]` of the magic (see [`Precheck`]) as
-/// `(low, length)` pairs, truncated at bit 0 for blocker bits above 53.
-fn index_windows(sq: Square) -> Vec<(u32, u32)> {
+/// The index windows `[64 - bits - k, 63 - k]` of the magic (see
+/// [`Precheck`]) as `(low, length)` pairs, truncated at bit 0 for blocker
+/// bits above `64 - bits`.
+fn index_windows(sq: Square, bits: u32) -> Vec<(u32, u32)> {
     relevant_occupancy_squares(sq)
         .into_iter()
         .map(|bit| {
             let k = u32::from(bit);
-            let low = (64 - ROOK_MAGIC_BITS as u32).saturating_sub(k);
+            let low = (64 - bits).saturating_sub(k);
             (low, 64 - k - low)
         })
         .collect()
@@ -583,9 +857,9 @@ const DENSITY_PLANES: usize = 8;
 /// magic bits appearing in any window. Bits above `high` are shifted out of
 /// every blocker's product and are completely inert; bits below `low` only
 /// act through carries.
-fn live_span(sq: Square) -> (u32, u32) {
+fn live_span(sq: Square, bits: u32) -> (u32, u32) {
     let mut union_mask = 0u64;
-    for (low, len) in index_windows(sq) {
+    for (low, len) in index_windows(sq, bits) {
         union_mask |= ((1 << len) - 1) << low;
     }
     (union_mask.trailing_zeros(), 63 - union_mask.leading_zeros())
@@ -610,12 +884,14 @@ struct Sampler {
     /// Positions with density exactly 1, which an 8-bit threshold cannot
     /// express.
     density_always: u64,
+    /// The index width the candidates are aimed at.
+    bits: u32,
     style: SampleStyle,
 }
 
 impl Sampler {
-    fn new(sq: Square, style: SampleStyle) -> Self {
-        let mut windows = index_windows(sq);
+    fn new(sq: Square, style: SampleStyle, bits: u32) -> Self {
+        let mut windows = index_windows(sq, bits);
         windows.sort_by_key(|&(_, len)| len);
 
         let mut union_mask = 0u64;
@@ -636,7 +912,7 @@ impl Sampler {
             // The gradient runs from bit 0 (carry-only bits included — they
             // act through carries, which is the point of dense magics) up to
             // the top of the live span; everything above is dead.
-            let (_, high) = live_span(sq);
+            let (_, high) = live_span(sq, bits);
             for position in 0..=high {
                 let fraction = if high == 0 {
                     0.0
@@ -667,6 +943,7 @@ impl Sampler {
             union_positions,
             density_planes,
             density_always,
+            bits,
             style,
         }
     }
@@ -695,7 +972,7 @@ impl Sampler {
     }
 
     fn sample_sparse(&self, rng: &mut impl Rng, extra_bits: u32) -> u64 {
-        const NUM_OFFSETS: u32 = ROOK_MAGIC_BITS as u32;
+        let num_offsets = self.bits;
 
         let mut magic = 0;
         let doubled = rng.random_range(0..self.windows.len());
@@ -717,9 +994,9 @@ impl Sampler {
             }
 
             // A truncated window of length `len` only reaches the offsets
-            // `[NUM_OFFSETS - len, NUM_OFFSETS)`.
-            let min_offset = NUM_OFFSETS - len;
-            let feasible = !((1u16 << min_offset) - 1) & ((1u16 << NUM_OFFSETS) - 1);
+            // `[num_offsets - len, num_offsets)`.
+            let min_offset = num_offsets - len;
+            let feasible = !((1u16 << min_offset) - 1) & ((1u16 << num_offsets) - 1);
             let unused = feasible & !used_offsets;
             let offset = if unused != 0 {
                 random_set_bit(rng, unused)
@@ -953,12 +1230,15 @@ mod tests {
         assert_eq!(relevant_occupancy_squares(Square::E4).len(), 10);
     }
 
+    /// The index width used by tests that need a fixed one.
+    const TEST_BITS: u32 = 11;
+
     #[test]
     fn test_precheck_a1_buckets() {
-        // A1 has 8 high windows (blocker bits 1-6, 8, 16), 3 low (bits 32,
-        // 40, 48) and 1 crossing (a4's [29, 39]) — one chunk each after
-        // padding.
-        let precheck = Precheck::new(Square::A1);
+        // At 11 bits, A1 has 8 high windows (blocker bits 1-6, 8, 16), 3 low
+        // (bits 32, 40, 48) and 1 crossing (a4's [29, 39]) — one chunk each
+        // after padding.
+        let precheck = Precheck::new(Square::A1, TEST_BITS);
         assert_eq!(precheck.hi.len, 8);
         assert_eq!(precheck.lo.len, 3);
         assert_eq!(precheck.mid.len, 1);
@@ -972,29 +1252,31 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(0xC0FFEE);
 
         // A4 puts six windows across the 32-bit boundary, H8 exercises the
-        // truncated windows above blocker bit 53.
+        // truncated windows, and multiple widths exercise the window math.
         for sq in [Square::A1, Square::A4, Square::E4, Square::H8] {
-            let precheck = Precheck::new(sq);
-            // The definition: the empty board's index 0 and all single-blocker
-            // indices must be pairwise distinct.
-            let naive = |magic: u64| {
-                let mut seen = std::collections::HashSet::from([0u64]);
-                relevant_occupancy_squares(sq)
-                    .into_iter()
-                    .all(|bit| seen.insert((magic << bit) >> (64 - ROOK_MAGIC_BITS)))
-            };
+            for bits in [9, 10, 11, 12] {
+                let precheck = Precheck::new(sq, bits);
+                // The definition: the empty board's index 0 and all
+                // single-blocker indices must be pairwise distinct.
+                let naive = |magic: u64| {
+                    let mut seen = std::collections::HashSet::from([0u64]);
+                    relevant_occupancy_squares(sq)
+                        .into_iter()
+                        .all(|bit| seen.insert((magic << bit) >> (64 - bits)))
+                };
 
-            assert!(!precheck.passes(0));
-            // All-ones makes every non-truncated window equal — a conflict.
-            assert!(!precheck.passes(u64::MAX));
-            for _ in 0..10_000 {
-                // Sparse enough that both outcomes occur frequently.
-                let magic = rng.next_u64() & rng.next_u64();
-                assert_eq!(
-                    precheck.passes(magic),
-                    naive(magic),
-                    "magic {magic:#x} on {sq}"
-                );
+                assert!(!precheck.passes(0));
+                // All-ones makes every non-truncated window equal — a conflict.
+                assert!(!precheck.passes(u64::MAX));
+                for _ in 0..10_000 {
+                    // Sparse enough that both outcomes occur frequently.
+                    let magic = rng.next_u64() & rng.next_u64();
+                    assert_eq!(
+                        precheck.passes(magic),
+                        naive(magic),
+                        "magic {magic:#x} on {sq} at {bits} bits"
+                    );
+                }
             }
         }
     }
@@ -1004,14 +1286,14 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(42);
 
         for sq in [Square::A1, Square::A4, Square::H8] {
-            let sampler = Sampler::new(sq, SampleStyle::Sparse { extra_bits: 3 });
+            let sampler = Sampler::new(sq, SampleStyle::Sparse { extra_bits: 3 }, TEST_BITS);
             let squares = relevant_occupancy_squares(sq);
             for _ in 0..1_000 {
                 let magic = sampler.sample(&mut rng);
                 let mut multi_bit_window = false;
                 for &bit in &squares {
                     // Every single-blocker index is non-zero by construction.
-                    let index = (magic << bit) >> (64 - ROOK_MAGIC_BITS);
+                    let index = (magic << bit) >> (64 - TEST_BITS);
                     assert_ne!(index, 0);
                     multi_bit_window |= index.count_ones() >= 2;
                 }
@@ -1027,21 +1309,16 @@ mod tests {
         // https://www.chessprogramming.org/Best_Magics_so_far and Witek's
         // first/second-rank finds from
         // https://www.talkchess.com/forum/viewtopic.php?t=64578
-        // Only the entries matching the compiled index width run.
-        let known: [(Square, u64, u64); 4] = [
+        let known: [(Square, u64, u32); 4] = [
             (Square::A8, 0xEBFFFFB9FF9FC526, 11),
             (Square::H8, 0x7645FFFECBFEA79E, 11),
             (Square::D1, 0xc6000b13534dffff, 10),
             (Square::C2, 0xcae2002cac99fffa, 9),
         ];
-        for (sq, magic, _) in known
-            .iter()
-            .filter(|&&(_, _, bits)| bits == ROOK_MAGIC_BITS)
-        {
-            let (sq, magic) = (*sq, *magic);
+        for (sq, magic, bits) in known {
             let occ_sets = rook_occupancy_sets(sq);
-            let precheck = Precheck::new(sq);
-            let mut idxs = [usize::MAX; 1 << ROOK_MAGIC_BITS];
+            let precheck = Precheck::new(sq, bits);
+            let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
             assert_eq!(
                 try_magic(magic, &occ_sets, &precheck, &mut idxs),
                 occ_sets.len(),
@@ -1052,7 +1329,7 @@ mod tests {
             // product, so masking them off must leave the magic valid. (Bits
             // *below* the span are carry-active and must be kept: clearing
             // d1's bits 0-2 breaks its magic.)
-            let (_, high) = live_span(sq);
+            let (_, high) = live_span(sq, bits);
             let masked = magic & (u64::MAX >> (63 - high));
             assert_ne!(masked, magic, "expected dead bits in the known magic");
             assert_eq!(
@@ -1076,8 +1353,9 @@ mod tests {
                     pin_ones: 0,
                     pin_zeros: 0,
                 },
+                TEST_BITS,
             );
-            let (_, high) = live_span(sq);
+            let (_, high) = live_span(sq, TEST_BITS);
             // Everything from bit 0 to the top of the live span may be set
             // (low bits are carry-active); bits above are dead.
             let live_mask = u64::MAX >> (63 - high);
@@ -1100,6 +1378,7 @@ mod tests {
                 pin_ones: 0x7f0,
                 pin_zeros: 0x1e00_0000_0000,
             },
+            TEST_BITS,
         );
         for _ in 0..1_000 {
             let magic = sampler.sample(&mut rng);
@@ -1119,8 +1398,9 @@ mod tests {
                 pin_ones: 0,
                 pin_zeros: 0,
             },
+            TEST_BITS,
         );
-        let (_, high) = live_span(Square::A1);
+        let (_, high) = live_span(Square::A1, TEST_BITS);
 
         let n = 10_000;
         let mut low_hits = 0u32;
