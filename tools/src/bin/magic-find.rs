@@ -5,6 +5,7 @@ use std::simd::cmp::SimdPartialEq;
 use std::simd::num::{SimdInt, SimdUint};
 use std::simd::{Select, Simd};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Instant;
 
@@ -138,11 +139,26 @@ enum Command {
         /// seed.
         #[clap(long, default_value_t = 100_000)]
         stagnation: u64,
-        /// The number of bits to flip in the best-known magic when restarting
-        /// from it (basin hopping); one in five restarts uses a fresh seed
-        /// instead.
+        /// The number of bits to flip when restarting from a pool elite
+        /// (basin hopping).
         #[clap(long, default_value_t = 8)]
         kick_flips: u32,
+        /// The number of elite local optima kept for restarts and crossover.
+        #[clap(long, default_value_t = 8)]
+        elites: usize,
+        /// Initial simulated-annealing temperature, in occupancies. 0 is pure
+        /// hill climbing. A move `d` occupancies worse is accepted with
+        /// probability `exp(-d / T)`; `T` cools geometrically each evaluation
+        /// and resets on restart.
+        #[clap(long, default_value_t = 0.0)]
+        temperature: f64,
+        /// The geometric factor applied to the temperature each evaluation.
+        #[clap(long, default_value_t = 0.9999)]
+        cooling: f64,
+        /// Probability that a mutation flip may touch a pinned bit, escaping
+        /// the scaffold. 0 keeps the pins fixed for the whole climb.
+        #[clap(long, default_value_t = 0.2)]
+        pin_break: f64,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -179,6 +195,10 @@ fn main() {
             ridge,
             stagnation,
             kick_flips,
+            elites,
+            temperature,
+            cooling,
+            pin_break,
             single_threaded,
         } => {
             let bits = resolve_bits(app.shift, natural_bits.saturating_sub(1));
@@ -201,6 +221,12 @@ fn main() {
                 ridge,
                 stagnation,
                 kick_flips,
+                elites.max(1),
+                Anneal {
+                    temperature: temperature.max(0.0),
+                    cooling: cooling.clamp(0.0, 1.0),
+                },
+                pin_break.clamp(0.0, 1.0),
                 single_threaded,
             )
         }
@@ -440,6 +466,93 @@ fn find_task(
     })
 }
 
+/// A shared pool of the best distinct local optima found by the climbers,
+/// used as restart material: perturbed for basin hopping and recombined by
+/// crossover. Different local optima tend to solve different subsets of the
+/// conflicts, so mixing them can combine their strengths.
+struct ElitePool {
+    /// Entries sorted by descending score, capped at `capacity`.
+    entries: Mutex<Vec<(u64, usize)>>,
+    capacity: usize,
+}
+
+impl ElitePool {
+    fn new(capacity: usize) -> Self {
+        Self {
+            entries: Mutex::new(Vec::with_capacity(capacity + 1)),
+            capacity,
+        }
+    }
+
+    /// Inserts `(magic, score)`, keeping the pool sorted and capped. Returns
+    /// `true` if it became the new top entry (a new global best).
+    fn insert(&self, magic: u64, score: usize) -> bool {
+        let mut entries = self.entries.lock().unwrap();
+        if entries.iter().any(|&(m, _)| (m ^ magic).count_ones() <= 4) {
+            return false; // Keep the pool diverse.
+        }
+        if entries.len() >= self.capacity && score <= entries.last().unwrap().1 {
+            return false;
+        }
+        let pos = entries.partition_point(|&(_, s)| s >= score);
+        entries.insert(pos, (magic, score));
+        entries.truncate(self.capacity);
+        pos == 0
+    }
+
+    /// A random elite magic, if any.
+    fn sample(&self, rng: &mut impl Rng) -> Option<u64> {
+        let entries = self.entries.lock().unwrap();
+        (!entries.is_empty()).then(|| entries[rng.random_range(0..entries.len())].0)
+    }
+
+    /// Two distinct random elite magics, if at least two exist.
+    fn pair(&self, rng: &mut impl Rng) -> Option<(u64, u64)> {
+        let entries = self.entries.lock().unwrap();
+        if entries.len() < 2 {
+            return None;
+        }
+        let i = rng.random_range(0..entries.len());
+        let mut j = rng.random_range(0..entries.len() - 1);
+        if j >= i {
+            j += 1;
+        }
+        Some((entries[i].0, entries[j].0))
+    }
+}
+
+/// Uniform crossover: each bit is taken from `a` or `b` at random. Where the
+/// parents agree the child agrees, so only the bits on which they differ are
+/// randomized.
+fn crossover(a: u64, b: u64, rng: &mut impl Rng) -> u64 {
+    let mask = rng.next_u64();
+    (a & mask) | (b & !mask)
+}
+
+/// Simulated-annealing schedule for the climb's acceptance rule.
+#[derive(Clone, Copy)]
+struct Anneal {
+    temperature: f64,
+    cooling: f64,
+}
+
+impl Anneal {
+    /// The lowest score to accept at temperature `t` given the current score.
+    ///
+    /// Annealing accepts a move `d` worse with probability `exp(-d / t)`.
+    /// Drawing the acceptance random `u` up front turns that into a threshold:
+    /// accept iff `candidate >= score + t * ln(u)` (with `ln(u) <= 0`). The
+    /// threshold doubles as the evaluation's lower bound, so a worse move is
+    /// scored exactly when it will be accepted and abandoned early otherwise.
+    fn accept_floor(&self, score: usize, t: f64, rng: &mut impl Rng) -> usize {
+        if t <= 0.0 {
+            return score; // Pure hill climbing: only sideways-or-better moves.
+        }
+        let u = 1.0 - rng.random_range(0.0f64..1.0); // (0, 1]
+        (score as f64 + t * u.ln()).max(0.0) as usize
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_climb(
     occ_sets: &[OccupancySet],
@@ -450,6 +563,9 @@ fn run_climb(
     ridge: bool,
     stagnation: u64,
     kick_flips: u32,
+    elites: usize,
+    anneal: Anneal,
+    pin_break: f64,
     single_threaded: bool,
 ) {
     let worker_count = if single_threaded {
@@ -460,14 +576,15 @@ fn run_climb(
             .unwrap_or(1)
     };
 
+    let pinned = seed_style.pinned();
     let target_precheck = Precheck::new(sq, bits);
     let seed_precheck = Precheck::new(sq, seed_bits);
     let seed_sampler = Sampler::new(sq, seed_style, seed_bits);
     let (_, span_high) = live_span(sq, bits);
 
     let found = AtomicBool::new(false);
+    let pool = ElitePool::new(elites);
     let best_score = AtomicU64::new(0);
-    let best_magic = AtomicU64::new(0);
     let tried_counts: Vec<AtomicU64> = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
     let start = Instant::now();
 
@@ -477,8 +594,8 @@ fn run_climb(
             let seed_precheck = &seed_precheck;
             let seed_sampler = &seed_sampler;
             let found = &found;
+            let pool = &pool;
             let best_score = &best_score;
-            let best_magic = &best_magic;
             let tried_counts = &tried_counts;
             scope.spawn(move || {
                 climb_worker(ClimbWorker {
@@ -491,9 +608,12 @@ fn run_climb(
                     ridge,
                     stagnation,
                     kick_flips,
+                    anneal,
+                    pinned,
+                    pin_break,
                     found,
+                    pool,
                     best_score,
-                    best_magic,
                     tried_counts,
                     start,
                 });
@@ -513,12 +633,17 @@ struct ClimbWorker<'a> {
     span_high: u32,
     ridge: bool,
     stagnation: u64,
-    /// The number of bits to flip in the best-known magic when basin-hopping.
+    /// The number of bits to flip in a pool elite when basin-hopping.
     kick_flips: u32,
+    anneal: Anneal,
+    /// Bit positions the pins fix; mutations preserve them (mostly).
+    pinned: u64,
+    /// Probability a mutation flip may touch a pinned bit.
+    pin_break: f64,
     found: &'a AtomicBool,
+    pool: &'a ElitePool,
+    /// The best score seen across workers, for live progress reporting.
     best_score: &'a AtomicU64,
-    /// The best-known magic across workers; 0 until a first score lands.
-    best_magic: &'a AtomicU64,
     tried_counts: &'a [AtomicU64],
     start: Instant,
 }
@@ -543,27 +668,53 @@ fn climb_worker(w: ClimbWorker) {
         }
     };
 
-    'restart: while !w.found.load(Ordering::Relaxed) {
-        // Basin hopping: usually restart from a perturbed copy of the best
-        // known candidate instead of discarding the structure it accumulated;
-        // occasionally take a fresh seed for diversity.
-        let kick_source = w.best_magic.load(Ordering::Relaxed);
-        let mut current = if kick_source != 0 && rng.random_range(0..5) != 0 {
-            mutate(kick_source, w.kick_flips, w.span_high, &mut rng)
+    while !w.found.load(Ordering::Relaxed) {
+        // Pick a restart point: ~40% crossover of two elites, ~40% a perturbed
+        // elite (basin hopping), ~20% a fresh seed for diversity. Either pool
+        // draw falls back to a fresh seed when the pool is too small.
+        let roll = rng.random_range(0..10);
+        let restart = if roll < 4 {
+            w.pool
+                .pair(&mut rng)
+                .map(|(a, b)| crossover(a, b, &mut rng))
+        } else if roll < 8 {
+            w.pool
+                .sample(&mut rng)
+                .map(|elite| {
+                    mutate(
+                        elite,
+                        w.kick_flips,
+                        w.span_high,
+                        w.pinned,
+                        w.pin_break,
+                        &mut rng,
+                    )
+                })
         } else {
-            // Stage A: find a seed that is valid at the (easier) seed width.
-            loop {
-                if w.found.load(Ordering::Relaxed) {
-                    return;
-                }
-                let candidate = w.seed_sampler.sample(&mut rng);
-                count_eval(&mut local_count);
-                if is_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) {
-                    break candidate;
+            None
+        };
+        let mut current = match restart {
+            Some(magic) => magic,
+            None => {
+                // Stage A: find a seed that is valid at the (easier) seed width.
+                loop {
+                    if w.found.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let candidate = w.seed_sampler.sample(&mut rng);
+                    count_eval(&mut local_count);
+                    if is_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) {
+                        break candidate;
+                    }
                 }
             }
         };
         let mut score = score_magic(current, w.occ_sets, w.target_precheck, &mut idxs, 0);
+        // With annealing the walk can wander downhill, so track the run's best
+        // separately; without it `run_best == score` throughout.
+        let mut run_best = score;
+        let mut run_best_magic = current;
+        let mut temperature = w.anneal.temperature;
 
         // Stage B: climb at the target width until stagnation.
         let mut since_improvement = 0;
@@ -572,12 +723,23 @@ fn climb_worker(w: ClimbWorker) {
                 return;
             }
 
-            let candidate = mutate(current, mutation_size(score, total), w.span_high, &mut rng);
+            let candidate = mutate(
+                current,
+                mutation_size(score, total),
+                w.span_high,
+                w.pinned,
+                w.pin_break,
+                &mut rng,
+            );
             count_eval(&mut local_count);
-            // Bounded at the current score: the exact value only matters for
-            // candidates that are at least sideways moves.
+            // Accept anything at or above the annealing floor (equal to the
+            // current score without annealing). The floor doubles as the
+            // evaluation's lower bound: an accepted move is scored exactly, a
+            // rejected one abandoned early.
+            let floor = w.anneal.accept_floor(score, temperature, &mut rng);
+            temperature *= w.anneal.cooling;
             let candidate_score =
-                score_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs, score);
+                score_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs, floor);
 
             if candidate_score == total {
                 // A valid target-width magic is automatically valid at the
@@ -588,35 +750,39 @@ fn climb_worker(w: ClimbWorker) {
                 return;
             }
 
-            if candidate_score >= score {
+            if candidate_score >= floor {
                 // In ridge mode only accept moves that stay valid at the seed
                 // width, where every target-width magic provably lives.
                 if w.ridge && !is_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) {
                     since_improvement += 1;
                     continue;
                 }
-                if candidate_score > score {
+                current = candidate;
+                score = candidate_score;
+
+                if candidate_score > run_best {
                     since_improvement = 0;
+                    run_best = candidate_score;
+                    run_best_magic = candidate;
+                    // Live progress: report as soon as a global best is beaten,
+                    // not only when the run finally stagnates.
                     let previous = w
                         .best_score
                         .fetch_max(candidate_score as u64, Ordering::Relaxed);
-                    if (candidate_score as u64) > previous {
-                        // The score/magic pair is updated non-atomically; a
-                        // kick from a slightly stale best is still a good
-                        // restart point.
-                        w.best_magic.store(candidate, Ordering::Relaxed);
+                    if candidate_score as u64 > previous {
                         eprintln!("\nnew best {candidate_score}/{total}: {candidate:#x}");
                     }
                 } else {
                     since_improvement += 1;
                 }
-                current = candidate;
-                score = candidate_score;
             } else {
                 since_improvement += 1;
             }
         }
-        continue 'restart;
+
+        // Keep the run's best (not the possibly-downhill final `current`) as
+        // restart material for basin hopping and crossover.
+        w.pool.insert(run_best_magic, run_best);
     }
 }
 
@@ -634,13 +800,41 @@ fn mutation_size(score: usize, total: usize) -> u32 {
     }
 }
 
-/// Flips `flips` random bits of `magic` within `[0, span_high]`.
-fn mutate(magic: u64, flips: u32, span_high: u32, rng: &mut impl Rng) -> u64 {
+/// Flips `flips` random bits of `magic` within `[0, span_high]`. Pinned bit
+/// positions are normally left untouched to preserve a scaffold, but each flip
+/// ignores the pins with probability `pin_break`.
+fn mutate(
+    magic: u64,
+    flips: u32,
+    span_high: u32,
+    pinned: u64,
+    pin_break: f64,
+    rng: &mut impl Rng,
+) -> u64 {
+    let span_mask = u64::MAX >> (63 - span_high);
+    let free_mask = span_mask & !pinned;
     let mut mutated = magic;
     for _ in 0..flips {
-        mutated ^= 1 << rng.random_range(0..=span_high);
+        // Restrict to non-pinned bits, except with probability `pin_break`
+        // (or always, if every span bit is pinned).
+        let mask = if free_mask == 0 || rng.random_range(0.0f64..1.0) < pin_break {
+            span_mask
+        } else {
+            free_mask
+        };
+        mutated ^= 1 << random_set_bit_u64(rng, mask);
     }
     mutated
+}
+
+/// Picks a uniformly random set bit of `mask` and returns its index.
+fn random_set_bit_u64(rng: &mut impl Rng, mask: u64) -> u32 {
+    let n = rng.random_range(0..mask.count_ones());
+    let mut remaining = mask;
+    for _ in 0..n {
+        remaining &= remaining - 1;
+    }
+    remaining.trailing_zeros()
 }
 
 fn report(tried: u64, start: Instant) {
@@ -656,7 +850,12 @@ fn report(tried: u64, start: Instant) {
 
 /// Whether `magic` maps every occupancy consistently, breaking at the first
 /// conflicting chunk.
-fn is_magic(magic: u64, occ_sets: &[OccupancySet], precheck: &Precheck, idxs: &mut [usize]) -> bool {
+fn is_magic(
+    magic: u64,
+    occ_sets: &[OccupancySet],
+    precheck: &Precheck,
+    idxs: &mut [usize],
+) -> bool {
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
     let shift = SimdU64::splat(64 - u64::from(precheck.bits));
 
@@ -958,6 +1157,24 @@ enum SampleStyle {
         pin_ones: u64,
         pin_zeros: u64,
     },
+}
+
+impl SampleStyle {
+    /// The bit positions this style forces to a fixed value (`pin_ones` set,
+    /// `pin_zeros` clear), which mutations should normally preserve.
+    fn pinned(&self) -> u64 {
+        let (SampleStyle::Sparse {
+            pin_ones,
+            pin_zeros,
+            ..
+        }
+        | SampleStyle::Dense {
+            pin_ones,
+            pin_zeros,
+            ..
+        }) = *self;
+        pin_ones | pin_zeros
+    }
 }
 
 /// The number of bit-sliced threshold planes for dense sampling; densities
@@ -1548,6 +1765,29 @@ mod tests {
                 assert_ne!((magic << bit) >> (64 - TEST_BITS), 0);
             }
         }
+    }
+
+    #[test]
+    fn test_mutate_respects_pins() {
+        let mut rng = SmallRng::seed_from_u64(23);
+        let pinned = 0x30 | 0xf00; // pin_ones | pin_zeros from the sparse test
+        let base = 0x30; // pinned ones set, pinned zeros clear
+        let span_high = 20;
+
+        // pin_break = 0: pinned bits are never disturbed.
+        for _ in 0..10_000 {
+            let m = mutate(base, 4, span_high, pinned, 0.0, &mut rng);
+            assert_eq!(m & pinned, base & pinned, "pins broken at pin_break=0");
+            assert_eq!(m & !(u64::MAX >> (63 - span_high)), 0, "flip out of span");
+        }
+
+        // pin_break = 1: pins are ignored, so they do get flipped sometimes.
+        let mut disturbed = false;
+        for _ in 0..10_000 {
+            let m = mutate(base, 4, span_high, pinned, 1.0, &mut rng);
+            disturbed |= m & pinned != base & pinned;
+        }
+        assert!(disturbed, "pins never touched at pin_break=1");
     }
 
     #[test]
