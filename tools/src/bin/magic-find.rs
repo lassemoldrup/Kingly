@@ -488,11 +488,19 @@ impl ElitePool {
     /// `true` if it became the new top entry (a new global best).
     fn insert(&self, magic: u64, score: usize) -> bool {
         let mut entries = self.entries.lock().unwrap();
-        if entries.iter().any(|&(m, _)| (m ^ magic).count_ones() <= 4) {
-            return false; // Keep the pool diverse.
-        }
         if entries.len() >= self.capacity && score <= entries.last().unwrap().1 {
             return false;
+        }
+        if let Some(i) = entries
+            .iter()
+            .position(|&(m, _)| (m ^ magic).count_ones() <= 4)
+        {
+            // Keep the pool diverse.
+            if score <= entries[i].1 {
+                return false;
+            }
+            // Replace the old entry with the new one, which is better and similar.
+            entries.remove(i);
         }
         let pos = entries.partition_point(|&(_, s)| s >= score);
         entries.insert(pos, (magic, score));
@@ -678,18 +686,16 @@ fn climb_worker(w: ClimbWorker) {
                 .pair(&mut rng)
                 .map(|(a, b)| crossover(a, b, &mut rng))
         } else if roll < 8 {
-            w.pool
-                .sample(&mut rng)
-                .map(|elite| {
-                    mutate(
-                        elite,
-                        w.kick_flips,
-                        w.span_high,
-                        w.pinned,
-                        w.pin_break,
-                        &mut rng,
-                    )
-                })
+            w.pool.sample(&mut rng).map(|elite| {
+                mutate(
+                    elite,
+                    w.kick_flips,
+                    w.span_high,
+                    w.pinned,
+                    w.pin_break,
+                    &mut rng,
+                )
+            })
         } else {
             None
         };
