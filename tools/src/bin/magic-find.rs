@@ -2,8 +2,8 @@
 
 use std::io::{self, Write};
 use std::simd::cmp::SimdPartialEq;
-use std::simd::num::SimdUint;
-use std::simd::Simd;
+use std::simd::num::{SimdInt, SimdUint};
+use std::simd::{Select, Simd};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Instant;
@@ -138,6 +138,11 @@ enum Command {
         /// seed.
         #[clap(long, default_value_t = 100_000)]
         stagnation: u64,
+        /// The number of bits to flip in the best-known magic when restarting
+        /// from it (basin hopping); one in five restarts uses a fresh seed
+        /// instead.
+        #[clap(long, default_value_t = 8)]
+        kick_flips: u32,
         #[clap(long)]
         single_threaded: bool,
     },
@@ -173,6 +178,7 @@ fn main() {
             seed_bits,
             ridge,
             stagnation,
+            kick_flips,
             single_threaded,
         } => {
             let bits = resolve_bits(app.shift, natural_bits.saturating_sub(1));
@@ -194,6 +200,7 @@ fn main() {
                 sampler.style(),
                 ridge,
                 stagnation,
+                kick_flips,
                 single_threaded,
             )
         }
@@ -267,7 +274,7 @@ fn random_worker(
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        if try_magic(magic, occ_sets, precheck, &mut idxs, true) == occ_sets.len() {
+        if is_magic(magic, occ_sets, precheck, &mut idxs) {
             if !found.swap(true, Ordering::Relaxed) {
                 eprintln!("\nFound magic: {:#x}", magic);
             }
@@ -382,7 +389,7 @@ fn dfs_worker(
         local_count += 1;
         tried_counts[worker_id].fetch_add(1, Ordering::Relaxed);
 
-        if try_magic(magic, occ_sets, precheck, &mut idxs, true) == occ_sets.len() {
+        if is_magic(magic, occ_sets, precheck, &mut idxs) {
             if !found.swap(true, Ordering::Relaxed) {
                 eprintln!("\nFound magic: {:#x}", magic);
             }
@@ -442,6 +449,7 @@ fn run_climb(
     seed_style: SampleStyle,
     ridge: bool,
     stagnation: u64,
+    kick_flips: u32,
     single_threaded: bool,
 ) {
     let worker_count = if single_threaded {
@@ -459,6 +467,7 @@ fn run_climb(
 
     let found = AtomicBool::new(false);
     let best_score = AtomicU64::new(0);
+    let best_magic = AtomicU64::new(0);
     let tried_counts: Vec<AtomicU64> = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
     let start = Instant::now();
 
@@ -469,6 +478,7 @@ fn run_climb(
             let seed_sampler = &seed_sampler;
             let found = &found;
             let best_score = &best_score;
+            let best_magic = &best_magic;
             let tried_counts = &tried_counts;
             scope.spawn(move || {
                 climb_worker(ClimbWorker {
@@ -480,8 +490,10 @@ fn run_climb(
                     span_high,
                     ridge,
                     stagnation,
+                    kick_flips,
                     found,
                     best_score,
+                    best_magic,
                     tried_counts,
                     start,
                 });
@@ -501,8 +513,12 @@ struct ClimbWorker<'a> {
     span_high: u32,
     ridge: bool,
     stagnation: u64,
+    /// The number of bits to flip in the best-known magic when basin-hopping.
+    kick_flips: u32,
     found: &'a AtomicBool,
     best_score: &'a AtomicU64,
+    /// The best-known magic across workers; 0 until a first score lands.
+    best_magic: &'a AtomicU64,
     tried_counts: &'a [AtomicU64],
     start: Instant,
 }
@@ -512,7 +528,7 @@ fn climb_worker(w: ClimbWorker) {
     let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
     let is_reporter = w.worker_id == 0;
     let mut local_count = 0u64;
-    let total = w.occ_sets.len();
+    let total = w.occ_sets.len() * LANES;
 
     let count_eval = |local_count: &mut u64| {
         *local_count += 1;
@@ -528,20 +544,26 @@ fn climb_worker(w: ClimbWorker) {
     };
 
     'restart: while !w.found.load(Ordering::Relaxed) {
-        // Stage A: find a seed that is valid at the (easier) seed width.
-        let mut current;
-        loop {
-            if w.found.load(Ordering::Relaxed) {
-                return;
+        // Basin hopping: usually restart from a perturbed copy of the best
+        // known candidate instead of discarding the structure it accumulated;
+        // occasionally take a fresh seed for diversity.
+        let kick_source = w.best_magic.load(Ordering::Relaxed);
+        let mut current = if kick_source != 0 && rng.random_range(0..5) != 0 {
+            mutate(kick_source, w.kick_flips, w.span_high, &mut rng)
+        } else {
+            // Stage A: find a seed that is valid at the (easier) seed width.
+            loop {
+                if w.found.load(Ordering::Relaxed) {
+                    return;
+                }
+                let candidate = w.seed_sampler.sample(&mut rng);
+                count_eval(&mut local_count);
+                if is_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) {
+                    break candidate;
+                }
             }
-            let candidate = w.seed_sampler.sample(&mut rng);
-            count_eval(&mut local_count);
-            if try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs, true) == total {
-                current = candidate;
-                break;
-            }
-        }
-        let mut score = try_magic(current, w.occ_sets, w.target_precheck, &mut idxs, false);
+        };
+        let mut score = score_magic(current, w.occ_sets, w.target_precheck, &mut idxs, 0);
 
         // Stage B: climb at the target width until stagnation.
         let mut since_improvement = 0;
@@ -552,8 +574,10 @@ fn climb_worker(w: ClimbWorker) {
 
             let candidate = mutate(current, mutation_size(score, total), w.span_high, &mut rng);
             count_eval(&mut local_count);
+            // Bounded at the current score: the exact value only matters for
+            // candidates that are at least sideways moves.
             let candidate_score =
-                try_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs, false);
+                score_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs, score);
 
             if candidate_score == total {
                 // A valid target-width magic is automatically valid at the
@@ -567,9 +591,7 @@ fn climb_worker(w: ClimbWorker) {
             if candidate_score >= score {
                 // In ridge mode only accept moves that stay valid at the seed
                 // width, where every target-width magic provably lives.
-                if w.ridge
-                    && try_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs, false) != total
-                {
+                if w.ridge && !is_magic(candidate, w.occ_sets, w.seed_precheck, &mut idxs) {
                     since_improvement += 1;
                     continue;
                 }
@@ -579,6 +601,10 @@ fn climb_worker(w: ClimbWorker) {
                         .best_score
                         .fetch_max(candidate_score as u64, Ordering::Relaxed);
                     if (candidate_score as u64) > previous {
+                        // The score/magic pair is updated non-atomically; a
+                        // kick from a slightly stale best is still a good
+                        // restart point.
+                        w.best_magic.store(candidate, Ordering::Relaxed);
                         eprintln!("\nnew best {candidate_score}/{total}: {candidate:#x}");
                     }
                 } else {
@@ -628,14 +654,50 @@ fn report(tried: u64, start: Instant) {
     io::stdout().flush().ok();
 }
 
-fn try_magic(
+/// Whether `magic` maps every occupancy consistently, breaking at the first
+/// conflicting chunk.
+fn is_magic(magic: u64, occ_sets: &[OccupancySet], precheck: &Precheck, idxs: &mut [usize]) -> bool {
+    const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
+    let shift = SimdU64::splat(64 - u64::from(precheck.bits));
+
+    if !precheck.passes(magic) {
+        return false;
+    }
+
+    let magic = SimdU64::splat(magic);
+    let table = &mut idxs[..1 << precheck.bits];
+    table.fill(usize::MAX);
+
+    for occ in occ_sets {
+        let keys = ((occ.bitboards * magic) >> shift).cast::<usize>();
+        let atk_sets = Simd::gather_or_default(table, keys);
+        // All non-empty entries in `atk_sets` must be equal to the attack set
+        // index for this occupancy set.
+        let hits_mask = atk_sets.simd_eq(EMPTY) | atk_sets.simd_eq(occ.attack_set_indices);
+        if !hits_mask.all() {
+            return false;
+        }
+        occ.attack_set_indices.scatter(table, keys);
+    }
+    true
+}
+
+/// Scores `magic` by the number of occupancies (lanes) it maps consistently,
+/// greedily in order, committing the consistent lanes of conflicting chunks.
+/// Aborts once the score provably cannot reach `min_score`, returning the
+/// partial count (which is then below `min_score` by construction).
+fn score_magic(
     magic: u64,
     occ_sets: &[OccupancySet],
     precheck: &Precheck,
     idxs: &mut [usize],
-    stop_early: bool,
+    min_score: usize,
 ) -> usize {
     const EMPTY: SimdUsize = SimdUsize::splat(usize::MAX);
+    /// The number of chunks between bound checks, keeping horizontal
+    /// reductions off the hot loop.
+    const BOUND_INTERVAL: usize = 32;
+
     let shift = SimdU64::splat(64 - u64::from(precheck.bits));
 
     if !precheck.passes(magic) {
@@ -646,21 +708,39 @@ fn try_magic(
     let table = &mut idxs[..1 << precheck.bits];
     table.fill(usize::MAX);
 
+    let total = occ_sets.len() * LANES;
     let mut hits = 0;
-    for occ in occ_sets {
-        let keys = ((occ.bitboards * magic) >> shift).cast::<usize>();
-        let atk_sets = Simd::gather_or_default(table, keys);
-        // All non-empty entries in `atk_sets` must be equal to the attack set index for
-        // this occupancy set.
-        let hits_mask = atk_sets.simd_eq(EMPTY) | atk_sets.simd_eq(occ.attack_set_indices);
-        if hits_mask.all() {
-            occ.attack_set_indices.scatter(table, keys);
-            hits += 1;
-        } else if stop_early {
+    let mut processed = 0;
+
+    for block in occ_sets.chunks(BOUND_INTERVAL) {
+        // Count consistent lanes branchlessly: true lanes are -1, so
+        // subtracting the mask adds one per consistent lane. One vector op
+        // per chunk, one horizontal reduction per block.
+        let mut consistent = SimdUsize::splat(0);
+        for occ in block {
+            let keys = ((occ.bitboards * magic) >> shift).cast::<usize>();
+            let atk_sets = Simd::gather_or_default(table, keys);
+            let hits_mask = atk_sets.simd_eq(EMPTY) | atk_sets.simd_eq(occ.attack_set_indices);
+            consistent -= hits_mask.to_simd().cast::<usize>();
+            if hits_mask.all() {
+                occ.attack_set_indices.scatter(table, keys);
+            } else {
+                // Commit only the consistent lanes; conflicting lanes write
+                // their slots' current values back.
+                hits_mask
+                    .select(occ.attack_set_indices, atk_sets)
+                    .scatter(table, keys);
+            }
+        }
+        hits += consistent.reduce_sum();
+        processed += block.len() * LANES;
+
+        // Bounded evaluation: stop once `min_score` is out of reach even if
+        // every remaining occupancy were consistent.
+        if hits + (total - processed) < min_score {
             break;
         }
     }
-
     hits
 }
 
@@ -1391,10 +1471,17 @@ mod tests {
             let occ_sets = rook_occupancy_sets(sq);
             let precheck = Precheck::new(sq, bits);
             let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
-            assert_eq!(
-                try_magic(magic, &occ_sets, &precheck, &mut idxs, true),
-                occ_sets.len(),
+            assert!(
+                is_magic(magic, &occ_sets, &precheck, &mut idxs),
                 "known magic {magic:#x} rejected for {sq}"
+            );
+            // The score of a valid magic is exact and maximal regardless of
+            // the bound.
+            let total = occ_sets.len() * LANES;
+            assert_eq!(
+                score_magic(magic, &occ_sets, &precheck, &mut idxs, total),
+                total,
+                "known magic {magic:#x} misscored for {sq}"
             );
 
             // Bits above the live span are shifted out of every blocker's
@@ -1404,9 +1491,8 @@ mod tests {
             let (_, high) = live_span(sq, bits);
             let masked = magic & (u64::MAX >> (63 - high));
             assert_ne!(masked, magic, "expected dead bits in the known magic");
-            assert_eq!(
-                try_magic(masked, &occ_sets, &precheck, &mut idxs, true),
-                occ_sets.len(),
+            assert!(
+                is_magic(masked, &occ_sets, &precheck, &mut idxs),
                 "span-masked magic {masked:#x} rejected for {sq}"
             );
         }
