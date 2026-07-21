@@ -120,6 +120,12 @@ enum Command {
         #[clap(long)]
         single_threaded: bool,
     },
+    /// Report the consistency score and validity of a given magic (for
+    /// benchmarking candidates on a common yardstick).
+    Score {
+        #[clap(value_parser = parse_hex)]
+        magic: u64,
+    },
     /// Hill-climb from seed magics found at a higher (easier) index width
     /// toward a reduced-bit magic. Every valid `bits`-bit magic is also valid
     /// at `bits + 1`, so the seeds live in a provable superset of the target.
@@ -139,13 +145,26 @@ enum Command {
         /// seed.
         #[clap(long, default_value_t = 100_000)]
         stagnation: u64,
-        /// The number of bits to flip when restarting from a pool elite
+        /// The base number of bits to flip when restarting from a pool elite
         /// (basin hopping).
         #[clap(long, default_value_t = 8)]
         kick_flips: u32,
+        /// Grow the kick by this many bits after each run that fails to set a
+        /// new global best, resetting to the base on progress (adaptive basin
+        /// hopping: widen toward a soft restart when stuck). 0 keeps it fixed.
+        #[clap(long, default_value_t = 0)]
+        kick_grow: u32,
+        /// The maximum adaptive kick size.
+        #[clap(long, default_value_t = 40)]
+        kick_max: u32,
         /// The number of elite local optima kept for restarts and crossover.
         #[clap(long, default_value_t = 8)]
         elites: usize,
+        /// Merge radius for the elite pool: a candidate within this Hamming
+        /// distance of an existing elite replaces it (if better) or is dropped,
+        /// keeping the pool diverse. 0 dedups only exact matches.
+        #[clap(long, default_value_t = 4)]
+        elite_dist: u32,
         /// Initial simulated-annealing temperature, in occupancies. 0 is pure
         /// hill climbing. A move `d` occupancies worse is accepted with
         /// probability `exp(-d / T)`; `T` cools geometrically each evaluation
@@ -180,6 +199,15 @@ fn main() {
             let sampler = Sampler::new(app.square, sampler.style(), bits);
             run_random(&occ_sets, &precheck, &sampler, single_threaded)
         }
+        Command::Score { magic } => {
+            let bits = resolve_bits(app.shift, natural_bits.saturating_sub(1));
+            let precheck = Precheck::new(app.square, bits);
+            let mut idxs = [usize::MAX; 1 << MAX_MAGIC_BITS];
+            let total = occ_sets.len() * LANES;
+            let score = score_magic(magic, &occ_sets, &precheck, &mut idxs, 0);
+            let valid = is_magic(magic, &occ_sets, &precheck, &mut idxs);
+            println!("score={score}/{total} valid={valid}");
+        }
         Command::Dfs {
             max_bits,
             single_threaded,
@@ -195,7 +223,10 @@ fn main() {
             ridge,
             stagnation,
             kick_flips,
+            kick_grow,
+            kick_max,
             elites,
+            elite_dist,
             temperature,
             cooling,
             pin_break,
@@ -220,8 +251,13 @@ fn main() {
                 sampler.style(),
                 ridge,
                 stagnation,
-                kick_flips,
+                Kick {
+                    base: kick_flips,
+                    grow: kick_grow,
+                    max: kick_max.max(kick_flips),
+                },
                 elites.max(1),
+                elite_dist,
                 Anneal {
                     temperature: temperature.max(0.0),
                     cooling: cooling.clamp(0.0, 1.0),
@@ -474,32 +510,36 @@ struct ElitePool {
     /// Entries sorted by descending score, capped at `capacity`.
     entries: Mutex<Vec<(u64, usize)>>,
     capacity: usize,
+    /// Merge radius: entries within this Hamming distance are treated as the
+    /// same, keeping only the better. 0 merges only exact duplicates.
+    merge_dist: u32,
 }
 
 impl ElitePool {
-    fn new(capacity: usize) -> Self {
+    fn new(capacity: usize, merge_dist: u32) -> Self {
         Self {
             entries: Mutex::new(Vec::with_capacity(capacity + 1)),
             capacity,
+            merge_dist,
         }
     }
 
-    /// Inserts `(magic, score)`, keeping the pool sorted and capped. Returns
-    /// `true` if it became the new top entry (a new global best).
+    /// Inserts `(magic, score)`, keeping the pool sorted, capped and diverse.
+    /// Returns `true` if it became the new top entry (a new global best).
     fn insert(&self, magic: u64, score: usize) -> bool {
         let mut entries = self.entries.lock().unwrap();
         if entries.len() >= self.capacity && score <= entries.last().unwrap().1 {
             return false;
         }
+        // A near-duplicate (within the merge radius) collapses to the better of
+        // the two, so the pool holds diverse local optima rather than a cluster.
         if let Some(i) = entries
             .iter()
-            .position(|&(m, _)| (m ^ magic).count_ones() <= 4)
+            .position(|&(m, _)| (m ^ magic).count_ones() <= self.merge_dist)
         {
-            // Keep the pool diverse.
             if score <= entries[i].1 {
                 return false;
             }
-            // Replace the old entry with the new one, which is better and similar.
             entries.remove(i);
         }
         let pos = entries.partition_point(|&(_, s)| s >= score);
@@ -537,6 +577,26 @@ fn crossover(a: u64, b: u64, rng: &mut impl Rng) -> u64 {
     (a & mask) | (b & !mask)
 }
 
+/// Adaptive basin-hopping kick size. It grows after each unproductive run and
+/// resets to `base` on a new global best, widening from a local hop toward a
+/// soft restart the longer the search is stuck.
+#[derive(Clone, Copy)]
+struct Kick {
+    base: u32,
+    grow: u32,
+    max: u32,
+}
+
+impl Kick {
+    fn next(&self, current: u32, improved: bool) -> u32 {
+        if improved {
+            self.base
+        } else {
+            (current + self.grow).min(self.max)
+        }
+    }
+}
+
 /// Simulated-annealing schedule for the climb's acceptance rule.
 #[derive(Clone, Copy)]
 struct Anneal {
@@ -570,8 +630,9 @@ fn run_climb(
     seed_style: SampleStyle,
     ridge: bool,
     stagnation: u64,
-    kick_flips: u32,
+    kick: Kick,
     elites: usize,
+    elite_dist: u32,
     anneal: Anneal,
     pin_break: f64,
     single_threaded: bool,
@@ -591,7 +652,7 @@ fn run_climb(
     let (_, span_high) = live_span(sq, bits);
 
     let found = AtomicBool::new(false);
-    let pool = ElitePool::new(elites);
+    let pool = ElitePool::new(elites, elite_dist);
     let best_score = AtomicU64::new(0);
     let tried_counts: Vec<AtomicU64> = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
     let start = Instant::now();
@@ -615,7 +676,7 @@ fn run_climb(
                     span_high,
                     ridge,
                     stagnation,
-                    kick_flips,
+                    kick,
                     anneal,
                     pinned,
                     pin_break,
@@ -641,8 +702,8 @@ struct ClimbWorker<'a> {
     span_high: u32,
     ridge: bool,
     stagnation: u64,
-    /// The number of bits to flip in a pool elite when basin-hopping.
-    kick_flips: u32,
+    /// The adaptive kick schedule for basin-hopping restarts.
+    kick: Kick,
     anneal: Anneal,
     /// Bit positions the pins fix; mutations preserve them (mostly).
     pinned: u64,
@@ -676,6 +737,9 @@ fn climb_worker(w: ClimbWorker) {
         }
     };
 
+    // The current basin-hopping kick size, widened by unproductive runs.
+    let mut kick_flips = w.kick.base;
+
     while !w.found.load(Ordering::Relaxed) {
         // Pick a restart point: ~40% crossover of two elites, ~40% a perturbed
         // elite (basin hopping), ~20% a fresh seed for diversity. Either pool
@@ -689,7 +753,7 @@ fn climb_worker(w: ClimbWorker) {
             w.pool.sample(&mut rng).map(|elite| {
                 mutate(
                     elite,
-                    w.kick_flips,
+                    kick_flips,
                     w.span_high,
                     w.pinned,
                     w.pin_break,
@@ -721,6 +785,8 @@ fn climb_worker(w: ClimbWorker) {
         let mut run_best = score;
         let mut run_best_magic = current;
         let mut temperature = w.anneal.temperature;
+        // Whether this run set a new global best, for the adaptive kick.
+        let mut improved_global = false;
 
         // Stage B: climb at the target width until stagnation.
         let mut since_improvement = 0;
@@ -747,9 +813,12 @@ fn climb_worker(w: ClimbWorker) {
             let candidate_score =
                 score_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs, floor);
 
-            if candidate_score == total {
-                // A valid target-width magic is automatically valid at the
-                // seed width, so ridge mode needs no extra check here.
+            // A full score can be a within-chunk false positive, so confirm
+            // with the exact check. A valid target-width magic is automatically
+            // valid at the seed width, so ridge mode needs no extra check here.
+            if candidate_score == total
+                && is_magic(candidate, w.occ_sets, w.target_precheck, &mut idxs)
+            {
                 if !w.found.swap(true, Ordering::Relaxed) {
                     eprintln!("\nFound magic: {candidate:#x}");
                 }
@@ -776,6 +845,7 @@ fn climb_worker(w: ClimbWorker) {
                         .best_score
                         .fetch_max(candidate_score as u64, Ordering::Relaxed);
                     if candidate_score as u64 > previous {
+                        improved_global = true;
                         eprintln!("\nnew best {candidate_score}/{total}: {candidate:#x}");
                     }
                 } else {
@@ -789,6 +859,10 @@ fn climb_worker(w: ClimbWorker) {
         // Keep the run's best (not the possibly-downhill final `current`) as
         // restart material for basin hopping and crossover.
         w.pool.insert(run_best_magic, run_best);
+
+        // Adapt the kick: reset on progress, widen toward a soft restart when
+        // stuck.
+        kick_flips = w.kick.next(kick_flips, improved_global);
     }
 }
 
@@ -891,6 +965,14 @@ fn is_magic(
 /// greedily in order, committing the consistent lanes of conflicting chunks.
 /// Aborts once the score provably cannot reach `min_score`, returning the
 /// partial count (which is then below `min_score` by construction).
+///
+/// A full score (`occ_sets.len() * LANES`) means a valid magic; the SIMD pass
+/// can miss a collision between two lanes of one chunk, so callers that treat
+/// a full score as success must re-check with [`is_magic`].
+///
+/// (A symmetric conflict-count variant — penalizing every occupancy in a
+/// collided slot — was benchmarked and lost: it doubles the eval cost and
+/// steepens the landscape's barriers without improving the magics found.)
 fn score_magic(
     magic: u64,
     occ_sets: &[OccupancySet],
@@ -916,11 +998,9 @@ fn score_magic(
     let total = occ_sets.len() * LANES;
     let mut hits = 0;
     let mut processed = 0;
-
     for block in occ_sets.chunks(BOUND_INTERVAL) {
         // Count consistent lanes branchlessly: true lanes are -1, so
-        // subtracting the mask adds one per consistent lane. One vector op
-        // per chunk, one horizontal reduction per block.
+        // subtracting the mask adds one per consistent lane.
         let mut consistent = SimdUsize::splat(0);
         for occ in block {
             let keys = ((occ.bitboards * magic) >> shift).cast::<usize>();
@@ -930,8 +1010,6 @@ fn score_magic(
             if hits_mask.all() {
                 occ.attack_set_indices.scatter(table, keys);
             } else {
-                // Commit only the consistent lanes; conflicting lanes write
-                // their slots' current values back.
                 hits_mask
                     .select(occ.attack_set_indices, atk_sets)
                     .scatter(table, keys);
