@@ -12,3 +12,8 @@ crossbeam = "0.8"
 itertools = "0.15"
 eframe = "0.30"
 rand = { version = "0.10" }
+opencl3 = "0.9"
+
+[[bin]]
+name = "magic-find-gpu"
+path = "src/bin/magic-find-gpu.rs"
