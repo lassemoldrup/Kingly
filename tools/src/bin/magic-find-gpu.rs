@@ -69,10 +69,11 @@ struct App {
     /// GPU device index (see the startup listing).
     #[arg(long, default_value_t = 0)]
     device: usize,
-    /// Scoring kernel: "atomic" (single-pass LDS atomics) or "race" (atomic-free
-    /// two-pass). Which is faster is hardware-dependent — benchmark both.
-    #[arg(long, default_value = "atomic")]
-    scoring: String,
+    /// Enable the pre-scoring necessary-condition check that skips doomed
+    /// candidates (single-blocker window distinctness). Measured a net loss
+    /// near the plateau on RDNA1 — benchmark it on your GPU before relying on it.
+    #[arg(long)]
+    precheck: bool,
 }
 
 fn main() {
@@ -86,6 +87,8 @@ fn main() {
     let num_occ = occ.len();
     let (occ_bb, occ_idx): (Vec<cl_ulong>, Vec<cl_uint>) =
         occ.iter().map(|&(bb, idx)| (bb, idx)).unzip();
+    let rel_k: Vec<cl_uint> = relevant_occupancy_squares(sq).iter().map(|&k| k as cl_uint).collect();
+    let num_rel = rel_k.len();
     let span_high = live_span_high(sq, bits);
     let span_mask = if span_high >= 63 { u64::MAX } else { (1u64 << (span_high + 1)) - 1 };
 
@@ -105,13 +108,8 @@ fn main() {
     let context = Context::from_device(&device).expect("context");
     let queue = CommandQueue::create_default(&context, 0).expect("queue");
 
-    let race_free = match app.scoring.as_str() {
-        "atomic" => "",
-        "race" => "-D RACE_FREE",
-        other => panic!("unknown --scoring '{other}' (expected 'atomic' or 'race')"),
-    };
     let options = format!(
-        "-D BITS={bits} -D NUM_OCC={num_occ} -D SPAN_HIGH={span_high} -D WG={} {race_free} \
+        "-D BITS={bits} -D NUM_OCC={num_occ} -D SPAN_HIGH={span_high} -D WG={} -D NUM_REL={num_rel} \
          -D STAG={} -D KICK_BASE={} -D KICK_GROW={} -D KICK_MAX={}",
         app.wg, app.stagnation, app.kick_flips, app.kick_grow, app.kick_max
     );
@@ -132,16 +130,18 @@ fn main() {
     let mut cur: Vec<cl_ulong> = (0..n).map(|_| fresh_magic(&mut rng, span_mask)).collect();
     let mut best_magic: Vec<cl_ulong> = vec![0; n];
     let mut best_score: Vec<cl_uint> = vec![0; n];
-    let mut rng_state: Vec<cl_ulong> = (0..n).map(|_| rng.next_u64() | 1).collect();
+    let rng_state: Vec<cl_ulong> = (0..n).map(|_| rng.next_u64() | 1).collect();
     let mut stag: Vec<cl_uint> = vec![0; n];
     let mut kick: Vec<cl_uint> = vec![app.kick_flips; n];
 
     let occ_bb_buf = write_ro(&context, &queue, &occ_bb);
     let occ_idx_buf = write_ro(&context, &queue, &occ_idx);
+    let rel_k_buf = write_ro(&context, &queue, &rel_k);
+    let do_precheck: cl_uint = app.precheck as cl_uint;
     let mut cur_buf = write_rw(&context, &queue, &cur);
     let mut best_magic_buf = write_rw(&context, &queue, &best_magic);
     let mut best_score_buf = write_rw(&context, &queue, &best_score);
-    let mut rng_buf = write_rw(&context, &queue, &rng_state);
+    let rng_buf = write_rw(&context, &queue, &rng_state);
     let mut stag_buf = write_rw(&context, &queue, &stag);
     let mut kick_buf = write_rw(&context, &queue, &kick);
     // Elite buffer is at least length 1 (OpenCL dislikes zero-size buffers).
@@ -180,6 +180,8 @@ fn main() {
                 .set_arg(&kick_buf)
                 .set_arg(&elite_buf)
                 .set_arg(&num_elites)
+                .set_arg(&rel_k_buf)
+                .set_arg(&do_precheck)
                 .set_arg(&app.iters)
                 .set_global_work_size(global)
                 .set_local_work_size(app.wg)

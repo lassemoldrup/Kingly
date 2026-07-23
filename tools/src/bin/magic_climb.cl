@@ -3,8 +3,8 @@
 // local (LDS) memory. Kicks pull from an elite buffer the host refreshes each
 // launch; the host manages the elite pool and validates solutions on the CPU.
 //
-// Compile-time defines (set by the host): BITS, NUM_OCC, SPAN_HIGH, WG, STAG,
-// KICK_BASE, KICK_GROW, KICK_MAX.
+// Compile-time defines (set by the host): BITS, NUM_OCC, SPAN_HIGH, WG, NUM_REL,
+// STAG, KICK_BASE, KICK_GROW, KICK_MAX.
 
 #define EMPTY 0xffffffffu
 #define TABLE_SIZE (1u << BITS)
@@ -39,43 +39,33 @@ inline ulong do_mutate(ulong m, uint flips, __local ulong *s) {
     return m;
 }
 
-// Cooperatively score `magic`: the number of occupancies that map consistently.
-// A full score (NUM_OCC) means a valid magic. Two scoring modes, selected at
-// build time; both are exact for *validity* (0 conflicts iff a valid magic),
-// only the conflict count for non-solutions may differ. Which is faster is
-// hardware-dependent: the atomic mode does the 64-bit multiply once but leans
-// on LDS atomic throughput; RACE_FREE avoids atomics but multiplies twice.
+// A cheap necessary condition, checked by the leader before the full score:
+// each single-blocker occupancy `1 << k` (k a relevant square) has index equal
+// to the top BITS bits of `magic << k`, and these must be pairwise distinct and
+// non-zero (distinct from the empty board's index 0). A magic failing this
+// cannot be valid, so the workgroup can skip the expensive cooperative score.
+//
+// `rel_k` is in constant memory (cached/broadcast). NUM_REL is tiny (<= 12), so
+// the loops unroll; the window values are cached in a small register array.
+inline bool precheck(ulong magic, __constant const uint *rel_k) {
+    uint vals[NUM_REL];
+    for (uint i = 0; i < NUM_REL; i++) {
+        uint v = (uint)((magic << rel_k[i]) >> SHIFT);
+        if (v == 0u) return false;
+        for (uint j = 0; j < i; j++) {
+            if (vals[j] == v) return false;
+        }
+        vals[i] = v;
+    }
+    return true;
+}
+
+// Cooperatively score `magic`: the number of occupancies that map consistently
+// (a slot's first writer wins; a later, different attack set is a conflict).
+// A full score (NUM_OCC) means a valid magic.
 inline uint score_magic(__global const ulong *occ_bb, __global const uint *occ_idx,
                         ulong magic, __local uint *table, __local uint *conflicts,
                         uint lid) {
-#ifdef RACE_FREE
-    // Atomic-free two-pass. Pass 1 plainly writes each occupancy's index to its
-    // slot (a multi-way collision resolves to an arbitrary race winner); pass 2
-    // recomputes the slot and counts an occupancy as a conflict if its slot no
-    // longer holds its own index. A valid magic gives one index per slot, so
-    // every occupancy reads its own index (no false negatives); any slot with
-    // two distinct indices has a non-winner that reads a different index (no
-    // false positives). No table clear is needed: pass 2 only reads slots pass
-    // 1 wrote. Recomputing the slot beats caching it, which would spill a
-    // dynamically-indexed private array to scratch memory.
-    for (uint i = lid; i < NUM_OCC; i += WG) {
-        table[(uint)((occ_bb[i] * magic) >> SHIFT)] = occ_idx[i];
-    }
-    if (lid == 0) *conflicts = 0u;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    uint myc = 0u;
-    for (uint i = lid; i < NUM_OCC; i += WG) {
-        uint slot = (uint)((occ_bb[i] * magic) >> SHIFT);
-        if (table[slot] != occ_idx[i]) myc++;
-    }
-    atomic_add(conflicts, myc); // one reduction atomic per thread, not per occupancy
-    barrier(CLK_LOCAL_MEM_FENCE);
-    return NUM_OCC - *conflicts;
-#else
-    // Single-pass with LDS atomics: first writer of a slot wins; a later,
-    // different attack set is a conflict. Multiplies once but clears the table
-    // and does one atomic per occupancy.
     for (uint i = lid; i < TABLE_SIZE; i += WG) {
         table[i] = EMPTY;
     }
@@ -92,7 +82,6 @@ inline uint score_magic(__global const ulong *occ_bb, __global const uint *occ_i
     atomic_add(conflicts, myc);
     barrier(CLK_LOCAL_MEM_FENCE);
     return NUM_OCC - *conflicts;
-#endif
 }
 
 __kernel void climb(__global const ulong *occ_bb,
@@ -105,6 +94,8 @@ __kernel void climb(__global const ulong *occ_bb,
                     __global uint *kick_state,
                     __global const ulong *elites,
                     uint num_elites,
+                    __constant const uint *rel_k,
+                    uint do_precheck,
                     uint iters) {
     uint g = get_group_id(0);
     uint lid = get_local_id(0);
@@ -112,7 +103,7 @@ __kernel void climb(__global const ulong *occ_bb,
     __local uint table[TABLE_SIZE];
     __local uint conflicts;
     __local ulong l_cur, l_cand, l_rng, l_best;
-    __local uint l_cur_score, l_best_score, l_stag, l_kick;
+    __local uint l_cur_score, l_best_score, l_stag, l_kick, l_ok;
 
     if (lid == 0) {
         l_cur = cur_magic[g];
@@ -142,10 +133,15 @@ __kernel void climb(__global const ulong *occ_bb,
                 cand = do_mutate(l_cur, mutation_size(l_cur_score), &l_rng);
             }
             l_cand = cand;
+            // Fold the precheck into the leader's serial section (no extra
+            // barrier): a doomed candidate skips the whole cooperative score.
+            l_ok = (do_precheck == 0u || precheck(cand, rel_k)) ? 1u : 0u;
         }
         barrier(CLK_LOCAL_MEM_FENCE);
 
-        uint sc = score_magic(occ_bb, occ_idx, l_cand, table, &conflicts, lid);
+        // Uniform branch: all threads score together or all skip together, so
+        // score_magic's internal barriers are never reached divergently.
+        uint sc = l_ok ? score_magic(occ_bb, occ_idx, l_cand, table, &conflicts, lid) : 0u;
 
         if (lid == 0) {
             if (sc >= l_cur_score) {
