@@ -17,3 +17,7 @@ opencl3 = "0.9"
 [[bin]]
 name = "magic-find-gpu"
 path = "src/bin/magic-find-gpu.rs"
+
+[[bin]]
+name = "magic-find-gpu-exhaust"
+path = "src/bin/magic-find-gpu-exhaust.rs"
