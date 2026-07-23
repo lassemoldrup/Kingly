@@ -69,6 +69,10 @@ struct App {
     /// GPU device index (see the startup listing).
     #[arg(long, default_value_t = 0)]
     device: usize,
+    /// Scoring kernel: "atomic" (single-pass LDS atomics) or "race" (atomic-free
+    /// two-pass). Which is faster is hardware-dependent — benchmark both.
+    #[arg(long, default_value = "atomic")]
+    scoring: String,
 }
 
 fn main() {
@@ -101,10 +105,15 @@ fn main() {
     let context = Context::from_device(&device).expect("context");
     let queue = CommandQueue::create_default(&context, 0).expect("queue");
 
+    let race_free = match app.scoring.as_str() {
+        "atomic" => "",
+        "race" => "-D RACE_FREE",
+        other => panic!("unknown --scoring '{other}' (expected 'atomic' or 'race')"),
+    };
     let options = format!(
-        "-D BITS={bits} -D NUM_OCC={num_occ} -D SPAN_HIGH={span_high} \
+        "-D BITS={bits} -D NUM_OCC={num_occ} -D SPAN_HIGH={span_high} -D WG={} {race_free} \
          -D STAG={} -D KICK_BASE={} -D KICK_GROW={} -D KICK_MAX={}",
-        app.stagnation, app.kick_flips, app.kick_grow, app.kick_max
+        app.wg, app.stagnation, app.kick_flips, app.kick_grow, app.kick_max
     );
     let program = match Program::create_and_build_from_source(&context, KERNEL_SRC, &options) {
         Ok(p) => p,

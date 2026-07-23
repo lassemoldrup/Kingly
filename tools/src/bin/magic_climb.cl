@@ -3,7 +3,7 @@
 // local (LDS) memory. Kicks pull from an elite buffer the host refreshes each
 // launch; the host manages the elite pool and validates solutions on the CPU.
 //
-// Compile-time defines (set by the host): BITS, NUM_OCC, SPAN_HIGH, STAG,
+// Compile-time defines (set by the host): BITS, NUM_OCC, SPAN_HIGH, WG, STAG,
 // KICK_BASE, KICK_GROW, KICK_MAX.
 
 #define EMPTY 0xffffffffu
@@ -39,20 +39,51 @@ inline ulong do_mutate(ulong m, uint flips, __local ulong *s) {
     return m;
 }
 
-// Cooperatively score `magic`: the number of occupancies that map consistently
-// (a slot's first writer wins; a later, different attack set is a conflict).
-// A full score (NUM_OCC) means a valid magic.
+// Cooperatively score `magic`: the number of occupancies that map consistently.
+// A full score (NUM_OCC) means a valid magic. Two scoring modes, selected at
+// build time; both are exact for *validity* (0 conflicts iff a valid magic),
+// only the conflict count for non-solutions may differ. Which is faster is
+// hardware-dependent: the atomic mode does the 64-bit multiply once but leans
+// on LDS atomic throughput; RACE_FREE avoids atomics but multiplies twice.
 inline uint score_magic(__global const ulong *occ_bb, __global const uint *occ_idx,
                         ulong magic, __local uint *table, __local uint *conflicts,
-                        uint lid, uint lsz) {
-    for (uint i = lid; i < TABLE_SIZE; i += lsz) {
+                        uint lid) {
+#ifdef RACE_FREE
+    // Atomic-free two-pass. Pass 1 plainly writes each occupancy's index to its
+    // slot (a multi-way collision resolves to an arbitrary race winner); pass 2
+    // recomputes the slot and counts an occupancy as a conflict if its slot no
+    // longer holds its own index. A valid magic gives one index per slot, so
+    // every occupancy reads its own index (no false negatives); any slot with
+    // two distinct indices has a non-winner that reads a different index (no
+    // false positives). No table clear is needed: pass 2 only reads slots pass
+    // 1 wrote. Recomputing the slot beats caching it, which would spill a
+    // dynamically-indexed private array to scratch memory.
+    for (uint i = lid; i < NUM_OCC; i += WG) {
+        table[(uint)((occ_bb[i] * magic) >> SHIFT)] = occ_idx[i];
+    }
+    if (lid == 0) *conflicts = 0u;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    uint myc = 0u;
+    for (uint i = lid; i < NUM_OCC; i += WG) {
+        uint slot = (uint)((occ_bb[i] * magic) >> SHIFT);
+        if (table[slot] != occ_idx[i]) myc++;
+    }
+    atomic_add(conflicts, myc); // one reduction atomic per thread, not per occupancy
+    barrier(CLK_LOCAL_MEM_FENCE);
+    return NUM_OCC - *conflicts;
+#else
+    // Single-pass with LDS atomics: first writer of a slot wins; a later,
+    // different attack set is a conflict. Multiplies once but clears the table
+    // and does one atomic per occupancy.
+    for (uint i = lid; i < TABLE_SIZE; i += WG) {
         table[i] = EMPTY;
     }
     if (lid == 0) *conflicts = 0u;
     barrier(CLK_LOCAL_MEM_FENCE);
 
     uint myc = 0u;
-    for (uint i = lid; i < NUM_OCC; i += lsz) {
+    for (uint i = lid; i < NUM_OCC; i += WG) {
         uint slot = (uint)((occ_bb[i] * magic) >> SHIFT);
         uint idx = occ_idx[i];
         uint prev = atomic_cmpxchg(&table[slot], EMPTY, idx);
@@ -61,6 +92,7 @@ inline uint score_magic(__global const ulong *occ_bb, __global const uint *occ_i
     atomic_add(conflicts, myc);
     barrier(CLK_LOCAL_MEM_FENCE);
     return NUM_OCC - *conflicts;
+#endif
 }
 
 __kernel void climb(__global const ulong *occ_bb,
@@ -76,7 +108,6 @@ __kernel void climb(__global const ulong *occ_bb,
                     uint iters) {
     uint g = get_group_id(0);
     uint lid = get_local_id(0);
-    uint lsz = get_local_size(0);
 
     __local uint table[TABLE_SIZE];
     __local uint conflicts;
@@ -93,7 +124,7 @@ __kernel void climb(__global const ulong *occ_bb,
     }
     barrier(CLK_LOCAL_MEM_FENCE);
 
-    uint cs = score_magic(occ_bb, occ_idx, l_cur, table, &conflicts, lid, lsz);
+    uint cs = score_magic(occ_bb, occ_idx, l_cur, table, &conflicts, lid);
     if (lid == 0) l_cur_score = cs;
     barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -114,7 +145,7 @@ __kernel void climb(__global const ulong *occ_bb,
         }
         barrier(CLK_LOCAL_MEM_FENCE);
 
-        uint sc = score_magic(occ_bb, occ_idx, l_cand, table, &conflicts, lid, lsz);
+        uint sc = score_magic(occ_bb, occ_idx, l_cand, table, &conflicts, lid);
 
         if (lid == 0) {
             if (sc >= l_cur_score) {
