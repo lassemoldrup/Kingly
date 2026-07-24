@@ -55,27 +55,34 @@ inline bool precheck(ulong magic, __constant const uint *rel_k) {
     return true;
 }
 
-// Phase 1: enumerate a chunk of the m-subset space and emit window-precheck
-// survivors for phase 2.
+// Phase 1: enumerate a chunk of the m-subset space (indices [base, base+chunk)
+// within the tile) and emit window-precheck survivors for phase 2. With
+// `complement`, the enumerated m-bit mask is the set of *cleared* span
+// positions, so the magic is the dense `span_full ^ mask` — this reaches dense
+// magics (popcount W - m) by enumerating their sparse complements.
 __kernel void exhaust(__global const ulong *binom_t,
                       uint n,
                       uint m,
                       ulong total,
+                      ulong base,
                       uint chunk,
+                      uint complement,
+                      ulong span_full,
                       __constant const uint *rel_k,
                       __global ulong *out,
                       __global uint *out_count) {
-    ulong start = (ulong)get_global_id(0) * (ulong)chunk;
+    ulong start = base + (ulong)get_global_id(0) * (ulong)chunk;
     if (start >= total) return;
 
-    ulong magic = unrank(start, n, m, binom_t);
+    ulong mask = unrank(start, n, m, binom_t);
     ulong count = min((ulong)chunk, total - start);
     for (ulong i = 0; i < count; i++) {
+        ulong magic = complement ? (span_full ^ mask) : mask;
         if (precheck(magic, rel_k)) {
             uint pos = atomic_inc(out_count);
             if (pos < OUT_CAP) out[pos] = magic;
         }
-        magic = gosper_next(magic);
+        mask = gosper_next(mask);
     }
 }
 

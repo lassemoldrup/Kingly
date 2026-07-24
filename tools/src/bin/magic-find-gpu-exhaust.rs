@@ -45,6 +45,11 @@ struct App {
     /// Highest popcount to enumerate.
     #[arg(long, default_value_t = 7)]
     max_bits: u32,
+    /// Enumerate the sparse *complement*: the popcounts are the number of
+    /// cleared span positions, so magics have popcount (span_width - m). Use
+    /// this to check dense magics (span_width - m ~ 40) via small m ~ 10.
+    #[arg(long)]
+    complement: bool,
     /// Candidates enumerated per work-item.
     #[arg(long, default_value_t = 64)]
     chunk: u32,
@@ -139,101 +144,119 @@ fn main() {
             .expect("valid count buf");
 
     // Self-check the enumeration on the smallest popcount against a CPU count.
-    if app.min_bits <= app.max_bits {
+    let span_full: cl_ulong = if span_high >= 63 { u64::MAX } else { (1u64 << (span_high + 1)) - 1 };
+    let complement_arg: cl_uint = app.complement as cl_uint;
+
+    // Self-check the enumeration on a small popcount against a CPU reference.
+    {
         let m = app.min_bits.max(1).min(n);
         let total = binom_at(n, m);
-        let cpu = cpu_precheck_count(m, span_high, bits, &rel_k);
-        eprintln!("self-check m={m}: C({n},{m})={total}, CPU precheck survivors={cpu}");
+        let cpu = cpu_precheck_count(m, span_high, bits, app.complement, span_full, &rel_k);
+        let kind = if app.complement { "complement" } else { "direct" };
+        eprintln!("self-check m={m} ({kind}): C({n},{m})={total}, CPU precheck survivors={cpu}");
     }
 
     // --- Enumerate each popcount ------------------------------------------
     let mut grand_valid = 0u64;
+    // Tile so each tile's survivors (<= tile candidates) fit the buffer.
+    let tile: u64 = app.out_cap as u64;
+
     for m in app.min_bits..=app.max_bits.min(n) {
         let total = binom_at(n, m);
         if total == 0 {
             continue;
         }
+        let magic_bits = if app.complement { n - m } else { m };
         let t0 = Instant::now();
+        let mut survivors_total = 0u64;
+        let mut valid_all = Vec::new();
 
-        // Reset survivor counter.
-        unsafe { queue.enqueue_write_buffer(&mut count_buf, CL_BLOCKING, 0, &[0u32], &[]) }.unwrap();
+        let mut base = 0u64;
+        while base < total {
+            let tile_total = tile.min(total - base);
 
-        let num_threads = total.div_ceil(app.chunk as u64) as usize;
-        let local = 64usize;
-        let global = num_threads.div_ceil(local) * local;
-        let m_arg = m as cl_uint;
-        let n_arg = n as cl_uint;
-        let chunk_arg = app.chunk;
-        let total_arg = total as cl_ulong;
-
-        // Phase 1: enumerate + window precheck -> survivor bitmasks.
-        let event = unsafe {
-            ExecuteKernel::new(&exhaust)
-                .set_arg(&binom_buf)
-                .set_arg(&n_arg)
-                .set_arg(&m_arg)
-                .set_arg(&total_arg)
-                .set_arg(&chunk_arg)
-                .set_arg(&rel_k_buf)
-                .set_arg(&out_buf)
-                .set_arg(&count_buf)
-                .set_global_work_size(global)
-                .set_local_work_size(local)
-                .enqueue_nd_range(&queue)
-                .expect("launch")
-        };
-        event.wait().expect("wait");
-
-        let mut count = [0u32];
-        unsafe { queue.enqueue_read_buffer(&mut count_buf, CL_BLOCKING, 0, &mut count, &[]) }.unwrap();
-        let survivors = count[0] as usize;
-        let overflow = survivors > app.out_cap;
-        let stored = (survivors.min(app.out_cap)) as cl_uint;
-
-        // Phase 2: GPU full-scores the survivors, emitting only valid magics.
-        let mut valid = Vec::new();
-        if stored > 0 {
-            unsafe { queue.enqueue_write_buffer(&mut valid_count_buf, CL_BLOCKING, 0, &[0u32], &[]) }
-                .unwrap();
-            let vglobal = (stored as usize) * app.wg;
+            // --- Phase 1: enumerate a tile + window precheck -> survivors. ---
+            unsafe { queue.enqueue_write_buffer(&mut count_buf, CL_BLOCKING, 0, &[0u32], &[]) }.unwrap();
+            let num_threads = tile_total.div_ceil(app.chunk as u64) as usize;
+            let local = 64usize;
+            let global = num_threads.div_ceil(local) * local;
+            let (n_arg, m_arg, total_arg, base_arg, chunk_arg) =
+                (n as cl_uint, m as cl_uint, total as cl_ulong, base as cl_ulong, app.chunk);
             let ev = unsafe {
-                ExecuteKernel::new(&validate)
-                    .set_arg(&occ_bb_buf)
-                    .set_arg(&occ_idx_buf)
+                ExecuteKernel::new(&exhaust)
+                    .set_arg(&binom_buf)
+                    .set_arg(&n_arg)
+                    .set_arg(&m_arg)
+                    .set_arg(&total_arg)
+                    .set_arg(&base_arg)
+                    .set_arg(&chunk_arg)
+                    .set_arg(&complement_arg)
+                    .set_arg(&span_full)
+                    .set_arg(&rel_k_buf)
                     .set_arg(&out_buf)
-                    .set_arg(&stored)
-                    .set_arg(&valid_buf)
-                    .set_arg(&valid_count_buf)
-                    .set_global_work_size(vglobal)
-                    .set_local_work_size(app.wg)
+                    .set_arg(&count_buf)
+                    .set_global_work_size(global)
+                    .set_local_work_size(local)
                     .enqueue_nd_range(&queue)
-                    .expect("validate launch")
+                    .expect("launch")
             };
-            ev.wait().expect("validate wait");
+            ev.wait().expect("wait");
 
-            let mut vcount = [0u32];
-            unsafe { queue.enqueue_read_buffer(&mut valid_count_buf, CL_BLOCKING, 0, &mut vcount, &[]) }
-                .unwrap();
-            let nvalid = (vcount[0] as usize).min(valid_cap);
-            if nvalid > 0 {
-                let mut vout = vec![0u64; nvalid];
-                unsafe { queue.enqueue_read_buffer(&mut valid_buf, CL_BLOCKING, 0, &mut vout, &[]) }
-                    .unwrap();
-                // Confirm the handful of GPU-valid magics exactly on the CPU.
-                valid = vout.into_iter().filter(|&m| cpu_valid(m, &occ, bits)).collect();
+            let mut count = [0u32];
+            unsafe { queue.enqueue_read_buffer(&mut count_buf, CL_BLOCKING, 0, &mut count, &[]) }.unwrap();
+            let stored = count[0]; // <= tile_total <= out_cap, so no overflow
+            survivors_total += stored as u64;
+
+            // --- Phase 2: GPU full-scores survivors -> valid magics only. ---
+            if stored > 0 {
+                unsafe { queue.enqueue_write_buffer(&mut valid_count_buf, CL_BLOCKING, 0, &[0u32], &[]) }.unwrap();
+                let vglobal = (stored as usize) * app.wg;
+                let ev = unsafe {
+                    ExecuteKernel::new(&validate)
+                        .set_arg(&occ_bb_buf)
+                        .set_arg(&occ_idx_buf)
+                        .set_arg(&out_buf)
+                        .set_arg(&stored)
+                        .set_arg(&valid_buf)
+                        .set_arg(&valid_count_buf)
+                        .set_global_work_size(vglobal)
+                        .set_local_work_size(app.wg)
+                        .enqueue_nd_range(&queue)
+                        .expect("validate launch")
+                };
+                ev.wait().expect("validate wait");
+
+                let mut vcount = [0u32];
+                unsafe { queue.enqueue_read_buffer(&mut valid_count_buf, CL_BLOCKING, 0, &mut vcount, &[]) }.unwrap();
+                let nvalid = (vcount[0] as usize).min(valid_cap);
+                if nvalid > 0 {
+                    let mut vout = vec![0u64; nvalid];
+                    unsafe { queue.enqueue_read_buffer(&mut valid_buf, CL_BLOCKING, 0, &mut vout, &[]) }.unwrap();
+                    valid_all.extend(vout.into_iter().filter(|&mg| cpu_valid(mg, &occ, bits)));
+                }
+            }
+
+            base += tile_total;
+            if total > tile {
+                let secs = t0.elapsed().as_secs_f64();
+                eprint!(
+                    "\rm={m} ({magic_bits}-bit magics): {:.1}% ({:.0} M/s), {} valid   ",
+                    100.0 * base as f64 / total as f64,
+                    base as f64 / secs / 1e6,
+                    valid_all.len(),
+                );
             }
         }
-        grand_valid += valid.len() as u64;
 
+        grand_valid += valid_all.len() as u64;
         let secs = t0.elapsed().as_secs_f64();
-        let rate = total as f64 / secs / 1e6;
         eprintln!(
-            "m={m}: {total} candidates in {secs:.2}s ({rate:.0} M/s), {survivors} survivors{}, {} valid",
-            if overflow { " (OVERFLOW — incomplete!)" } else { "" },
-            valid.len(),
+            "\rm={m} ({magic_bits}-bit magics): {total} candidates in {secs:.1}s ({:.0} M/s), {survivors_total} survivors, {} valid          ",
+            total as f64 / secs / 1e6,
+            valid_all.len(),
         );
-        for magic in valid {
-            println!("valid magic ({m} bits): {magic:#x}");
+        for magic in valid_all {
+            println!("valid magic ({magic_bits} bits): {magic:#x}");
         }
     }
 
@@ -242,21 +265,29 @@ fn main() {
 
 /// CPU reference: count magics of popcount `m` (bits in [0, span_high]) that
 /// pass the window precheck. Only used for small `m` (self-check).
-fn cpu_precheck_count(m: u32, span_high: u32, bits: u32, rel_k: &[cl_uint]) -> u64 {
+fn cpu_precheck_count(
+    m: u32,
+    span_high: u32,
+    bits: u32,
+    complement: bool,
+    span_full: u64,
+    rel_k: &[cl_uint],
+) -> u64 {
     #[allow(clippy::too_many_arguments)]
-    fn rec(start: u32, span_high: u32, left: u32, magic: u64, bits: u32, rel_k: &[cl_uint], count: &mut u64) {
+    fn rec(start: u32, span_high: u32, left: u32, mask: u64, bits: u32, comp: u64, rel_k: &[cl_uint], count: &mut u64) {
         if left == 0 {
-            if precheck_cpu(magic, bits, rel_k) {
+            if precheck_cpu(mask ^ comp, bits, rel_k) {
                 *count += 1;
             }
             return;
         }
         for b in start..=span_high {
-            rec(b + 1, span_high, left - 1, magic | (1 << b), bits, rel_k, count);
+            rec(b + 1, span_high, left - 1, mask | (1 << b), bits, comp, rel_k, count);
         }
     }
+    let comp = if complement { span_full } else { 0 };
     let mut count = 0;
-    rec(0, span_high, m, 0, bits, rel_k, &mut count);
+    rec(0, span_high, m, 0, bits, comp, rel_k, &mut count);
     count
 }
 
